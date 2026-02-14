@@ -1,7 +1,7 @@
 # Requirements: Claude Teletype
 
 **Defined:** 2026-02-14
-**Core Value:** The physical typewriter experience — characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
+**Core Value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
 
 ## v1 Requirements
 
@@ -88,25 +88,25 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLDE-01 | — | Pending |
-| CLDE-02 | — | Pending |
-| CLDE-03 | — | Pending |
-| CHAR-01 | — | Pending |
-| CHAR-02 | — | Pending |
-| CHAR-03 | — | Pending |
-| PRNT-01 | — | Pending |
-| PRNT-02 | — | Pending |
-| PRNT-03 | — | Pending |
-| SIML-01 | — | Pending |
-| SIML-02 | — | Pending |
-| AUDI-01 | — | Pending |
-| PERS-01 | — | Pending |
+| CLDE-01 | Phase 1 | Pending |
+| CLDE-02 | Phase 1 | Pending |
+| CLDE-03 | Phase 1 | Pending |
+| CHAR-01 | Phase 1 | Pending |
+| CHAR-02 | Phase 2 | Pending |
+| CHAR-03 | Phase 1 | Pending |
+| PRNT-01 | Phase 3 | Pending |
+| PRNT-02 | Phase 3 | Pending |
+| PRNT-03 | Phase 3 | Pending |
+| SIML-01 | Phase 2 | Pending |
+| SIML-02 | Phase 2 | Pending |
+| AUDI-01 | Phase 4 | Pending |
+| PERS-01 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13
+- Mapped to phases: 13
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after initial definition*
+*Last updated: 2026-02-14 after roadmap creation*
