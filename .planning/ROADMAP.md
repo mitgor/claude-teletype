@@ -29,11 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Character output has visible typewriter pacing with ~50-100ms delay between characters
   4. Punctuation pauses feel noticeably longer than regular characters, and spaces feel faster
   5. A thinking indicator is visible while waiting for Claude's first response token
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Project scaffold, pacer module, and bridge module with tests
+- [ ] 01-02-PLAN.md — CLI integration with thinking indicator + end-to-end verification
 
 ### Phase 2: Terminal Simulator
 **Goal**: User without printer hardware gets a polished split-screen terminal experience with the full typewriter feel
@@ -82,7 +82,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Streaming Pipeline | 0/TBD | Not started | - |
+| 1. Streaming Pipeline | 0/2 | Planned | - |
 | 2. Terminal Simulator | 0/TBD | Not started | - |
 | 3. Printer Hardware | 0/TBD | Not started | - |
 | 4. Audio and Persistence | 0/TBD | Not started | - |
