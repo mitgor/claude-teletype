@@ -71,10 +71,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. A bell/ding sound plays on every line break during Claude's output
   2. After a conversation ends, a timestamped plain text transcript file exists on disk containing the full exchange
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Audio bell module + transcript writer module with tests (TDD)
+- [ ] 04-02-PLAN.md — Wire audio + transcript into CLI/TUI with --no-audio and --transcript-dir flags
 
 ## Progress
 
