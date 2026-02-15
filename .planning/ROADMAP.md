@@ -13,7 +13,7 @@ Claude Teletype delivers a character-by-character typewriter experience for Clau
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Streaming Pipeline** - Claude Code bridge with character-by-character flow and typewriter pacing ✓ 2026-02-15
-- [ ] **Phase 2: Terminal Simulator** - Split-screen TUI with mirrored typewriter output
+- [x] **Phase 2: Terminal Simulator** - Split-screen TUI with mirrored typewriter output ✓ 2026-02-15
 - [ ] **Phase 3: Printer Hardware** - USB-LPT auto-discovery, manual selection, and graceful disconnect
 - [ ] **Phase 4: Audio and Persistence** - Carriage return sound effects and conversation transcripts
 
@@ -47,8 +47,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Output multiplexer + Textual split-screen TUI app with tests
-- [ ] 02-02-PLAN.md — CLI integration (TUI as default) + end-to-end verification
+- [x] 02-01-PLAN.md — Output multiplexer + Textual split-screen TUI app with tests ✓
+- [x] 02-02-PLAN.md — CLI integration (TUI as default) + end-to-end verification ✓
 
 ### Phase 3: Printer Hardware
 **Goal**: User can plug in a USB-LPT printer and have it discovered automatically, or specify a device manually, with graceful recovery if the printer disconnects
@@ -83,6 +83,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
-| 2. Terminal Simulator | 0/2 | Not started | - |
+| 2. Terminal Simulator | 2/2 | ✓ Complete | 2026-02-15 |
 | 3. Printer Hardware | 0/TBD | Not started | - |
 | 4. Audio and Persistence | 0/TBD | Not started | - |
