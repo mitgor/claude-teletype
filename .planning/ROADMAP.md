@@ -44,11 +44,11 @@ Plans:
   2. User can type input in the bottom pane and see Claude's response render in the top pane
   3. Character pacing in the simulator matches the same typewriter timing as the streaming pipeline
   4. When a printer is later connected, output appears on both terminal and printer simultaneously
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Output multiplexer + Textual split-screen TUI app with tests
+- [ ] 02-02-PLAN.md — CLI integration (TUI as default) + end-to-end verification
 
 ### Phase 3: Printer Hardware
 **Goal**: User can plug in a USB-LPT printer and have it discovered automatically, or specify a device manually, with graceful recovery if the printer disconnects
@@ -83,6 +83,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
-| 2. Terminal Simulator | 0/TBD | Not started | - |
+| 2. Terminal Simulator | 0/2 | Not started | - |
 | 3. Printer Hardware | 0/TBD | Not started | - |
 | 4. Audio and Persistence | 0/TBD | Not started | - |
