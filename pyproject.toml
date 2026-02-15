@@ -8,6 +8,8 @@ dependencies = [
     "typer>=0.23.0",
     "rich>=14.0.0",
     "textual>=7.0.0",
+    "sounddevice>=0.5.0",
+    "numpy>=1.26.0",
 ]
 
 [project.scripts]
