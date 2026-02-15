@@ -72,7 +72,11 @@ class TeletypeApp(App):
         input_widget = self.query_one("#prompt", Input)
 
         try:
+            first_token = True
             async for chunk in stream_claude_response(prompt):
+                if first_token:
+                    log.write_line("")
+                    first_token = False
                 await pace_characters(
                     chunk,
                     base_delay_ms=self.base_delay_ms,
