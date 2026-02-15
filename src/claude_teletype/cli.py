@@ -2,9 +2,13 @@
 
 Wires together the bridge (Claude Code subprocess streaming) and pacer
 (character-by-character typewriter output) with a Rich thinking indicator.
+
+Default mode: launches the Textual split-screen TUI.
+Fallback: --no-tui flag or piped stdin preserves Phase 1 stdout behavior.
 """
 
 import asyncio
+import sys
 
 import typer
 from rich.console import Console
@@ -43,13 +47,31 @@ async def _chat_async(prompt: str, base_delay_ms: float) -> None:
 
 @app.command()
 def chat(
-    prompt: str = typer.Argument(..., help="Prompt to send to Claude"),
+    prompt: str = typer.Argument(None, help="Prompt (omit for interactive TUI)"),
     delay: float = typer.Option(
         75.0,
         "--delay",
         "-d",
         help="Base delay between characters in milliseconds (50-100 recommended)",
     ),
+    no_tui: bool = typer.Option(
+        False,
+        "--no-tui",
+        help="Disable TUI, use plain stdout (Phase 1 mode)",
+    ),
 ) -> None:
     """Send a prompt to Claude and watch the response appear character by character."""
-    asyncio.run(_chat_async(prompt, delay))
+    # Auto-detect piped stdin -- fall back to non-TUI mode
+    if not sys.stdin.isatty():
+        no_tui = True
+
+    if no_tui:
+        if not prompt:
+            console.print("[bold red]Error: prompt required with --no-tui or piped input")
+            raise typer.Exit(1)
+        asyncio.run(_chat_async(prompt, delay))
+    else:
+        from claude_teletype.tui import TeletypeApp
+
+        tui_app = TeletypeApp(base_delay_ms=delay)
+        tui_app.run()
