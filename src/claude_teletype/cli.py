@@ -20,12 +20,29 @@ app = typer.Typer()
 console = Console()
 
 
-async def _chat_async(prompt: str, base_delay_ms: float) -> None:
+async def _chat_async(
+    prompt: str, base_delay_ms: float, printer=None
+) -> None:
     """Send prompt to Claude Code and display response with typewriter pacing.
 
     Shows a thinking spinner while waiting for the first token, then
     outputs characters one at a time with variable delays.
+
+    Args:
+        prompt: The user prompt to send to Claude.
+        base_delay_ms: Base delay between characters in milliseconds.
+        printer: Optional PrinterDriver instance for hardware output.
     """
+    from claude_teletype.output import make_output_fn
+
+    destinations = [sys.stdout.write]
+
+    if printer is not None and printer.is_connected:
+        from claude_teletype.printer import make_printer_output
+
+        destinations.append(make_printer_output(printer))
+
+    output_fn = make_output_fn(*destinations)
     first_token = True
 
     try:
@@ -35,7 +52,11 @@ async def _chat_async(prompt: str, base_delay_ms: float) -> None:
                     status.stop()
                     first_token = False
 
-                await pace_characters(text_chunk, base_delay_ms=base_delay_ms)
+                await pace_characters(
+                    text_chunk,
+                    base_delay_ms=base_delay_ms,
+                    output_fn=output_fn,
+                )
 
         print()
 
@@ -43,6 +64,9 @@ async def _chat_async(prompt: str, base_delay_ms: float) -> None:
             console.print("[bold red]No response received from Claude.")
     except KeyboardInterrupt:
         print("\n[Interrupted]")
+    finally:
+        if printer is not None:
+            printer.close()
 
 
 @app.command()
@@ -59,19 +83,29 @@ def chat(
         "--no-tui",
         help="Disable TUI, use plain stdout (Phase 1 mode)",
     ),
+    device: str = typer.Option(
+        None,
+        "--device",
+        help="Printer device path (e.g., /dev/usb/lp0)",
+    ),
 ) -> None:
     """Send a prompt to Claude and watch the response appear character by character."""
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():
         no_tui = True
 
+    # Discover printer (lazy import to avoid loading printer module when unused)
+    from claude_teletype.printer import discover_printer
+
+    printer = discover_printer(device_override=device)
+
     if no_tui:
         if not prompt:
             console.print("[bold red]Error: prompt required with --no-tui or piped input")
             raise typer.Exit(1)
-        asyncio.run(_chat_async(prompt, delay))
+        asyncio.run(_chat_async(prompt, delay, printer=printer))
     else:
         from claude_teletype.tui import TeletypeApp
 
-        tui_app = TeletypeApp(base_delay_ms=delay)
+        tui_app = TeletypeApp(base_delay_ms=delay, printer=printer)
         tui_app.run()

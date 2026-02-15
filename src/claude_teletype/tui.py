@@ -31,9 +31,10 @@ class TeletypeApp(App):
         Binding("ctrl+d", "quit", "Quit"),
     ]
 
-    def __init__(self, base_delay_ms: float = 75.0, **kwargs) -> None:
+    def __init__(self, base_delay_ms: float = 75.0, printer=None, **kwargs) -> None:
         super().__init__(**kwargs)
         self.base_delay_ms = base_delay_ms
+        self.printer = printer
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -44,6 +45,11 @@ class TeletypeApp(App):
     def on_mount(self) -> None:
         """Focus the input widget on app start."""
         self.query_one("#prompt", Input).focus()
+
+    def on_unmount(self) -> None:
+        """Clean up printer on app exit."""
+        if self.printer is not None:
+            self.printer.close()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user pressing Enter in the input field."""
@@ -66,9 +72,16 @@ class TeletypeApp(App):
         from claude_teletype.bridge import stream_claude_response
         from claude_teletype.output import make_output_fn
         from claude_teletype.pacer import pace_characters
+        from claude_teletype.printer import make_printer_output
 
         log = self.query_one("#output", Log)
-        output_fn = make_output_fn(log.write)
+
+        destinations = [log.write]
+        if self.printer is not None and self.printer.is_connected:
+            printer_write = make_printer_output(self.printer)
+            destinations.append(printer_write)
+
+        output_fn = make_output_fn(*destinations)
         input_widget = self.query_one("#prompt", Input)
 
         try:
