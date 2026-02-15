@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 1: Streaming Pipeline
+**Current focus:** Phase 2: Terminal Simulator
 
 ## Current Position
 
-Phase: 1 of 4 (Streaming Pipeline) -- COMPLETE
-Plan: 2 of 2 in current phase (all plans complete)
-Status: Phase Complete
-Last activity: 2026-02-15 -- Completed 01-02 (CLI Entry Point + Typewriter Verification)
+Phase: 2 of 4 (Terminal Simulator)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-15 -- Completed 02-01 (Output Multiplexer + TUI Application)
 
-Progress: [██░░░░░░░░] 20%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 2.5min
-- Total execution time: 0.08 hours
+- Total plans completed: 3
+- Average duration: 2.7min
+- Total execution time: 0.13 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-streaming-pipeline | 2 | 5min | 2.5min |
+| 02-terminal-simulator | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 3min, 2min
+- Last 5 plans: 3min, 2min, 3min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -47,6 +48,10 @@ Recent decisions affecting current work:
 - Bridge separates parse_text_delta helper for unit testing NDJSON without subprocess
 - CLI uses asyncio.run() bridge from sync Typer to async streaming pipeline
 - Rich Console.status spinner stops on first token for thinking -> streaming transition
+- make_output_fn returns destination directly for single-dest case (zero wrapper overhead)
+- Added on_mount to auto-focus Input widget (required for UX and testability)
+- Worker uses lazy imports for bridge/pacer/output to keep TUI testable without mocking
+- Import work from textual (not textual.work) for Textual 7.x compatibility
 
 ### Pending Todos
 
@@ -60,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Completed 01-02-PLAN.md (CLI Entry Point + Typewriter Verification) -- Phase 01 complete
-Resume file: .planning/phases/01-streaming-pipeline/01-02-SUMMARY.md
+Stopped at: Completed 02-01-PLAN.md (Output Multiplexer + TUI Application)
+Resume file: .planning/phases/02-terminal-simulator/02-01-SUMMARY.md
