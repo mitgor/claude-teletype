@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRNT-03 | Phase 3 | Complete |
 | SIML-01 | Phase 2 | Complete |
 | SIML-02 | Phase 2 | Complete |
-| AUDI-01 | Phase 4 | Pending |
-| PERS-01 | Phase 4 | Pending |
+| AUDI-01 | Phase 4 | Complete |
+| PERS-01 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 13 total

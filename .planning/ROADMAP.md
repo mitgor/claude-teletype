@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Streaming Pipeline** - Claude Code bridge with character-by-character flow and typewriter pacing ✓ 2026-02-15
 - [x] **Phase 2: Terminal Simulator** - Split-screen TUI with mirrored typewriter output ✓ 2026-02-15
 - [x] **Phase 3: Printer Hardware** - USB-LPT auto-discovery, manual selection, and graceful disconnect ✓ 2026-02-15
-- [ ] **Phase 4: Audio and Persistence** - Carriage return sound effects and conversation transcripts
+- [x] **Phase 4: Audio and Persistence** - Carriage return sound effects and conversation transcripts ✓ 2026-02-15
 
 ## Phase Details
 
@@ -74,8 +74,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Audio bell module + transcript writer module with tests (TDD)
-- [ ] 04-02-PLAN.md — Wire audio + transcript into CLI/TUI with --no-audio and --transcript-dir flags
+- [x] 04-01-PLAN.md — Audio bell module + transcript writer module with tests (TDD) ✓
+- [x] 04-02-PLAN.md — Wire audio + transcript into CLI/TUI with --no-audio and --transcript-dir flags ✓
 
 ## Progress
 
@@ -87,4 +87,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
 | 2. Terminal Simulator | 2/2 | ✓ Complete | 2026-02-15 |
 | 3. Printer Hardware | 2/2 | ✓ Complete | 2026-02-15 |
-| 4. Audio and Persistence | 0/TBD | Not started | - |
+| 4. Audio and Persistence | 2/2 | ✓ Complete | 2026-02-15 |
