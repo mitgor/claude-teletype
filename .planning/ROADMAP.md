@@ -12,7 +12,7 @@ Claude Teletype delivers a character-by-character typewriter experience for Clau
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Streaming Pipeline** - Claude Code bridge with character-by-character flow and typewriter pacing
+- [x] **Phase 1: Streaming Pipeline** - Claude Code bridge with character-by-character flow and typewriter pacing ✓ 2026-02-15
 - [ ] **Phase 2: Terminal Simulator** - Split-screen TUI with mirrored typewriter output
 - [ ] **Phase 3: Printer Hardware** - USB-LPT auto-discovery, manual selection, and graceful disconnect
 - [ ] **Phase 4: Audio and Persistence** - Carriage return sound effects and conversation transcripts
@@ -32,8 +32,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold, pacer module, and bridge module with tests
-- [ ] 01-02-PLAN.md — CLI integration with thinking indicator + end-to-end verification
+- [x] 01-01-PLAN.md — Project scaffold, pacer module, and bridge module with tests ✓
+- [x] 01-02-PLAN.md — CLI integration with thinking indicator + end-to-end verification ✓
 
 ### Phase 2: Terminal Simulator
 **Goal**: User without printer hardware gets a polished split-screen terminal experience with the full typewriter feel
@@ -82,7 +82,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Streaming Pipeline | 0/2 | Planned | - |
+| 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
 | 2. Terminal Simulator | 0/TBD | Not started | - |
 | 3. Printer Hardware | 0/TBD | Not started | - |
 | 4. Audio and Persistence | 0/TBD | Not started | - |
