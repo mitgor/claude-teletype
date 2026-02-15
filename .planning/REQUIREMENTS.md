@@ -94,9 +94,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAR-01 | Phase 1 | Complete |
 | CHAR-02 | Phase 2 | Complete |
 | CHAR-03 | Phase 1 | Complete |
-| PRNT-01 | Phase 3 | Pending |
-| PRNT-02 | Phase 3 | Pending |
-| PRNT-03 | Phase 3 | Pending |
+| PRNT-01 | Phase 3 | Complete |
+| PRNT-02 | Phase 3 | Complete |
+| PRNT-03 | Phase 3 | Complete |
 | SIML-01 | Phase 2 | Complete |
 | SIML-02 | Phase 2 | Complete |
 | AUDI-01 | Phase 4 | Pending |
