@@ -53,7 +53,7 @@ class TeletypeApp(App):
 
         event.input.clear()
         log = self.query_one("#output", Log)
-        log.write_line(f"\n> {prompt}\n")
+        log.write(f"\n> {prompt}\n\n")
 
         # Indicate thinking state
         self.query_one("#prompt", Input).placeholder = "Thinking..."
@@ -72,17 +72,13 @@ class TeletypeApp(App):
         input_widget = self.query_one("#prompt", Input)
 
         try:
-            first_token = True
             async for chunk in stream_claude_response(prompt):
-                if first_token:
-                    log.write_line("")
-                    first_token = False
                 await pace_characters(
                     chunk,
                     base_delay_ms=self.base_delay_ms,
                     output_fn=output_fn,
                 )
-            log.write_line("")
+            log.write("\n")
         except asyncio.CancelledError:
             log.write_line("\n[Cancelled]")
         except Exception as exc:
