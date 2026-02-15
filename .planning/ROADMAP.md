@@ -58,10 +58,11 @@ Plans:
   1. Tool auto-discovers a USB-LPT printer on startup without user configuration
   2. User can override auto-discovery by passing `--device /path/to/printer` on the command line
   3. If the printer disconnects mid-session, the tool continues running in simulator mode without crashing
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — PrinterDriver protocol, CUPS/File/Null backends, discovery, resilient wrapper (TDD)
+- [ ] 03-02-PLAN.md — CLI --device flag + TUI printer wiring + end-to-end verification
 
 ### Phase 4: Audio and Persistence
 **Goal**: Conversations have audible carriage return sounds and are saved to disk as plain text transcripts
@@ -84,5 +85,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
 | 2. Terminal Simulator | 2/2 | ✓ Complete | 2026-02-15 |
-| 3. Printer Hardware | 0/TBD | Not started | - |
+| 3. Printer Hardware | 0/2 | Not started | - |
 | 4. Audio and Persistence | 0/TBD | Not started | - |
