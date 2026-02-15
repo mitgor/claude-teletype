@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 3 in progress (Printer Hardware)
+**Current focus:** Phase 3 complete (Printer Hardware). Ready for Phase 4 (Audio Effects).
 
 ## Current Position
 
-Phase: 3 of 4 (Printer Hardware)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-15 -- Completed 03-01 (Printer Driver Protocol)
+Phase: 3 of 4 (Printer Hardware) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase Complete
+Last activity: 2026-02-15 -- Completed 03-02 (CLI --device + TUI Printer Integration)
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 3min
-- Total execution time: 0.25 hours
+- Total execution time: 0.30 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 01-streaming-pipeline | 2 | 5min | 2.5min |
 | 02-terminal-simulator | 2 | 8min | 4min |
-| 03-printer-hardware | 1 | 2min | 2min |
+| 03-printer-hardware | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: 2min, 3min, 5min, 2min
+- Last 5 plans: 3min, 5min, 2min, 3min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -59,6 +59,8 @@ Recent decisions affecting current work:
 - Catch ValueError in FilePrinterDriver.write() for closed file handles (Python raises ValueError not OSError)
 - Per-line buffering in CupsPrinterDriver: lp invoked per newline, not per character
 - make_printer_output uses closure-local disconnected flag for resilient degradation
+- Printer cleanup on TUI unmount via on_unmount lifecycle hook
+- No-TUI branch uses make_output_fn with both sys.stdout.write and make_printer_output
 
 ### Pending Todos
 
@@ -72,5 +74,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Completed 03-01-PLAN.md (Printer Driver Protocol)
-Resume file: .planning/phases/03-printer-hardware/03-01-SUMMARY.md
+Stopped at: Completed 03-02-PLAN.md (CLI --device + TUI Printer Integration) -- Phase 3 complete
+Resume file: .planning/phases/03-printer-hardware/03-02-SUMMARY.md
