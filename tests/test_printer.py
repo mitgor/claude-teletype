@@ -4,8 +4,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from claude_teletype.printer import (
     CupsPrinterDriver,
     FilePrinterDriver,
@@ -13,7 +11,6 @@ from claude_teletype.printer import (
     discover_printer,
     make_printer_output,
 )
-
 
 # ---------------------------------------------------------------------------
 # NullPrinterDriver tests
@@ -223,7 +220,7 @@ def test_make_printer_output_delegates_to_driver(tmp_path: Path):
 def test_make_printer_output_degrades_on_error():
     """On IOError, output_fn degrades to no-op; write called only once."""
     driver = MagicMock()
-    driver.write.side_effect = IOError("disconnected")
+    driver.write.side_effect = OSError("disconnected")
     output_fn = make_printer_output(driver)
     output_fn("A")  # should not raise
     output_fn("B")  # should be no-op
