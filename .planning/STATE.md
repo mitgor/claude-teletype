@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 4 in progress (Audio & Persistence). Plan 01 complete, plan 02 remaining.
+**Current focus:** PROJECT COMPLETE. All 4 phases delivered. 8 plans executed.
 
 ## Current Position
 
 Phase: 4 of 4 (Audio & Persistence)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-15 -- Completed 04-01 (Audio Bell + Transcript Writer)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-02-15 -- Completed 04-02 (Wire Audio + Transcript into CLI/TUI)
 
-Progress: [████████░░] 87%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 3min
-- Total execution time: 0.33 hours
+- Total execution time: 0.37 hours
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [████████░░] 87%
 | 01-streaming-pipeline | 2 | 5min | 2.5min |
 | 02-terminal-simulator | 2 | 8min | 4min |
 | 03-printer-hardware | 2 | 5min | 2.5min |
-| 04-audio-and-persistence | 1 | 2min | 2min |
+| 04-audio-and-persistence | 2 | 4min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: 5min, 2min, 3min, 2min
+- Last 5 plans: 2min, 3min, 2min, 2min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -65,6 +65,9 @@ Recent decisions affecting current work:
 - Lazy import sounddevice/numpy inside make_bell_output for graceful degradation without PortAudio
 - Transcript returns (write_fn, close_fn) tuple instead of single callable to enable cleanup
 - Flush-on-newline semantics for transcript real-time persistence
+- Session-scoped transcript in TUI: init in on_mount, close in on_unmount for single file per session
+- User prompt written to transcript before streaming so full exchange is captured
+- Lazy imports of audio/transcript in both TUI worker and CLI async path
 
 ### Pending Todos
 
@@ -78,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Completed 04-01-PLAN.md (Audio Bell + Transcript Writer)
-Resume file: .planning/phases/04-audio-and-persistence/04-01-SUMMARY.md
+Stopped at: PROJECT COMPLETE -- All 4 phases, 8 plans executed successfully
+Resume file: .planning/phases/04-audio-and-persistence/04-02-SUMMARY.md
