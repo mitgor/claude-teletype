@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-16)
 ## Current Position
 
 Phase: 5 of 7 (Multi-Turn Conversation Foundation)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-16 — v1.1 roadmap created with 3 phases (5-7)
+Plan: 1 of 3 in current phase
+Status: Executing phase
+Last activity: 2026-02-16 — Completed 05-01 bridge multi-turn session support
 
 Progress: [████████░░] 57% (4 of 7 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 3min
-- Total execution time: 0.37 hours
+- Total execution time: 0.42 hours
 
 **By Phase:**
 
@@ -31,12 +31,11 @@ Progress: [████████░░] 57% (4 of 7 phases complete)
 | 02-terminal-simulator | 2 | 8min | 4min |
 | 03-printer-hardware | 2 | 5min | 2.5min |
 | 04-audio-and-persistence | 2 | 4min | 2min |
+| 05-multi-turn-conversation-foundation | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [2.5min, 2.5min, 4min, 4min, 2.5min, 2.5min, 2min, 2min]
+- Last 5 plans: [4min, 2.5min, 2.5min, 2min, 2min, 3min]
 - Trend: Stable (average ~3min per plan)
-
-*Will continue tracking with Phase 5*
 
 ## Accumulated Context
 
@@ -50,6 +49,9 @@ Recent decisions affecting current work:
 - Textual Log widget for TUI output — handles character streaming with proper newline semantics
 - Use write() not write_line() for character streaming in Textual Log widget
 - Session-scoped transcript in TUI: init in on_mount, close in on_unmount for single file per session
+- StreamResult yielded as final item from async generator for session metadata propagation
+- proc_holder mutable list pattern for subprocess reference propagation from bridge to TUI
+- Real NDJSON modelUsage data for context % calculation (not turn count proxy)
 
 ### Pending Todos
 
@@ -70,5 +72,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: v1.1 roadmap created, ready to begin Phase 5 planning
+Stopped at: Completed 05-01-PLAN.md (bridge multi-turn session support)
 Resume file: None
