@@ -282,13 +282,15 @@ class TestStreamClaudeResponse:
             return_value=mock_proc,
         ) as mock_exec:
             chunks: list[str] = []
-            async for text in stream_claude_response("test prompt"):
-                chunks.append(text)
+            async for item in stream_claude_response("test prompt"):
+                if isinstance(item, str):
+                    chunks.append(item)
 
         assert chunks == ["Hello", ", world!"]
 
-        # Verify subprocess was called with correct args
-        mock_exec.assert_called_once_with(
+        # Verify subprocess was called with correct args (positional via *args)
+        call_args = mock_exec.call_args[0]
+        assert call_args == (
             "claude",
             "-p",
             "test prompt",
@@ -301,8 +303,6 @@ class TestStreamClaudeResponse:
             "WebSearch",
             "--allowedTools",
             "WebFetch",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
         )
         mock_proc.wait.assert_awaited_once()
 
@@ -336,8 +336,9 @@ class TestStreamClaudeResponse:
             return_value=mock_proc,
         ):
             chunks: list[str] = []
-            async for text in stream_claude_response("test"):
-                chunks.append(text)
+            async for item in stream_claude_response("test"):
+                if isinstance(item, str):
+                    chunks.append(item)
 
         assert chunks == ["Hello"]
 
@@ -367,8 +368,9 @@ class TestStreamClaudeResponse:
             return_value=mock_proc,
         ):
             chunks: list[str] = []
-            async for text in stream_claude_response("test"):
-                chunks.append(text)
+            async for item in stream_claude_response("test"):
+                if isinstance(item, str):
+                    chunks.append(item)
 
         assert chunks == ["Hello", ", world!"]
 
