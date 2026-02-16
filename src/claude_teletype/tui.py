@@ -6,11 +6,15 @@ for submitting prompts.
 """
 
 import asyncio
+import random
 
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Header, Input, Log, Static
+
+MAX_RETRIES: int = 3
+BASE_DELAY: float = 1.0
 
 
 class TeletypeApp(App):
@@ -208,7 +212,12 @@ class TeletypeApp(App):
 
     @work(exclusive=True)
     async def stream_response(self, prompt: str) -> None:
-        """Background worker: stream Claude response with typewriter pacing."""
+        """Background worker: stream Claude response with typewriter pacing.
+
+        Implements retry with exponential backoff for transient errors
+        (rate_limit, overloaded). Non-retryable errors show classified
+        messages. Session recovery resets session_id before retry.
+        """
         from claude_teletype.audio import make_bell_output
         from claude_teletype.bridge import (
             StreamResult,
@@ -216,6 +225,7 @@ class TeletypeApp(App):
             extract_model_name,
             stream_claude_response,
         )
+        from claude_teletype.errors import ERROR_MESSAGES, classify_error, is_retryable
         from claude_teletype.output import make_output_fn
         from claude_teletype.pacer import pace_characters
 
@@ -234,36 +244,77 @@ class TeletypeApp(App):
         output_fn = make_output_fn(*destinations)
         input_widget = self.query_one("#prompt", Input)
 
+        retries = 0
+
         try:
-            async for item in stream_claude_response(
-                prompt,
-                session_id=self._session_id,
-                proc_holder=self._proc_holder,
-            ):
-                if isinstance(item, StreamResult):
-                    if item.is_error and self._session_id is not None:
-                        # Resume failed — fall back to new session
-                        self._session_id = None
-                        log.write(
-                            "\n[Session expired or corrupted. Starting new session.]\n"
-                        )
+            while True:
+                has_text = False
+                should_retry = False
+
+                async for item in stream_claude_response(
+                    prompt,
+                    session_id=self._session_id,
+                    proc_holder=self._proc_holder,
+                ):
+                    if isinstance(item, StreamResult):
+                        if item.is_error:
+                            category = classify_error(item.error_message)
+
+                            # Session recovery: reset session_id BEFORE retry
+                            if self._session_id is not None:
+                                self._session_id = None
+
+                            # Only retry if no text streamed yet (avoid duplication)
+                            if (
+                                not has_text
+                                and is_retryable(category)
+                                and retries < MAX_RETRIES
+                            ):
+                                retries += 1
+                                delay = BASE_DELAY * (2 ** (retries - 1)) + random.uniform(0, 1)
+                                log.write(
+                                    f"\n[{ERROR_MESSAGES[category]} "
+                                    f"Retrying in {delay:.0f}s... "
+                                    f"(attempt {retries}/{MAX_RETRIES})]\n"
+                                )
+                                await asyncio.sleep(delay)
+                                should_retry = True
+                                break  # Break inner loop to retry
+                            else:
+                                # Non-retryable or max retries exhausted
+                                log.write(f"\n[{ERROR_MESSAGES[category]}]\n")
+                        else:
+                            self._session_id = item.session_id
+
+                        self._model_name = extract_model_name(item.model_usage) or "--"
+                        self._context_pct = calc_context_pct(item.model_usage)
+                        self._update_status()
                     else:
-                        self._session_id = item.session_id
-                    self._model_name = extract_model_name(item.model_usage) or "--"
-                    self._context_pct = calc_context_pct(item.model_usage)
-                    self._update_status()
-                else:
-                    await pace_characters(
-                        item,
-                        base_delay_ms=self.base_delay_ms,
-                        output_fn=output_fn,
-                    )
-            log.write("\n")
+                        has_text = True
+                        await pace_characters(
+                            item,
+                            base_delay_ms=self.base_delay_ms,
+                            output_fn=output_fn,
+                        )
+
+                if should_retry:
+                    continue  # Retry the outer while loop
+
+                # No retry needed — we're done
+                log.write("\n")
+                break
+
         except asyncio.CancelledError:
             log.write(" [interrupted]")
             raise
         except Exception as exc:
-            log.write_line(f"\n[Error: {exc}]")
+            from claude_teletype.errors import ErrorCategory
+
+            category = classify_error(str(exc))
+            if category != ErrorCategory.UNKNOWN:
+                log.write(f"\n[{ERROR_MESSAGES[category]}]\n")
+            else:
+                log.write(f"\n[Error: {exc}]\n")
         finally:
             await self._kill_process()
             input_widget.disabled = False

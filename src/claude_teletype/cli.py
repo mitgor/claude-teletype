@@ -8,6 +8,7 @@ Fallback: --no-tui flag or piped stdin preserves Phase 1 stdout behavior.
 """
 
 import asyncio
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +20,25 @@ from claude_teletype.pacer import pace_characters
 
 app = typer.Typer()
 console = Console()
+
+CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
+CLAUDE_DOCS_URL = "https://code.claude.com/docs/en/quickstart"
+
+
+def check_claude_installed() -> None:
+    """Verify Claude Code CLI is installed and on PATH.
+
+    Prints install instructions and exits with code 1 if 'claude' binary
+    is not found via shutil.which().
+    """
+    if shutil.which("claude") is None:
+        console.print(
+            "[bold red]Claude Code CLI is not installed.[/bold red]\n\n"
+            "Install it with:\n"
+            f"  curl -fsSL {CLAUDE_INSTALL_URL} | bash\n\n"
+            f"Or visit: {CLAUDE_DOCS_URL}",
+        )
+        raise typer.Exit(1)
 
 
 async def _chat_async(
@@ -143,6 +163,8 @@ def chat(
     ),
 ) -> None:
     """Send a prompt to Claude and watch the response appear character by character."""
+    check_claude_installed()
+
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():
         no_tui = True

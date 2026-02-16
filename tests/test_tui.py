@@ -1,7 +1,11 @@
 """Tests for the Textual split-screen TUI application."""
 
+from unittest.mock import patch
+
+import typer
 from textual.widgets import Footer, Header, Input, Log, Static
 
+from claude_teletype.cli import check_claude_installed
 from claude_teletype.tui import TeletypeApp
 
 
@@ -191,3 +195,20 @@ async def test_turn_count_increments():
         await pilot.press(*"hello")
         await pilot.press("enter")
         assert app._turn_count == 1
+
+
+def test_check_claude_installed_missing():
+    """check_claude_installed raises typer.Exit when claude binary not found."""
+    import pytest
+
+    with patch("claude_teletype.cli.shutil.which", return_value=None):
+        with pytest.raises(typer.Exit) as exc_info:
+            check_claude_installed()
+        assert exc_info.value.exit_code == 1
+
+
+def test_check_claude_installed_found():
+    """check_claude_installed succeeds when claude binary is on PATH."""
+    with patch("claude_teletype.cli.shutil.which", return_value="/usr/local/bin/claude"):
+        # Should not raise
+        check_claude_installed()
