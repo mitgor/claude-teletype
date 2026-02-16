@@ -114,11 +114,11 @@ Plans:
   1. Long lines in TUI wrap at word boundaries without breaking mid-word or extending off-screen
   2. Long lines on printer wrap at word boundaries instead of hard-breaking at 80 columns
   3. TUI wrap width updates automatically when terminal is resized
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md — WordWrapper streaming word-wrap module with TDD (core algorithm)
+- [ ] 07-02-PLAN.md — Wire WordWrapper into TUI and printer with resize support
 
 ## Progress
 
