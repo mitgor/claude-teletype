@@ -69,6 +69,7 @@ class TeletypeApp(App):
         self._proc_holder: list = []
         self._model_name: str = "--"
         self._context_pct: str = "--"
+        self._tui_wrapper = None
 
     @property
     def session_id(self) -> str | None:
@@ -121,6 +122,13 @@ class TeletypeApp(App):
         self.query_one("#status-bar", Static).update(
             f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name}"
         )
+
+    def on_resize(self, event) -> None:
+        """Update TUI word wrap width when terminal is resized."""
+        if self._tui_wrapper is not None:
+            log = self.query_one("#output", Log)
+            new_width = max(1, log.size.width - log.scrollbar_size_vertical)
+            self._tui_wrapper.width = new_width
 
     def action_cancel_stream(self) -> None:
         """Cancel the current streaming response."""
@@ -195,8 +203,8 @@ class TeletypeApp(App):
             self._printer_write("\n")
             self._printer_write("\n")
 
-        # Claude response label
-        log.write("Claude: ")
+        # Claude response label (transcript + printer only; TUI label flows
+        # through WordWrapper in stream_response for accurate column tracking)
         for ch in "Claude: ":
             if self._transcript_write is not None:
                 self._transcript_write(ch)
@@ -228,10 +236,17 @@ class TeletypeApp(App):
         from claude_teletype.errors import ERROR_MESSAGES, classify_error, is_retryable
         from claude_teletype.output import make_output_fn
         from claude_teletype.pacer import pace_characters
+        from claude_teletype.wordwrap import WordWrapper
 
         log = self.query_one("#output", Log)
 
-        destinations = [log.write]
+        # TUI output goes through WordWrapper for word-boundary wrapping.
+        # Printer, audio, and transcript receive original unwrapped characters
+        # via output_fn (no wrapper).
+        effective_width = max(1, log.size.width - log.scrollbar_size_vertical)
+        self._tui_wrapper = WordWrapper(effective_width, log.write)
+
+        destinations = [self._tui_wrapper.feed]
         if self._printer_write is not None:
             destinations.append(self._printer_write)
 
@@ -243,6 +258,10 @@ class TeletypeApp(App):
 
         output_fn = make_output_fn(*destinations)
         input_widget = self.query_one("#prompt", Input)
+
+        # Write "Claude: " label through wrapper for accurate column tracking
+        for ch in "Claude: ":
+            self._tui_wrapper.feed(ch)
 
         retries = 0
 
@@ -300,15 +319,22 @@ class TeletypeApp(App):
                 if should_retry:
                     continue  # Retry the outer while loop
 
-                # No retry needed — we're done
+                # Flush wrapper before final newline to emit buffered word
+                self._tui_wrapper.flush()
                 log.write("\n")
                 break
 
         except asyncio.CancelledError:
+            if self._tui_wrapper is not None:
+                self._tui_wrapper.flush()
+                self._tui_wrapper = None
             log.write(" [interrupted]")
             raise
         except Exception as exc:
             from claude_teletype.errors import ErrorCategory
+
+            if self._tui_wrapper is not None:
+                self._tui_wrapper.flush()
 
             category = classify_error(str(exc))
             if category != ErrorCategory.UNKNOWN:
@@ -316,6 +342,7 @@ class TeletypeApp(App):
             else:
                 log.write(f"\n[Error: {exc}]\n")
         finally:
+            self._tui_wrapper = None
             await self._kill_process()
             input_widget.disabled = False
             input_widget.focus()

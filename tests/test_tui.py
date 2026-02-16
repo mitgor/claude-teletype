@@ -176,7 +176,12 @@ async def test_escape_binding_exists():
 
 
 async def test_claude_label_in_log():
-    """'Claude: ' label appears in the log after submitting a prompt."""
+    """'Claude:' label appears in the log after submitting a prompt.
+
+    Note: The space after 'Claude:' is deferred by WordWrapper (pending_space)
+    and will appear when the first response word arrives. At test time, only
+    'Claude:' is visible in the log.
+    """
     app = TeletypeApp(base_delay_ms=0)
     async with app.run_test() as pilot:
         await pilot.press(*"hello")
@@ -184,7 +189,7 @@ async def test_claude_label_in_log():
         await pilot.pause()
         log = app.query_one("#output", Log)
         log_text = "\n".join(str(line) for line in log.lines)
-        assert "Claude: " in log_text
+        assert "Claude:" in log_text
 
 
 async def test_turn_count_increments():
@@ -195,6 +200,19 @@ async def test_turn_count_increments():
         await pilot.press(*"hello")
         await pilot.press("enter")
         assert app._turn_count == 1
+
+
+async def test_tui_wrapper_initialized_to_none():
+    """_tui_wrapper is None before streaming starts."""
+    app = TeletypeApp(base_delay_ms=0)
+    assert app._tui_wrapper is None
+
+
+async def test_on_resize_handler_exists():
+    """TeletypeApp has on_resize method for dynamic wrap width."""
+    app = TeletypeApp(base_delay_ms=0)
+    assert hasattr(app, "on_resize")
+    assert callable(app.on_resize)
 
 
 def test_check_claude_installed_missing():
