@@ -100,11 +100,11 @@ Plans:
   2. User sees categorized error messages (network, auth, rate limit, context exhausted) instead of raw stack traces
   3. User sees automatic retry with backoff when rate limit or overload errors occur
   4. Sessions that become corrupted automatically fall back to new session with clear notification to user
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Error classification module (ErrorCategory, classify_error) and bridge readline timeout protection (TDD)
+- [ ] 06-02-PLAN.md — CLI pre-flight check, TUI retry with exponential backoff, enhanced session recovery
 
 #### Phase 7: Word Wrap for TUI and Printer
 **Goal**: Wrap long lines at word boundaries in both TUI output and printer output
