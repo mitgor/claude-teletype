@@ -215,23 +215,28 @@ def test_discover_cups_printers_handles_lpstat_failure(mock_run: MagicMock):
 
 
 def test_make_printer_output_delegates_to_driver(tmp_path: Path):
-    """output_fn delegates writes to the driver."""
+    """output_fn delegates writes to the driver (flushed on newline)."""
     dev = tmp_path / "dev"
     dev.touch()
     driver = FilePrinterDriver(str(dev))
     output_fn = make_printer_output(driver)
     output_fn("X")
+    output_fn("\n")  # flush buffered word through WordWrapper
     driver.close()
-    assert dev.read_bytes() == b"X"
+    assert dev.read_bytes() == b"X\n"
 
 
 def test_make_printer_output_degrades_on_error():
-    """On IOError, output_fn degrades to no-op; write called only once."""
+    """On OSError, output_fn degrades to no-op; first write triggers disconnect."""
     driver = MagicMock()
     driver.write.side_effect = OSError("disconnected")
     output_fn = make_printer_output(driver)
-    output_fn("A")  # should not raise
-    output_fn("B")  # should be no-op
+    # Feed char + newline to trigger flush through WordWrapper
+    output_fn("A")
+    output_fn("\n")  # flushes "A" to driver, which raises OSError
+    output_fn("B")  # should be no-op (disconnected)
+    output_fn("\n")
+    # Only 1 call: the first char "A" triggers OSError -> disconnected
     assert driver.write.call_count == 1
 
 
@@ -246,13 +251,14 @@ def test_make_printer_output_compatible_with_make_output_fn(tmp_path: Path):
     output_fn = make_output_fn(collected.append, make_printer_output(driver))
     output_fn("H")
     output_fn("i")
+    output_fn("\n")  # flush buffered word through WordWrapper
     driver.close()
-    assert collected == ["H", "i"]
-    assert dev.read_bytes() == b"Hi"
+    assert collected == ["H", "i", "\n"]
+    assert dev.read_bytes() == b"Hi\n"
 
 
 # ---------------------------------------------------------------------------
-# A4 column wrapping tests
+# A4 word-wrap tests (WordWrapper-based)
 # ---------------------------------------------------------------------------
 
 
@@ -261,95 +267,123 @@ def test_a4_columns_constant():
     assert A4_COLUMNS == 80
 
 
-def test_wrapping_at_a4_width():
-    """Auto-inserts newline when column reaches A4_COLUMNS."""
+def test_printer_wraps_at_word_boundary():
+    """Long text wraps at word boundary, not mid-word."""
     driver = MagicMock()
     driver.is_connected = True
     output_fn = make_printer_output(driver)
 
-    for _ in range(A4_COLUMNS):
-        output_fn("X")
-    # Column is now 80; next printable char should trigger a newline first
-    output_fn("Y")
+    # Feed 70 a's, then space, then 20 b's, then newline
+    for ch in "a" * 70 + " " + "b" * 20 + "\n":
+        output_fn(ch)
 
     calls = [c.args[0] for c in driver.write.call_args_list]
-    assert calls[A4_COLUMNS] == "\n"  # auto-inserted newline
-    assert calls[A4_COLUMNS + 1] == "Y"  # then the char
+    text = "".join(calls)
+    # 70 a's + space + 20 b's = 91 > 80, so "b"*20 wraps to new line
+    # pending_space dropped at wrap point
+    assert text == "a" * 70 + "\n" + "b" * 20 + "\n"
 
 
-def test_newline_resets_column():
-    """Explicit newline resets column counter, no double newline."""
+def test_printer_no_wrap_when_fits():
+    """Short text does not get wrapped."""
     driver = MagicMock()
     driver.is_connected = True
     output_fn = make_printer_output(driver)
 
-    for _ in range(A4_COLUMNS):
-        output_fn("X")
-    # At column 80, send newline — should NOT auto-insert extra newline
+    for ch in "hello world\n":
+        output_fn(ch)
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    text = "".join(calls)
+    assert text == "hello world\n"
+
+
+def test_printer_hard_breaks_long_word():
+    """Single word longer than A4_COLUMNS is hard-broken at column 80."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    for ch in "x" * 100 + "\n":
+        output_fn(ch)
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    text = "".join(calls)
+    assert text == "x" * 80 + "\n" + "x" * 20 + "\n"
+
+
+def test_printer_newline_resets_wrapping():
+    """Explicit newline resets column; 80 chars fit on new line without wrap."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    # 80 X's (single word) then newline
+    for ch in "X" * A4_COLUMNS + "\n":
+        output_fn(ch)
+    # 80 Y's (single word) then newline -- should fit without extra wrap
+    for ch in "Y" * A4_COLUMNS + "\n":
+        output_fn(ch)
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    text = "".join(calls)
+    assert text == "X" * 80 + "\n" + "Y" * 80 + "\n"
+
+
+def test_printer_graceful_degradation_preserved():
+    """On OSError, output_fn degrades to no-op; first flush triggers disconnect."""
+    driver = MagicMock()
+    driver.write.side_effect = OSError("disconnected")
+    output_fn = make_printer_output(driver)
+    output_fn("A")
+    output_fn("\n")  # flushes "A" to driver -> OSError -> disconnected
+    output_fn("B")  # should be no-op (disconnected)
     output_fn("\n")
+    # Only 1 call: "A" triggers OSError -> disconnected
+    assert driver.write.call_count == 1
 
-    calls = [c.args[0] for c in driver.write.call_args_list]
-    assert calls == ["X"] * A4_COLUMNS + ["\n"]
 
-
-def test_wrapping_resets_after_newline():
-    """After a newline, column resets and next 80 chars fit without wrap."""
+def test_printer_formfeed_resets_column():
+    """Form feed flushes buffer, passes through, and resets column."""
     driver = MagicMock()
     driver.is_connected = True
     output_fn = make_printer_output(driver)
 
-    # Fill first line
-    for _ in range(A4_COLUMNS):
-        output_fn("A")
-    output_fn("\n")
-
-    # Fill second line exactly — no auto-wrap triggered
-    for _ in range(A4_COLUMNS):
-        output_fn("B")
-
-    calls = [c.args[0] for c in driver.write.call_args_list]
-    # 80 A's + newline + 80 B's = 161 calls, no extra newlines
-    assert len(calls) == A4_COLUMNS + 1 + A4_COLUMNS
-    assert "\n" not in calls[A4_COLUMNS + 1:]  # no wrap in second line
-
-
-def test_formfeed_resets_column():
-    """Form feed resets column counter."""
-    driver = MagicMock()
-    driver.is_connected = True
-    output_fn = make_printer_output(driver)
-
-    for _ in range(50):
-        output_fn("X")
+    # 50 X's then formfeed
+    for ch in "X" * 50:
+        output_fn(ch)
     output_fn("\f")
 
-    # After form feed, should be at column 0 — 80 more chars fit
-    for _ in range(A4_COLUMNS):
-        output_fn("Y")
+    # After formfeed, 80 chars should fit without wrap
+    for ch in "Y" * A4_COLUMNS + "\n":
+        output_fn(ch)
 
     calls = [c.args[0] for c in driver.write.call_args_list]
-    # No auto-wrap newlines should appear
-    newlines = [c for c in calls if c == "\n"]
-    assert newlines == []
+    text = "".join(calls)
+    # X's flushed on \f, then \f, then Y's + newline
+    assert text == "X" * 50 + "\f" + "Y" * 80 + "\n"
+    # Verify no auto-wrap newlines between Y's
+    y_section = text[text.index("\f") + 1 :]
+    assert y_section.count("\n") == 1  # only the explicit newline
 
 
-def test_cr_resets_column():
-    """Carriage return resets column counter."""
+def test_printer_cr_resets_column():
+    """Carriage return flushes buffer, passes through, and resets column."""
     driver = MagicMock()
     driver.is_connected = True
     output_fn = make_printer_output(driver)
 
-    for _ in range(50):
-        output_fn("X")
+    for ch in "X" * 50:
+        output_fn(ch)
     output_fn("\r")
 
-    # After CR, column is 0 — 80 chars fit without wrap
-    for _ in range(A4_COLUMNS):
-        output_fn("Y")
+    # After CR, 80 chars should fit without wrap
+    for ch in "Y" * A4_COLUMNS + "\n":
+        output_fn(ch)
 
     calls = [c.args[0] for c in driver.write.call_args_list]
-    newlines = [c for c in calls if c == "\n"]
-    assert newlines == []
+    text = "".join(calls)
+    assert text == "X" * 50 + "\r" + "Y" * 80 + "\n"
 
 
 # ---------------------------------------------------------------------------

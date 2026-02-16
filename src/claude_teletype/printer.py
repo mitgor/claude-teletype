@@ -458,30 +458,34 @@ A4_COLUMNS = 80  # A4 printable width at 10 CPI (pica)
 
 
 def make_printer_output(driver: PrinterDriver) -> Callable[[str], None]:
-    """Create an output_fn that writes to a printer with graceful degradation.
+    """Create an output_fn that writes to a printer with word-wrap and graceful degradation.
 
-    Tracks column position and auto-wraps at A4_COLUMNS (80) to stay
-    within A4 page width.  On IOError/OSError, stops writing permanently.
-    This implements PRNT-03 (graceful disconnect).
+    Uses WordWrapper at A4_COLUMNS (80) width for word-boundary wrapping.
+    On IOError/OSError, stops writing permanently (PRNT-03).
     """
-    disconnected = False
-    column = 0
+    from claude_teletype.wordwrap import WordWrapper
 
-    def printer_write(char: str) -> None:
-        nonlocal disconnected, column
+    disconnected = False
+
+    def safe_write(char: str) -> None:
+        nonlocal disconnected
         if disconnected:
             return
         try:
-            if char in ("\n", "\r", "\f"):
-                driver.write(char)
-                column = 0
-            else:
-                if column >= A4_COLUMNS:
-                    driver.write("\n")
-                    column = 0
-                driver.write(char)
-                column += 1
+            driver.write(char)
         except OSError:
             disconnected = True
+
+    wrapper = WordWrapper(A4_COLUMNS, safe_write)
+
+    def printer_write(char: str) -> None:
+        if disconnected:
+            return
+        if char in ("\r", "\f"):
+            wrapper.flush()
+            safe_write(char)
+            wrapper._column = 0
+        else:
+            wrapper.feed(char)
 
     return printer_write
