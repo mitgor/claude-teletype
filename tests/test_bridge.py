@@ -757,3 +757,118 @@ class TestStreamClaudeResponseMultiTurn:
                     text_items.append(item)
 
         assert text_items == ["Hello"]
+
+
+class TestStreamClaudeResponseTimeout:
+    """Tests for bridge readline timeout behavior."""
+
+    @pytest.mark.asyncio
+    async def test_stream_claude_response_yields_error_on_readline_timeout(
+        self,
+    ) -> None:
+        """When readline times out, an error StreamResult is yielded."""
+        mock_stdout = MagicMock()
+        mock_stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+        mock_proc.kill = MagicMock()
+        mock_proc.returncode = None
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test prompt"):
+                items.append(item)
+
+        # Should yield an error StreamResult
+        assert len(items) == 1
+        sr = items[0]
+        assert isinstance(sr, StreamResult)
+        assert sr.is_error is True
+        assert "timed out" in sr.error_message
+
+    @pytest.mark.asyncio
+    async def test_stream_claude_response_kills_subprocess_on_timeout(
+        self,
+    ) -> None:
+        """On readline timeout, proc.terminate() is called, then proc.kill() if still alive (ERR-04)."""
+        mock_stdout = MagicMock()
+        mock_stdout.readline = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        # Simulate process not exiting after terminate (wait times out)
+        mock_proc.wait = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_proc.terminate = MagicMock()
+        mock_proc.kill = MagicMock()
+        mock_proc.returncode = None
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test prompt"):
+                items.append(item)
+
+        # Verify kill-with-timeout pattern: terminate called, then kill
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_claude_response_uses_shorter_timeout_after_result(
+        self,
+    ) -> None:
+        """After result message, readline uses POST_RESULT_TIMEOUT_SECONDS (30s)."""
+        from claude_teletype.bridge import POST_RESULT_TIMEOUT_SECONDS
+
+        ndjson_lines = [
+            SYSTEM_INIT + b"\n",
+            TEXT_DELTA_HELLO + b"\n",
+            RESULT_MESSAGE_FULL + b"\n",
+        ]
+        call_count = 0
+
+        async def readline_side_effect():
+            nonlocal call_count
+            if call_count < len(ndjson_lines):
+                result = ndjson_lines[call_count]
+                call_count += 1
+                return result
+            # After result, simulate hang (timeout)
+            raise asyncio.TimeoutError
+
+        mock_stdout = MagicMock()
+        mock_stdout.readline = AsyncMock(side_effect=readline_side_effect)
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+        mock_proc.kill = MagicMock()
+        mock_proc.returncode = None
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ), patch(
+            "claude_teletype.bridge.asyncio.wait_for",
+            wraps=asyncio.wait_for,
+        ) as mock_wait_for:
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test prompt"):
+                items.append(item)
+
+        # Verify wait_for was called with shorter timeout after result
+        # The last wait_for call (which timed out) should use POST_RESULT_TIMEOUT_SECONDS
+        last_call = mock_wait_for.call_args_list[-1]
+        assert last_call.kwargs.get("timeout") == POST_RESULT_TIMEOUT_SECONDS or \
+            (len(last_call.args) > 1 and last_call.args[1] == POST_RESULT_TIMEOUT_SECONDS)
