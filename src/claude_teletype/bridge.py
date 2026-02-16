@@ -8,7 +8,7 @@ sessions via --resume flag and returns session metadata as StreamResult.
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
