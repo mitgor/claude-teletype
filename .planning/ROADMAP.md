@@ -84,12 +84,12 @@ Plans:
   3. User sees session metadata (turn count, context usage) in TUI status area
   4. User cannot submit new prompts while Claude's response is streaming
   5. TUI session resumes correctly after restart using same session_id
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01-PLAN.md — Bridge multi-turn session support: StreamResult, parse_session_id, parse_result, --resume flag (TDD)
+- [ ] 05-02-PLAN.md — TUI multi-turn loop, turn formatting, status bar, input blocking, escape cancel
+- [ ] 05-03-PLAN.md — CLI --resume flag, session lifecycle, end-to-end verification
 
 #### Phase 6: Error Handling and Recovery
 **Goal**: Provide clear, actionable error messages for common failure modes
