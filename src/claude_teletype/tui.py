@@ -10,7 +10,7 @@ import asyncio
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header, Input, Log
+from textual.widgets import Footer, Header, Input, Log, Static
 
 
 class TeletypeApp(App):
@@ -21,6 +21,13 @@ class TeletypeApp(App):
     CSS = """
     #output {
         height: 1fr;
+    }
+    #status-bar {
+        dock: bottom;
+        height: 1;
+        background: $surface;
+        color: $text-muted;
+        padding: 0 1;
     }
     #prompt {
         dock: bottom;
@@ -48,10 +55,16 @@ class TeletypeApp(App):
         self._transcript_close = None
         self._printer_write = None
         self._prev_input_value = ""
+        self._session_id: str | None = None
+        self._turn_count: int = 0
+        self._proc_holder: list = []
+        self._model_name: str = "--"
+        self._context_pct: str = "--"
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Log(id="output", auto_scroll=True)
+        yield Static("Turn 0 | Context: -- | --", id="status-bar")
         yield Input(id="prompt", placeholder="Type a prompt and press Enter...")
         yield Footer()
 
@@ -81,6 +94,12 @@ class TeletypeApp(App):
         if self._transcript_close is not None:
             self._transcript_close()
 
+    def _update_status(self) -> None:
+        """Update the status bar with current turn, context, and model info."""
+        self.query_one("#status-bar", Static).update(
+            f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name}"
+        )
+
     def on_input_changed(self, event: Input.Changed) -> None:
         """Print each character to printer as user types."""
         if self._printer_write is None:
@@ -93,7 +112,7 @@ class TeletypeApp(App):
             # Characters added at end (normal typing or paste)
             if not old_val:
                 # First char — print prompt prefix
-                for ch in "\n> ":
+                for ch in "\nYou: ":
                     self._printer_write(ch)
             added = new_val[len(old_val) :]
             for ch in added:
@@ -105,13 +124,25 @@ class TeletypeApp(App):
         if not prompt:
             return
 
+        self._turn_count += 1
         event.input.clear()
         self._prev_input_value = ""
         log = self.query_one("#output", Log)
-        log.write(f"\n> {prompt}\n\n")
+
+        # Turn separator (blank line before, except first turn)
+        if self._turn_count > 1:
+            log.write("\n")
+            if self._transcript_write is not None:
+                self._transcript_write("\n")
+            if self._printer_write is not None:
+                self._printer_write("\n")
+
+        # Echo user prompt with label
+        user_line = f"You: {prompt}\n\n"
+        log.write(user_line)
 
         # Write user prompt to transcript (printer already got chars live)
-        for ch in f"\n> {prompt}\n\n":
+        for ch in user_line:
             if self._transcript_write is not None:
                 self._transcript_write(ch)
 
@@ -119,6 +150,14 @@ class TeletypeApp(App):
         if self._printer_write is not None:
             self._printer_write("\n")
             self._printer_write("\n")
+
+        # Claude response label
+        log.write("Claude: ")
+        for ch in "Claude: ":
+            if self._transcript_write is not None:
+                self._transcript_write(ch)
+            if self._printer_write is not None:
+                self._printer_write(ch)
 
         # Indicate thinking state
         self.query_one("#prompt", Input).placeholder = "Thinking..."
