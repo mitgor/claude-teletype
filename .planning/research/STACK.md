@@ -1,227 +1,350 @@
-# Stack Research
+# Technology Stack: v1.1 Conversation Mode
 
-**Domain:** Python CLI tool — hardware printer interface, process wrapping, audio playback, terminal UI
-**Researched:** 2026-02-14
-**Confidence:** MEDIUM-HIGH (core libraries verified via PyPI; printer I/O path has LOW confidence due to macOS USB-LPT adapter limitations)
+**Project:** Claude Teletype v1.1
+**Researched:** 2026-02-16
+**Focus:** Multi-turn conversation, word wrap, error handling
+**Overall Confidence:** HIGH
 
-## Recommended Stack
+---
 
-### Core Technologies
+## Key Finding: No New Dependencies Required
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| Python | 3.12+ | Runtime | Stable, async-native, broad library support. 3.12 has significant perf improvements. 3.13 acceptable but 3.12 is safest for library compat. | HIGH |
-| uv | 0.10.x | Package/project manager | Replaces pip, venv, poetry. 10-100x faster installs, universal lockfile, manages Python versions. The 2025-2026 standard for new Python projects. Written in Rust by Astral. | HIGH |
-| Textual | 7.5.0 | Terminal UI framework | The dominant Python TUI framework. CSS-like layout, built-in widgets (split panes, text areas, scrollable panels), async-native, MIT licensed. Supports split-screen layout natively via Horizontal/Vertical containers. Made by Textualize (same team as Rich). | HIGH |
-| Rich | 14.3.2 | Terminal text formatting | Textual's foundation. Provides styled text, progress bars, panels, syntax highlighting. Textual depends on it already — no extra dependency. | HIGH |
-| asyncio | stdlib | Async coordination | Needed to simultaneously: read subprocess output, write to printer, play sounds, update TUI. All character-by-character streaming is inherently async. Standard library — zero dependency cost. | HIGH |
+The v1.1 milestone needs **zero new pip packages**. Every capability -- multi-turn conversation via Claude Code CLI `--resume`, word wrap via a custom `WordWrapper` class using stdlib only, and error handling via stdlib `asyncio`/`shutil` patterns -- is already available through the existing stack or Python's standard library. No changes to `pyproject.toml`.
 
-### Printer Communication (Tiered Approach)
+---
 
-The USB-LPT-to-dot-matrix path on macOS is the highest-risk area. No single library solves it cleanly. Use a tiered approach with fallbacks.
+## Recommended Stack Changes
 
-| Tier | Method | Library | When to Use | Confidence |
-|------|--------|---------|-------------|------------|
-| 1 (preferred) | CUPS raw queue | `subprocess` (lp/lpr) | Printer is set up as raw CUPS queue. `lp -o raw -d <printer> <file>` sends bytes directly. Works on macOS and Linux. No Python library needed — use `subprocess.run(["lp", ...])`. | MEDIUM |
-| 2 (fallback) | Direct device file | `open()` / `os.write()` | Linux: printer appears at `/dev/usb/lp0`. Write raw bytes directly. macOS: rare — most USB-LPT adapters do NOT create device files on macOS. | MEDIUM (Linux) / LOW (macOS) |
-| 3 (fallback) | PyUSB raw USB | pyusb 1.3.1 | Native USB printers (NOT USB-LPT adapters). Requires libusb backend. Can send raw bytes to USB endpoint. Useful if printer has native USB port. | MEDIUM |
-| 4 (simulation) | Virtual printer | Textual widget | No hardware available. Render characters in a dedicated TUI panel with typewriter-style pacing. This is the development/demo mode. | HIGH |
+### 1. Multi-Turn Conversation: Claude Code CLI Session Management
 
-**Critical finding:** USB-to-Parallel adapters are unreliable for programmatic control. The python-escpos project explicitly warns: "Stay away from USB-to-Parallel-Adapter since they are unreliable and produce arbitrary errors." The most reliable macOS path is configuring the printer as a CUPS raw queue, then using `lp -o raw` to send text. On Linux, direct `/dev/usb/lp0` writes are more reliable.
+**What changes:** The bridge module (`bridge.py`) currently spawns `claude -p <prompt>` as a one-shot command for each request. For multi-turn conversation, it needs to use Claude Code's built-in session continuity flags.
 
-### Claude Code CLI Integration
+| Mechanism | CLI Flag | Purpose | Why |
+|-----------|----------|---------|-----|
+| Resume by ID | `--resume <id>` / `-r <id>` | Resume specific session by UUID | Deterministic; captures session_id from first response, passes it on subsequent calls |
+| Session ID capture | Parse `system` init event | Get session_id from NDJSON stream | The `system` init event in stream-json includes `session_id` field (already present in test fixture `SYSTEM_INIT`) |
+| Continue last session | `--continue` / `-c` | Resume most recent conversation in cwd | Simpler but fragile -- picks up wrong session if another runs in same directory. Use `--resume` instead. |
+| Fork session | `--fork-session` | Branch from existing session | Useful future feature for "try a different approach" without losing original thread |
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| `asyncio.create_subprocess_exec` | stdlib | Spawn Claude CLI | Launch `claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages`. Read stdout as newline-delimited JSON. Each line is a streaming event. Filter for `text_delta` events to get character-by-character text. | HIGH |
-| pexpect | 4.9.0 | Interactive mode fallback | If we need to wrap Claude Code in interactive (non -p) mode, pexpect provides PTY-based process control. Reads character-by-character via `read(1)`. Last release 2023-11-25 but stable/mature. | MEDIUM |
+**Rationale:** Claude Code CLI already handles context window management, auto-truncation/compaction, and session storage internally (persisted to `~/.claude/sessions/`). The bridge does NOT need to implement its own message history, token counting, or truncation logic. This dramatically simplifies the implementation.
 
-**Key insight from Claude Code docs:** Use `--output-format stream-json --verbose --include-partial-messages` to get token-level streaming. Filter JSON events where `type == "stream_event"` and `event.delta.type == "text_delta"`, then extract `event.delta.text`. This gives character/token-level granularity for the typewriter effect.
+The bridge just needs to:
+1. Parse `session_id` from the first `system` init event in the NDJSON stream
+2. Store that session_id on the bridge/app instance
+3. Pass `--resume <id>` on subsequent calls within the same conversation
 
-### Audio Playback
+**Auto-truncation is handled by Claude Code:** When a conversation approaches the context window limit, Claude Code automatically compacts/summarizes earlier messages. No client-side token counting needed.
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| sounddevice | 0.5.5 | Play typewriter sound effects | Actively maintained (Jan 2026 release). Wraps PortAudio. Supports async-compatible non-blocking playback. Can play NumPy arrays directly — useful for low-latency sound effects triggered per-character. | HIGH |
-| soundfile | 0.13.1 | Load WAV/audio files | Reads WAV files into NumPy arrays that sounddevice can play. Based on libsndfile. Companion to sounddevice. | HIGH |
+**Confidence:** HIGH -- verified against official Claude Code docs at https://code.claude.com/docs/en/cli-reference and https://code.claude.com/docs/en/headless. The `--resume` + `-p` pattern is documented with working examples.
 
-### CLI Framework
+### 2. Word Wrap in TUI: Custom WordWrapper with Log Widget (NOT RichLog)
 
-| Technology | Version | Purpose | Why Recommended | Confidence |
-|------------|---------|---------|-----------------|------------|
-| Typer | 0.23.1 | CLI argument parsing | Built on Click, uses type hints for argument definitions. Auto-generates --help. Depends on Rich (already needed). Active development (Feb 2026 release). The modern Python CLI standard. | HIGH |
+**CRITICAL FINDING: RichLog is NOT suitable for character-by-character streaming.**
 
-### Supporting Libraries
+After source code analysis of both widgets:
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| numpy | latest stable | Audio buffer manipulation | Required by sounddevice for playing audio arrays. Lightweight for this use case. |
-| pycups | 2.0.4 | CUPS printer discovery | Optional. Use to enumerate available CUPS printers programmatically instead of shelling out to `lpstat`. Only needed if auto-discovery beyond `lpstat -p` is desired. |
-| pyusb | 1.3.1 | USB device discovery | Optional. Use for Tier 3 (native USB printer) path. Requires `libusb` installed via Homebrew on macOS (`brew install libusb`). |
+- **`Log.write(char)`** appends the character **inline to the current line** (`self._lines[-1] += char`). This is exactly what character-by-character typewriter streaming needs.
+- **`RichLog.write(char)`** creates a **new renderable block per call** (`Segment.split_lines(segments)` -> `self.lines.extend(strips)`). Each single character would appear as a separate block/line.
 
-### Development Tools
+Switching to `RichLog(wrap=True)` would completely break the typewriter effect. Each character would appear on its own line instead of flowing inline.
 
-| Tool | Version | Purpose | Notes |
-|------|---------|---------|-------|
-| uv | 0.10.x | Project management, venv, locking | `uv init`, `uv add`, `uv run`. Replaces pip/poetry/venv. |
-| ruff | 0.15.1 | Linter + formatter | Replaces flake8, black, isort. 10-100x faster. From Astral (same team as uv). |
-| ty | beta | Type checker | From Astral. 10-60x faster than mypy. Beta status — use mypy 1.19.1 if stability is preferred. |
-| mypy | 1.19.1 | Type checker (stable fallback) | Production-stable. Use if ty proves too buggy in beta. |
-| pytest | 9.0.2 | Testing framework | Standard Python testing. Use pytest-asyncio for async test support. |
-| pre-commit | latest | Git hooks | Run ruff + type checking on commit. |
+**Solution: Keep `Log` widget. Add a custom `WordWrapper` class** that sits between the pacer output and `Log.write()`. The wrapper tracks column position and inserts `\n` at word boundaries when approaching the terminal width.
 
-## Installation
+| What | How | Why |
+|------|-----|-----|
+| Keep `Log` widget | No widget change | `Log.write(char)` provides inline append needed for character streaming |
+| Add `WordWrapper` class | New ~40-line module or inline class | Tracks column position, buffers current word, inserts `\n` at word boundaries |
+| Get terminal width | `self.query_one("#output", Log).size.width` in TUI | Wraps to actual widget width, not hardcoded |
+| Handle resize | Re-read width on new stream | Width changes between prompts are fine; mid-stream resize is edge case |
 
-```bash
-# Initialize project with uv
-uv init claude-teletype
-cd claude-teletype
+**WordWrapper pattern (stdlib only):**
 
-# Core dependencies
-uv add textual rich typer sounddevice soundfile numpy
+```python
+class WordWrapper:
+    """Character-level word wrapper for streaming output."""
 
-# Optional: printer discovery
-uv add pycups pyusb
+    def __init__(self, width: int, inner: Callable[[str], None]):
+        self._width = width
+        self._inner = inner
+        self._column = 0
+        self._word_buf: list[str] = []
 
-# Optional: interactive CLI wrapping
-uv add pexpect
+    def write(self, char: str) -> None:
+        if char == "\n":
+            self._flush_word()
+            self._inner("\n")
+            self._column = 0
+        elif char == " ":
+            self._flush_word()
+            if self._column < self._width:
+                self._inner(" ")
+                self._column += 1
+        else:
+            self._word_buf.append(char)
+            if len(self._word_buf) >= self._width:
+                self._flush_word()
 
-# Dev dependencies
-uv add --dev ruff mypy pytest pytest-asyncio pre-commit
+    def _flush_word(self) -> None:
+        if not self._word_buf:
+            return
+        word_len = len(self._word_buf)
+        if self._column + word_len > self._width and self._column > 0:
+            self._inner("\n")
+            self._column = 0
+        for ch in self._word_buf:
+            self._inner(ch)
+        self._column += word_len
+        self._word_buf.clear()
 ```
 
-### System Dependencies (macOS)
+**Printer word wrap already exists:** `make_printer_output()` in `printer.py` already wraps at `A4_COLUMNS = 80`. No change needed for printer output.
 
-```bash
-# Required for sounddevice (PortAudio)
-brew install portaudio
+**Alternatives rejected:**
 
-# Required only if using pyusb (Tier 3 printer path)
-brew install libusb
+| Alternative | Why Rejected |
+|-------------|-------------|
+| `RichLog(wrap=True)` | `write()` creates new block per call, breaks character-by-character streaming entirely |
+| CSS `text-wrap: wrap` on `Log` | Textual's `text-wrap` CSS is documented for `Static` widgets only, not confirmed for `Log` |
+| `textwrap.fill()` before write | Cannot apply to character-by-character stream; would need line buffering that breaks typewriter pacing |
+| Custom widget subclassing `ScrollableContainer` | Over-engineered; a 40-line wrapper class achieves the same result |
 
-# Required only if using pycups
-brew install cups
-# (cups is pre-installed on macOS but headers may be needed for pycups compilation)
+**Confidence:** HIGH -- verified by reading actual Textual source code for both `Log._log.py` and `RichLog._rich_log.py` on GitHub. `Log.write()` does `self._lines[-1] += line` (inline append). `RichLog.write()` does `self.lines.extend(strips)` (new blocks).
+
+### 3. Error Handling: Python Standard Library Only
+
+**What changes:** No new dependencies. Use stdlib `asyncio` patterns and structured exception handling.
+
+| Error Category | Current Handling | v1.1 Improvement | Implementation |
+|----------------|-----------------|-------------------|----------------|
+| Claude Code not installed | Subprocess fails, no response shown | Check `shutil.which("claude")` before spawning, show install URL | stdlib `shutil` |
+| Non-zero exit code | `proc.wait()` called but return code ignored | Check `proc.returncode`, read stderr for error details | stdlib `asyncio.subprocess` |
+| Network failure mid-stream | Generic `except Exception` in TUI worker | Parse error events from NDJSON stream, surface specific messages | Parse `type: "error"` and `type: "result", "is_error": true` events |
+| Process hang/timeout | No timeout (blocks forever) | `asyncio.wait_for()` with configurable timeout on readline | stdlib `asyncio` |
+| Graceful subprocess shutdown | `proc.terminate()` then `proc.wait()` | SIGTERM -> wait(5s) -> SIGKILL escalation pattern | stdlib `asyncio`, `signal` |
+| Session resume failure | N/A (new feature) | Try `--resume`, if error, fall back to new session | Retry without `--resume` flag |
+| Empty response | "No response received" message | Distinguish "no tokens" from "error" by checking exit code and stderr | Check both stream content and process exit |
+
+**Error events in NDJSON stream:** The Claude Code CLI stream-json format includes error-type events that the bridge should parse in addition to `text_delta`:
+
+```python
+# Events to handle:
+# {"type": "error", "error": {"message": "...", "type": "..."}}
+# {"type": "result", "subtype": "error", "is_error": true, "error": "..."}
+# Non-zero proc.returncode with stderr content
 ```
 
-### System Dependencies (Linux)
+**Confidence:** HIGH -- standard Python patterns, no external dependencies.
 
-```bash
-# Required for sounddevice
-sudo apt install libportaudio2 portaudio19-dev
+---
 
-# For direct USB printer access (Tier 2)
-# Printer typically appears at /dev/usb/lp0
-# May need: sudo usermod -a -G lp $USER
+## Existing Stack (No Changes Needed)
 
-# Required only if using pyusb
-sudo apt install libusb-1.0-0-dev
-```
+Confirmed adequate for v1.1. Do NOT upgrade or replace.
+
+| Technology | Version | Purpose | v1.1 Status |
+|------------|---------|---------|-------------|
+| Python | >=3.12 | Runtime | No change |
+| typer | >=0.23.0 | CLI argument parsing | No change |
+| rich | >=14.0.0 | Console spinners, formatting | No change |
+| textual | >=7.0.0 | TUI framework (Log widget) | No change (keep Log, do NOT switch to RichLog) |
+| sounddevice | >=0.5.0 | Audio bell | No change |
+| numpy | >=1.26.0 | Bell waveform generation | No change |
+| pyusb | >=1.3.0 | USB printer (optional) | No change |
+| pytest | >=9.0.2 | Testing | No change |
+| pytest-asyncio | >=1.3.0 | Async test support | No change |
+| ruff | >=0.15.1 | Linting | No change |
+| hatchling | (build) | Build system | No change |
+
+---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| Textual 7.5.0 | curses (stdlib) | Never for this project. curses is low-level, no widgets, no CSS layout, painful to build split-screen UIs. Textual abstracts all of this. |
-| Textual 7.5.0 | prompt_toolkit | Only if you need readline-style input completion without a full TUI. We need split-screen, so Textual wins. |
-| sounddevice 0.5.5 | pygame.mixer | Only if you already depend on pygame. pygame is a 30+ MB dependency for game development — massive overkill for playing WAV clicks. |
-| sounddevice 0.5.5 | simpleaudio | Never. Abandoned since 2019 (v1.0.4). No Python 3.12+ testing. Will break. |
-| Typer 0.23.1 | Click | Only if you need maximum control over CLI parsing. Typer wraps Click with type hints — strictly better DX for new projects. |
-| Typer 0.23.1 | argparse (stdlib) | Only for zero-dependency constraints. argparse requires verbose boilerplate. Typer is cleaner. |
-| uv 0.10.x | poetry | Only if team is already invested in poetry. uv is faster, simpler, and handles more (Python version management, scripts). Poetry is being superseded. |
-| uv 0.10.x | pip + venv | Never for new projects. Manual venv management, no lockfile, no Python version management. |
-| CUPS raw queue (`lp`) | python-escpos | Only for ESC/POS thermal receipt printers with native USB. Not suitable for parallel dot-matrix printers via USB-LPT adapters. |
-| asyncio subprocess | os.popen / subprocess.Popen (sync) | Never. Synchronous subprocess blocks the event loop. We need concurrent printer output, sound playback, and TUI updates. |
-| ruff 0.15.1 | flake8 + black + isort | Never for new projects. Ruff replaces all three, runs 100x faster, single config file. |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Multi-turn context | Claude Code `--resume <id>` | Manual message history + re-send via `--input-format stream-json` | Unnecessary complexity; Claude Code manages context, truncation, session persistence internally. Our own message list means token count disagreements and duplicated state. |
+| Multi-turn context | `--resume <id>` (explicit) | `--continue` (implicit) | `--continue` picks most recent session in cwd. Fragile if another Claude session runs in same directory. `--resume` is deterministic. |
+| Word wrap (TUI) | Custom `WordWrapper` + `Log` | `RichLog(wrap=True)` | **RichLog.write() creates new block per call, incompatible with char-by-char streaming.** Log.write() does inline append. |
+| Word wrap (TUI) | Custom `WordWrapper` + `Log` | `Log` + `textwrap.fill()` | Cannot apply `textwrap` to character stream. Would need line buffering that breaks typewriter pacing. |
+| Word wrap (TUI) | Custom `WordWrapper` + `Log` | CSS `text-wrap: wrap` on `Log` | Not documented for `Log` widget. Only confirmed for `Static`. |
+| Token counting | Delegate to Claude Code CLI | `tiktoken` or `anthropic-tokenizer` | Claude Code handles limits internally. Client-side counting adds dependency and disagreement risk. |
+| Error handling | stdlib patterns | `tenacity` retry library | Overkill; retries should be user-initiated in a conversation UI, not automatic. |
+| Session storage | Claude Code's `~/.claude/sessions/` | SQLite or file-based store | Redundant; we only need a single `session_id` string in memory. |
 
-## What NOT to Use
+---
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| simpleaudio | Abandoned since 2019. No releases in 6+ years. Likely broken on Python 3.12+. | sounddevice 0.5.5 |
-| pyparallel | Dead project. No releases published. Only supports Windows/Linux. Requires Python 2.2+. Last copyright 2016. | CUPS raw queue or direct device file I/O |
-| pygame (for audio only) | 30+ MB dependency. Brings SDL, window management, sprite rendering. Massive overkill for playing WAV click sounds. | sounddevice 0.5.5 |
-| curses (for TUI) | No widget system, no layout engine, no CSS, no async integration. Building a split-screen TUI from curses is weeks of work vs. hours with Textual. | Textual 7.5.0 |
-| python-escpos | Designed for ESC/POS thermal receipt printers. Not for dot-matrix printers. Different command set. Will send wrong control codes. | Direct raw text via CUPS or device file |
-| poetry | Being superseded by uv. Slower installs, no Python version management, more complex config. | uv 0.10.x |
-| playsound | Abandoned, buggy, cross-platform issues. Multiple open CVEs. | sounddevice 0.5.5 |
+## What NOT to Add
 
-## Stack Patterns by Variant
+These libraries are explicitly NOT needed for v1.1:
 
-**If printer is a CUPS-configured raw queue (preferred on macOS):**
-- Discover printers via `subprocess.run(["lpstat", "-p"], capture_output=True)`
-- Send text via `subprocess.run(["lp", "-o", "raw", "-d", printer_name], input=text_bytes)`
-- Character-by-character: accumulate chars, flush to printer in small batches (per-line or per-word) to avoid per-char subprocess overhead
-- Alternative: hold a pipe open to `lp` via `asyncio.create_subprocess_exec`
+| Library | Why Not |
+|---------|---------|
+| `tiktoken` / `anthropic-tokenizer` | Claude Code CLI manages context limits via auto-compaction. Client-side counting would disagree with server. |
+| `tenacity` | Retries should be user-initiated in conversation UI. Automatic retries risk duplicate messages. |
+| `prompt_toolkit` | Textual's `Input` widget is sufficient. prompt_toolkit conflicts with Textual's event loop. |
+| `anthropic` Python SDK | We wrap CLI, not API. SDK would create parallel auth/error/streaming code paths. |
+| `aiofiles` | Transcript writes are sync, char-by-char, buffered on newline. Fast enough at typewriter speed. |
+| `pydantic` | No complex data models. Session state is one UUID string. |
+| `dataclasses` (for message history) | We are NOT building message history. Claude Code owns conversation state. (Note: `dataclass` may be used for `StreamResult`, but that is stdlib, not a new dependency.) |
 
-**If printer is a direct device file (Linux /dev/usb/lp0):**
-- Open device file: `fd = open("/dev/usb/lp0", "wb", buffering=0)`
-- Write characters directly: `fd.write(char.encode('ascii'))`
-- True character-by-character streaming is possible
-- Requires user to be in `lp` group
+---
 
-**If no printer hardware (simulation mode):**
-- Textual split-screen: top panel = "paper" (scrolling text area), bottom panel = input
-- Typewriter effect: append characters to text widget with `asyncio.sleep(0.05-0.1)` between each
-- Play sound effects on each character append
-- This is the default/development mode
+## Integration Points
 
-**If using Claude Code in non-interactive (-p) mode (preferred):**
-- Spawn: `asyncio.create_subprocess_exec("claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages")`
-- Read stdout line-by-line (each line is JSON)
-- Filter for text_delta events: `select(.type == "stream_event" and .event.delta.type == "text_delta")`
-- Extract `.event.delta.text` for each token
-- Continue conversations with `--resume <session_id>`
+### bridge.py: Session-Aware Streaming
 
-**If wrapping Claude Code interactively (future/advanced):**
-- Use pexpect to spawn `claude` in a PTY
-- Read output character-by-character via `child.read(1)`
-- More complex but allows full interactive mode with tool use approval
+```python
+# Current signature:
+async def stream_claude_response(prompt: str) -> AsyncIterator[str]:
 
-## Version Compatibility
+# v1.1 signature adds session_id parameter and StreamResult yield:
+async def stream_claude_response(
+    prompt: str,
+    session_id: str | None = None,
+) -> AsyncIterator[str | StreamResult]:
+    """Yield text chunks, then a final StreamResult with session metadata."""
+```
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| textual >= 7.0 | Python 3.9-3.14 | Textual 7.x requires Python >= 3.9. Pin to `>=7.5.0,<8.0` for stability. |
-| sounddevice 0.5.5 | Python 3.7+ | Requires PortAudio system library. On macOS: `brew install portaudio`. |
-| soundfile 0.13.1 | sounddevice 0.5.x | Companion library. Loads WAV files into NumPy arrays for sounddevice playback. |
-| typer 0.23.x | rich 14.x, click 8.x | Typer bundles Rich and Click as dependencies. Compatible with Textual's Rich dependency. |
-| pyusb 1.3.1 | libusb 1.x | Requires `brew install libusb` on macOS. Only needed for Tier 3 native USB path. |
-| pycups 2.0.4 | CUPS 1.7+ | macOS ships CUPS. May need Xcode command line tools for compilation. |
-| ruff 0.15.x | Python 3.9+ | No Python runtime dependency (Rust binary). Configured via pyproject.toml. |
-| uv 0.10.x | Python 3.9+ | Standalone Rust binary. Manages Python versions itself. |
+New parsers (session_id already in test fixture `SYSTEM_INIT`):
 
-## Risk Assessment
+```python
+def parse_session_id(line: bytes) -> str | None:
+    """Extract session_id from the system init NDJSON line."""
+    # msg.get("type") == "system" and msg.get("subtype") == "init"
+    # -> return msg.get("session_id")
 
-| Area | Risk Level | Mitigation |
-|------|------------|------------|
-| USB-LPT printer communication on macOS | HIGH | Tiered approach. CUPS raw queue is most reliable. Test with actual hardware early. Simulation mode as development fallback. |
-| Claude Code CLI streaming interface | LOW | Well-documented `--output-format stream-json` flag. Stable API. |
-| Audio latency for per-character sound effects | MEDIUM | sounddevice supports non-blocking playback. Pre-load WAV into memory as NumPy array. Use `sd.play()` with short buffer. May need to overlap/reuse play objects for rapid fire. |
-| Textual split-screen TUI | LOW | Native support for Horizontal/Vertical containers. Well-documented layout system. Large community. |
-| Async coordination (subprocess + printer + audio + TUI) | MEDIUM | asyncio event loop handles this naturally. Textual is async-native. Key risk: blocking I/O in printer writes — must use `asyncio.to_thread()` or executor for device file writes. |
+def parse_error(line: bytes) -> str | None:
+    """Extract error message from error/result events."""
+    # msg.get("type") == "error" -> msg["error"]["message"]
+    # msg.get("type") == "result" and msg.get("is_error") -> msg["error"]
+```
+
+CLI args with `--resume`:
+
+```python
+args = ["claude", "-p", prompt, "--output-format", "stream-json",
+        "--verbose", "--include-partial-messages",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "WebSearch", "--allowedTools", "WebFetch"]
+if session_id:
+    args.extend(["--resume", session_id])
+```
+
+### tui.py: Session State + WordWrapper
+
+```python
+# NO widget change -- keep Log:
+from textual.widgets import Footer, Header, Input, Log
+
+# Add session state:
+self._session_id: str | None = None
+
+# In stream_response, wrap log.write with WordWrapper:
+from claude_teletype.wrap import WordWrapper
+log = self.query_one("#output", Log)
+wrapped_write = WordWrapper(width=log.size.width, inner=log.write).write
+destinations = [wrapped_write]  # Instead of [log.write]
+```
+
+### cli.py: Interactive Loop for --no-tui Mode
+
+```python
+# After first response, enter REPL loop:
+while True:
+    try:
+        prompt = input("\n> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        break
+    if not prompt:
+        continue
+    await _chat_async(prompt, delay, session_id=session_id, ...)
+```
+
+### Startup validation:
+
+```python
+import shutil
+if shutil.which("claude") is None:
+    console.print("[bold red]Error: claude CLI not found.")
+    console.print("Install: https://code.claude.com/docs/en/quickstart")
+    raise typer.Exit(1)
+```
+
+---
+
+## pyproject.toml Changes
+
+**None.** The dependencies section stays exactly as-is:
+
+```toml
+# No changes needed
+dependencies = [
+    "typer>=0.23.0",
+    "rich>=14.0.0",
+    "textual>=7.0.0",
+    "sounddevice>=0.5.0",
+    "numpy>=1.26.0",
+]
+```
+
+---
+
+## Installation
+
+No changes to install commands:
+
+```bash
+uv sync              # Core (unchanged)
+uv sync --extra usb  # With USB printer support (unchanged)
+uv sync --group dev  # Dev dependencies (unchanged)
+```
+
+---
+
+## Risk Assessment for v1.1
+
+| Area | Risk | Mitigation |
+|------|------|------------|
+| WordWrapper edge cases (long words, tab chars, wide Unicode) | MEDIUM | Test with: URLs (no spaces), code blocks (backticks), emoji. Long words without spaces get force-broken at width. Tab chars treated as single column (good enough). |
+| Session resume with `--resume` on stale/expired sessions | MEDIUM | Claude Code may fail if session is too old or corrupted. Catch error, fall back to fresh session, inform user. |
+| `Log.write(char)` performance with long conversations | LOW | Log widget uses LRUCache for rendered lines. At 75ms/char, throughput is ~13 chars/sec. No performance issue. |
+| `--continue` picks wrong session | LOW | Avoided entirely by using `--resume <id>` with explicit session ID. |
+| Claude Code auto-compaction changes response quality | LOW | Claude Code's problem. Long conversations get summarized context. User can start fresh conversation. |
+| WordWrapper width vs actual Log widget width | LOW | Read `log.size.width` at start of each stream. Width changes mid-stream are rare; next prompt picks up new width. |
+
+---
 
 ## Sources
 
-- [Textual PyPI](https://pypi.org/project/textual/) — version 7.5.0 verified (HIGH)
-- [Textual docs](https://textual.textualize.io/) — layout system, widgets verified (HIGH)
-- [Rich PyPI](https://pypi.org/project/rich/) — version 14.3.2 verified (HIGH)
-- [Typer PyPI](https://pypi.org/project/typer/) — version 0.23.1 verified (HIGH)
-- [sounddevice PyPI](https://pypi.org/project/sounddevice/) — version 0.5.5, released 2026-01-23 (HIGH)
-- [soundfile PyPI](https://pypi.org/project/soundfile/) — version 0.13.1 verified (HIGH)
-- [pyusb PyPI](https://pypi.org/project/pyusb/) — version 1.3.1, released 2025-01-08 (HIGH)
-- [pycups PyPI](https://pypi.org/project/pycups/) — version 2.0.4, released 2024-04-18 (HIGH)
-- [pexpect PyPI](https://pypi.org/project/pexpect/) — version 4.9.0, released 2023-11-25 (HIGH)
-- [uv PyPI](https://pypi.org/project/uv/) — version 0.10.2, released 2026-02-10 (HIGH)
-- [ruff PyPI](https://pypi.org/project/ruff/) — version 0.15.1, released 2026-02-12 (HIGH)
-- [pytest PyPI](https://pypi.org/project/pytest/) — version 9.0.2, released 2025-12-06 (HIGH)
-- [Claude Code CLI docs](https://code.claude.com/docs/en/headless) — streaming JSON output format verified (HIGH)
-- [python-escpos USB-LPT warning](https://github.com/python-escpos/python-escpos/issues/214) — USB-to-Parallel adapter unreliability (MEDIUM)
-- [macOS CUPS raw printing setup](https://www.printnode.com/en/docs/raw-printing-for-osx) — lp -o raw approach (MEDIUM)
-- [simpleaudio PyPI](https://pypi.org/project/simpleaudio/) — last release 2019, confirmed abandoned (HIGH)
-- [pyparallel GitHub](https://github.com/pyserial/pyparallel) — no releases, Windows/Linux only, confirmed dead (HIGH)
-- [ty type checker](https://astral.sh/blog/ty) — beta status, 10-60x faster than mypy (MEDIUM)
+- Claude Code CLI Reference (official): https://code.claude.com/docs/en/cli-reference
+  - `--continue`, `--resume`, `--session-id`, `--fork-session` flags
+  - `--output-format stream-json` event format with session_id
+  - Confidence: HIGH
 
----
-*Stack research for: Python CLI — USB-LPT dot-matrix printer interface, Claude Code wrapper, terminal UI*
-*Researched: 2026-02-14*
+- Claude Code Headless/Programmatic Usage (official): https://code.claude.com/docs/en/headless
+  - Session continuation: `claude -p "query" --resume "$session_id"`
+  - Session ID capture from JSON output
+  - Confidence: HIGH
+
+- Textual Log Widget source code: https://github.com/Textualize/textual/blob/main/src/textual/widgets/_log.py
+  - `write()` does `self._lines[-1] += line` (inline append) -- confirmed suitable for char streaming
+  - Confidence: HIGH (source code verified)
+
+- Textual RichLog Widget source code: https://github.com/Textualize/textual/blob/main/src/textual/widgets/_rich_log.py
+  - `write()` does `Segment.split_lines()` -> `self.lines.extend(strips)` (new block per call) -- NOT suitable for char streaming
+  - Confidence: HIGH (source code verified)
+
+- Textual RichLog docs (official): https://textual.textualize.io/widgets/rich_log/
+  - `wrap=True` parameter exists but irrelevant since widget itself is incompatible
+  - Confidence: HIGH
+
+- Textual Log Widget docs (official): https://textual.textualize.io/widgets/log/
+  - No built-in word wrap -- manual wrapper needed
+  - Confidence: HIGH
+
+- Claude Code SDK Python Error Handling: https://deepwiki.com/anthropics/claude-code-sdk-python/4-error-handling
+  - ProcessError, CLIJSONDecodeError, CLINotFoundError hierarchy
+  - Confidence: MEDIUM (third-party documentation of official SDK)
+
+- Claude API Context Windows (official): https://platform.claude.com/docs/en/build-with-claude/context-windows
+  - 200K token standard context, auto-compaction for long sessions
+  - Confidence: HIGH

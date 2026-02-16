@@ -1,250 +1,280 @@
 # Project Research Summary
 
-**Project:** Claude Teletype
-**Domain:** Python CLI tool — hardware printer interface, AI conversation wrapper, terminal UI
-**Researched:** 2026-02-14
-**Confidence:** MEDIUM-HIGH
+**Project:** Claude Teletype v1.1 - Multi-Turn Conversation Mode
+**Domain:** CLI wrapper enhancement for conversation continuity
+**Researched:** 2026-02-16
+**Confidence:** HIGH
 
 ## Executive Summary
 
-Claude Teletype is a Python CLI tool that transforms Claude Code conversations into a physical typewriter/teletype experience, printing AI responses character-by-character to a dot-matrix printer via USB-LPT adapter while providing an authentic terminal simulation mode for users without hardware. This is a nostalgia/art project in a niche domain where USB-to-parallel printer communication on macOS is the highest-risk technical area, character-by-character streaming from Claude Code is the foundational requirement, and the typewriter pacing effect is the entire value proposition.
+Claude Teletype v1.1 adds multi-turn conversation capability to an existing Python CLI/TUI wrapper around the Claude Code CLI. The research confirms this can be achieved with **zero new dependencies** by leveraging Claude Code's built-in `--resume <session_id>` flag for session continuity. The bridge module captures the session_id from the NDJSON stream's init event, stores it, and passes it on subsequent turns. Claude Code handles all context window management, auto-compaction, and session persistence internally.
 
-The recommended approach uses Python 3.12+ with asyncio-native architecture, Textual for the split-screen terminal UI, sounddevice for low-latency typewriter sound effects, and a tiered printer communication strategy (CUPS raw queue preferred, direct device file I/O fallback, virtual simulation for development). The Claude Code CLI wrapper uses `--output-format stream-json --include-partial-messages` to achieve token-level streaming via NDJSON parsing. The architecture centers on a character flow fan-out pattern where one async generator distributes characters from Claude to multiple consumers (printer, UI, audio, transcript) concurrently with configurable typewriter pacing.
+The recommended approach is to let Claude Code own conversation state entirely (Approach A) rather than building in-process message history. This eliminates token counting complexity and session corruption risks. Three critical changes are required: (1) bridge.py must parse session_id from NDJSON and accept `--resume` parameter, (2) TUI/CLI must hold session_id across prompt submissions, and (3) error handling must parse stderr and classify failure types to enable graceful recovery from session corruption, rate limits, and network failures.
 
-Critical risks include subprocess buffering destroying the character-by-character effect, macOS USB device access requiring root or special permissions, subprocess pipe deadlock on bidirectional communication, and audio playback latency breaking the typewriter feel. Mitigation requires asyncio-based subprocess streaming from day one, tiered printer backend design with graceful permission failure, avoiding stdin/stdout bidirectional piping, and pre-loaded WAV buffers with low-latency playback. The USB-LPT printer path on macOS is inherently unreliable (USB-to-Parallel adapters are explicitly warned against in python-escpos) — the product must be designed simulation-first with hardware as a bonus feature, not hardware-dependent.
+The architecture remains clean: the existing fan-out pipeline (pacer -> output -> destinations) is unchanged. Session state lives only at the caller level (TUI app instance or CLI loop). The most significant risk is subprocess lifecycle management -- in multi-turn conversations with many subprocess spawns, zombie processes accumulate if interruptions aren't handled with explicit kill-with-timeout patterns. Word wrap can be added via a custom WordWrapper class in the output pipeline without changing the Log widget. All capabilities -- multi-turn via `--resume`, word wrap via stdlib-only character tracking, error handling via asyncio patterns -- use existing dependencies or Python standard library.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack research identified Python 3.12+ as the runtime with uv 0.10.x for package management (10-100x faster than pip/poetry, the 2025-2026 standard). Textual 7.5.0 provides the terminal UI framework with CSS-like layout and async-native architecture, sounddevice 0.5.5 handles low-latency audio playback via PortAudio, and asyncio (stdlib) coordinates all concurrent I/O.
+**No changes to pyproject.toml required.** Every v1.1 capability is available through the existing stack (typer, rich, textual, sounddevice, numpy) or Python standard library. Multi-turn conversation is handled via Claude Code CLI's `--resume <session_id>` flag -- no message history tracking, no anthropic SDK, no tiktoken. Word wrap is implemented via a custom WordWrapper class using stdlib only (no textwrap dependency, as it cannot operate on character streams). Error handling uses stdlib asyncio subprocess patterns with stderr capture and exit code classification.
 
-**Core technologies:**
-- **Python 3.12+**: Stable async runtime with significant perf improvements; 3.13 acceptable but 3.12 safer for library compatibility
-- **Textual 7.5.0**: Dominant Python TUI framework with split-screen support, async-native, MIT licensed — modern alternative to raw curses
-- **sounddevice 0.5.5**: PortAudio-based audio with async-compatible non-blocking playback; Jan 2026 release, actively maintained
-- **asyncio (stdlib)**: Required to simultaneously read subprocess output, write to printer, play sounds, and update TUI — all character streaming is inherently async
-- **CUPS raw queue**: Most reliable macOS printer path via `lp -o raw` — no Python library needed, just subprocess calls
+**Core technologies (unchanged):**
+- **Python >=3.12**: Runtime -- no change
+- **typer >=0.23.0**: CLI argument parsing -- no change
+- **rich >=14.0.0**: Console spinners and formatting -- no change
+- **textual >=7.0.0**: TUI framework (Log widget) -- Keep Log, do NOT switch to RichLog which breaks character-by-character streaming
+- **sounddevice >=0.5.0**: Audio bell -- no change
+- **numpy >=1.26.0**: Bell waveform generation -- no change
+- **Claude Code CLI**: External dependency (must be installed by user) -- verify at startup with `shutil.which("claude")`
 
-**Printer communication strategy (tiered):**
-1. **Tier 1 (preferred):** CUPS raw queue via `subprocess.run(["lp", "-o", "raw", "-d", printer])` — works on macOS and Linux with proper printer setup (MEDIUM confidence)
-2. **Tier 2 (fallback):** Direct device file I/O to `/dev/usb/lp0` (Linux) or via libusb — rare on macOS (LOW confidence on macOS)
-3. **Tier 3 (fallback):** PyUSB raw USB via pyusb 1.3.1 for native USB printers (not USB-LPT adapters) — requires libusb backend (MEDIUM confidence)
-4. **Tier 4 (simulation):** Virtual printer in Textual widget with typewriter-style character rendering — development/demo mode (HIGH confidence)
+**Key finding:** Claude Code CLI provides `--resume <session_id>` for session continuity. The first invocation emits `{"type":"system","subtype":"init","session_id":"abc-123",...}` in the NDJSON stream. Subsequent calls use `claude -p "prompt" --resume "abc-123"` to load full conversation history. Claude Code manages context limits via auto-compaction at ~95% capacity. The wrapper does NOT need to implement token counting, message truncation, or session persistence.
 
-**Critical finding:** USB-to-Parallel adapters are unreliable for programmatic control. The python-escpos project explicitly warns: "Stay away from USB-to-Parallel-Adapter since they are unreliable and produce arbitrary errors." The most reliable macOS path is configuring the printer as a CUPS raw queue, then using `lp -o raw` to send text.
+**What NOT to add:**
+- tiktoken/anthropic-tokenizer (Claude Code manages context limits)
+- tenacity (retry should be user-initiated in conversation UI)
+- prompt_toolkit (conflicts with Textual's event loop)
+- anthropic SDK (we wrap CLI, not API)
+- aiofiles (char-by-char transcript writes are fast enough)
+- pydantic (session state is a single UUID string)
 
 ### Expected Features
 
-Feature research identified 8 table-stakes features (users expect these to exist), 11 differentiators (competitive advantage), and 6 anti-features (commonly requested but problematic).
+Research synthesized from FEATURES.md identifies table stakes, competitive differentiators, and anti-features to avoid.
 
 **Must have (table stakes):**
-- **Claude Code CLI wrapping** — the entire product is "Claude on paper," this is the foundation
-- **Character-by-character output pacing** — the typewriter feel IS the core value, dumping text instantly defeats the purpose
-- **USB-LPT printer auto-discovery** — users plug in hardware and expect it to work
-- **Split-screen terminal simulator** — enables development and no-hardware usage for 90% of users
-- **Screen mirroring** — when hardware is connected, users still need to see what's printing
-- **Conversation transcript saving** — paper is ephemeral, digital backup is expected
-- **Graceful hardware disconnect handling** — USB devices get unplugged, tool must not crash
-- **Clean exit and paper positioning** — send form feed on exit to leave paper at tear-off point
+- **MTURN-01: Session-Persistent Multi-Turn** -- Capture session_id from NDJSON init event, pass `--resume` on subsequent turns. Users expect follow-up prompts to have context. Without this, v1.1 has no purpose.
+- **MTURN-02: Context Window Awareness** -- Surface usage stats from NDJSON result messages, handle `is_error: true` when context exhausted. Claude Code auto-compacts, but users need to see when compaction happens.
+- **WRAP-01: Word-Boundary Wrap in TUI** -- Custom WordWrapper class sits between pacer and Log.write(). Current Log widget scrolls long lines off-screen. Word wrap at widget width is expected for typewriter aesthetic.
+- **WRAP-02: Word-Boundary Wrap for Printer** -- Replace naive column counter in printer.py with same WordWrapper. Current code hard-breaks mid-word at 80 columns.
+- **ERR-01: Categorized Error Messages** -- Parse stderr and exit codes to classify: CLI not found, auth failure, rate limit, context exhaustion, network error, timeout. Users need actionable guidance.
+- **ERR-02: Subprocess Lifecycle Management** -- Kill-with-timeout pattern (SIGTERM -> wait 5s -> SIGKILL). Multi-turn spawns many subprocesses; interruptions leave zombies that consume 200-500MB each.
 
-**Should have (competitive advantage):**
-- **Typewriter sound effects** — transforms experience from "text appearing" to "machine thinking on paper" (HIGH user value, MEDIUM complexity)
-- **Variable character pacing by context** — punctuation gets longer pause (thinking), code gets faster (machine output) — creates organic human-like feel
-- **Carriage return sound + line pause** — reproduce mechanical carriage return ding followed by brief pause for authenticity
-- **ESC/P printer formatting** — bold for user prompts, normal for Claude responses, underline for code blocks on paper
-- **Paper-aware line wrapping** — wrap at word boundaries for 80 or 132 column printers
-- **Interactive speed control** — keyboard shortcuts to adjust character pacing mid-session
-- **Session resume** — pass through `--resume` to Claude Code for multi-session conversations
-- **Input echo to printer** — user's input prints character-by-character like real teletype
+**Should have (competitive):**
+- **MTURN-03: No-TUI REPL Mode** -- Add asyncio REPL loop to cli.py for multi-turn in `--no-tui` mode. Low complexity, high value for piped/scripted usage.
+- **MTURN-04: Turn Separators** -- Emit visual markers (horizontal rule, blank line) between turns in TUI and on paper. Trivial to implement, improves readability.
+- **ERR-04: First-Run Check** -- Check `shutil.which("claude")` at startup, show install URL if missing. Prevents most confusing error new users will hit.
+- **MTURN-05: Session Display** -- Show truncated session_id, turn count, context usage in TUI header/footer. Confirms multi-turn is working.
 
 **Defer (v2+):**
-- **Printer ribbon style in terminal** — render text with dot-matrix aesthetic (faded, uneven weight) in simulator mode
-- **Printer status detection** — check if printer is online, has paper, not in error state (complex and adapter-dependent)
-- **Sound preset profiles** — multiple sound themes like daktilo's approach
+- **MTURN-02: Advanced Context Awareness** (beyond basic usage display) -- Context percentage indicators in status bar. Nice-to-have polish.
+- **WRAP-03: Reactive Resize** -- Update wrap width on terminal resize. Edge case; most terminals stay one size.
+- **ERR-03: Retry with Backoff** -- Auto-retry transient errors (rate limit, 529 overload) with exponential backoff. Useful for heavy users but not milestone-critical.
 
-**Key anti-features (do NOT build):**
-- **Direct Anthropic API integration** — reimplementing Claude Code's auth, tool use, context windows, MCP is months of work for worse experience
-- **Network/remote printer support** — network printers buffer entire pages, cannot stream character-by-character
-- **Rich text / Markdown rendering on paper** — dot-matrix printers are plain text devices, the constraint IS the aesthetic
-- **GUI interface** — this is a terminal tool for terminal people, GUI adds massive dependency surface and fights core identity
+**Anti-features (explicitly do NOT build):**
+- **Client-side conversation history** -- Duplicates Claude Code's session storage, causes state sync issues.
+- **Client-side context truncation** -- Fights with Claude Code's auto-compaction, produces worse results.
+- **Streaming input format** -- `--input-format stream-json` is for SDK integrations, not human-paced conversation.
+- **Markdown rendering in TUI** -- Breaks character-by-character pacing, conflicts with printer's plain text output.
+- **`/compact` and `/clear` command passthrough** -- These are interactive REPL commands, not available in `-p` print mode.
+- **Custom system prompts** -- Feature creep; Claude Code already supports `--append-system-prompt` flag.
 
 ### Architecture Approach
 
-Architecture research identified a fan-out pattern where a central CharacterFlow async generator distributes characters from Claude Code to multiple consumers (printer, UI, audio, transcript) concurrently. The asyncio event loop coordinates all I/O without blocking. Printer backend uses strategy pattern with multiple implementations (USB, file, null) selected at startup based on hardware discovery.
+Multi-turn requires surgical changes to three components, leaving the fan-out pipeline completely unchanged. The bridge becomes session-aware by capturing session_id from NDJSON and yielding a final `StreamResult` dataclass with metadata. The TUI/CLI callers store session_id as instance variables and pass it to the next bridge call. Error handling surfaces classified errors through `StreamResult.is_error` after reading subprocess stderr. The existing pacer/output/audio/transcript/printer modules have no session awareness and require no changes.
 
 **Major components:**
-1. **Claude Bridge** — spawns Claude Code subprocess with `--output-format stream-json`, parses NDJSON stream, extracts text_delta tokens character-by-character
-2. **CharacterFlow** — central fan-out point that receives characters from Claude Bridge and distributes to all consumers with configurable typewriter pacing (75ms default)
-3. **Printer Driver (strategy pattern)** — USBPrinterDriver, FilePrinterDriver, or NullPrinterDriver selected at startup; writes raw bytes to hardware or no-ops for simulator mode
-4. **Terminal UI Renderer** — Textual split-screen (input pane + output pane) with scrolling, receives characters from CharacterFlow queue
-5. **Audio Engine** — pre-loads WAV buffers at startup, plays keystroke.wav per character and carriage_return.wav per newline via non-blocking fire-and-forget
-6. **Transcript Store** — simple file I/O, appends each character as it flows through the system
+1. **bridge.py (MODIFY)** -- Add `parse_session_id()`, `parse_result()`, `StreamResult` dataclass. Change `stream_claude_response(prompt, session_id=None) -> AsyncIterator[str | StreamResult]`. Inject `--resume <session_id>` flag if provided. Parse stderr on non-zero exit code. (~60 lines added, ~15 modified)
+2. **tui.py (MODIFY)** -- Add `self._session_id: str | None` instance variable. Update `stream_response` to pass session_id, capture from StreamResult, handle errors. Wrap log.write with WordWrapper for word-boundary wrapping. (~15 lines modified)
+3. **cli.py (MODIFY)** -- Add `_chat_loop_async()` for multi-turn REPL in `--no-tui` mode. Handle StreamResult. (~20-40 lines added)
+4. **wrap.py (NEW)** -- WordWrapper class for character-level word-boundary wrapping. Tracks column position, buffers current word, emits newline at word boundaries. (~40 lines)
+5. **pacer.py (UNCHANGED)** -- Character-level pacing has no session awareness.
+6. **output.py (UNCHANGED)** -- Fan-out multiplexer is session-agnostic.
+7. **audio.py, transcript.py, printer.py, teletype.py (UNCHANGED)** -- All downstream consumers of character pipeline require no changes.
 
-**Key patterns:**
-- **Async Fan-Out via Character Channel**: One asyncio.Queue receives characters from Claude Bridge and distributes to all consumers concurrently at different speeds
-- **Strategy Pattern for Printer Backend**: Common PrinterDriver protocol with USB/file/null implementations selected at runtime
-- **Textual Split-Screen with Async Input Loop**: Two windows (input + output) managed by asyncio event loop, non-blocking keyboard input
+**Key pattern:** Session state lives at the caller level (TUI app, CLI loop), NOT in the bridge. The bridge is stateless -- it receives session_id as parameter, returns it in StreamResult. This allows clean subprocess lifecycle per request.
 
-**Data flow:**
-```
-[Claude Bridge] → parse NDJSON stream → extract text_delta
-    ↓
-[CharacterFlow] → throttle at ~75ms per char
-    ├→ [Printer Driver] → USB write
-    ├→ [Terminal UI] → addstr + refresh
-    ├→ [Audio Engine] → play keystroke.wav
-    └→ [Transcript Store] → append to file
-```
+**Word wrap integration:** WordWrapper sits between pacer output and Log.write() in the TUI. It buffers characters, tracks column position, and emits wrapped lines. The Log widget receives pre-wrapped text and never needs to re-flow. For printer, reuse WordWrapper to replace the existing naive column counter.
 
 ### Critical Pitfalls
 
-Research identified 6 critical pitfalls that will break the product if not addressed in the correct phases.
+The research identified 12 pitfalls across three severity levels. The top 5 critical pitfalls require design-level prevention:
 
-1. **Claude Code subprocess buffering destroys character-by-character streaming** — OS pipe buffers (64KB on macOS) batch output in chunks of thousands of characters instead of one-by-one, destroying the typewriter effect. **Prevention:** Use `--output-format stream-json --include-partial-messages` with `asyncio.create_subprocess_exec()` and `StreamReader.readline()` to get NDJSON events as they arrive. Never use `communicate()` which waits for completion. Test early by measuring inter-character arrival times.
+1. **Using `--continue` instead of `--resume <id>`** -- `--continue` picks the most recent session in the current directory, which can silently switch to an unrelated conversation if another Claude Code process runs. **Prevention:** Capture session_id from the NDJSON `system/init` event (first line of stream-json output) and pass `--resume <session_id>` explicitly on subsequent turns. Store session_id on TUI app instance or CLI loop state.
 
-2. **macOS USB device access requires root or entitlements** — Users run tool without sudo and get "Access denied" errors, tool appears broken. **Prevention:** Design USB access layer with two backends: raw device file I/O via `/dev/usb/lp*` (preferred, no pyusb needed) and pyusb/libusb as fallback. Detect permission errors gracefully with clear error messages, not raw tracebacks.
+2. **Subprocess lifecycle leak** -- In multi-turn with many subprocess spawns, interruptions (cancellation, Ctrl-C, timeout) leave zombie `claude` processes consuming 200-500MB each. Over a 30-turn conversation with interruptions, memory usage grows unbounded. **Prevention:** Implement kill-with-timeout pattern: `proc.terminate()` -> `wait(5s)` -> `proc.kill()`. Track current subprocess on app instance and explicitly kill before spawning next one. Add cleanup in `on_unmount` and `except CancelledError`.
 
-3. **Subprocess pipe deadlock on bidirectional communication** — If Claude produces enough output to fill pipe buffer while parent is blocked writing to stdin, both processes deadlock permanently. **Prevention:** Use asyncio for all subprocess I/O with concurrent reads and writes, or avoid bidirectional piping entirely by using `-p "prompt"` one-shot mode instead of stdin/stdout interaction.
+3. **Session corruption from interrupted responses** -- If the Claude Code process is killed mid-response (incomplete tool_use without tool_result), the session `.jsonl` file becomes invalid. Next `--resume` crashes with "No messages returned." **Prevention:** Check subprocess exit code after each turn. If non-zero, do NOT retry `--resume` with the same session_id. Start a new session and inform user that context was lost. Read stderr to distinguish session corruption from other errors.
 
-4. **Audio playback latency makes typewriter effect feel wrong** — Default pygame mixer buffer (4096 samples) causes 50-100ms latency; sound for character N plays when character N+2 is already visible. **Prevention:** Use sounddevice instead of pygame (designed for low-latency event playback), pre-load all WAV files into memory at startup, use non-blocking playback, never load from disk per character.
+4. **Hybrid context management** -- Starting with `--resume` (Claude Code manages context), hitting corruption, then partially switching to in-process message history. Creates state sync issues and duplicate logic. **Prevention:** Commit to Approach A (Claude Code manages sessions via `--resume`). Do NOT build in-process message history. Let Claude Code's auto-compaction handle context limits. Only mitigation needed is robust error recovery for session corruption.
 
-5. **USB-LPT adapters are not real parallel ports** — Developer uses pyparallel library expecting hardware parallel port at I/O address 0x378, nothing works because USB-LPT adapters are USB printer class devices. **Prevention:** Treat adapters as USB devices, use raw device file I/O or pyusb bulk transfers, never reference port addresses or use pyparallel.
-
-6. **Terminal UI and subprocess output compete for same TTY** — Textual/curses takes over terminal, Claude Code subprocess tries to detect terminal capabilities or debug prints go to stdout, display garbles or framework crashes. **Prevention:** Subprocess gets NO direct terminal access (stdout=PIPE, stderr=PIPE), route ALL logging through TUI framework's display mechanism, set `TERM=dumb` in subprocess environment.
+5. **Word wrap via CSS breaks character-by-character streaming** -- Applying `text-wrap: wrap` CSS to Log widget causes jitter as each character triggers layout recalculation. RichLog with `wrap=True` creates new renderable blocks per character, completely breaking the typewriter effect. **Prevention:** Implement word wrap as a pipeline filter BEFORE Log.write(). Create WordWrapper class that buffers characters, tracks column position, and emits wrapped text. Log receives pre-wrapped content and never needs to re-flow.
 
 ## Implications for Roadmap
 
-Based on research, suggested 7-phase structure organized around the CharacterFlow architectural spine with clear dependency chain:
+Based on research, the milestone naturally divides into 3 phases with clear dependencies. Phase 1 is foundational (multi-turn), Phase 2 builds on it (error handling), Phase 3 is parallel (word wrap).
 
-### Phase 1: Core Subprocess Integration
-**Rationale:** Foundation layer — cannot test anything without Claude Code streaming working. Character-by-character streaming is the entire product. If this doesn't work, nothing downstream works.
-**Delivers:** Claude Code CLI wrapper with streaming JSON parsing, character extraction, basic terminal output
-**Addresses:** Claude Code CLI wrapping (table stakes), character-by-character pacing (table stakes)
-**Avoids:** Subprocess buffering pitfall (#1), subprocess pipe deadlock pitfall (#3), subprocess architecture choice must be asyncio from day one
-**Research flag:** Standard patterns (skip deep research) — well-documented subprocess + asyncio patterns
+### Phase 1: Multi-Turn Conversation Foundation
+**Rationale:** Session continuity is the keystone feature. Everything else depends on or benefits from multi-turn. The bridge changes are the smallest, most testable unit. All existing tests continue to pass because the new `session_id` parameter defaults to None (backward compatible).
 
-### Phase 2: CharacterFlow Fan-Out Architecture
-**Rationale:** Architectural spine — every subsequent component plugs into this. Cannot build multiple consumers (printer, UI, audio, transcript) without the fan-out pattern.
-**Delivers:** Async generator/queue that receives characters from Bridge and distributes to N consumers with configurable pacing
-**Uses:** asyncio queues, async generators
-**Implements:** CharacterFlow component from architecture
-**Avoids:** Tightly coupling printer and UI logic (architecture anti-pattern)
-**Research flag:** Standard patterns (skip deep research) — pub/sub and fan-out are well-established async patterns
+**Delivers:**
+- Session-persistent conversation via `--resume <session_id>`
+- bridge.py: parse_session_id(), parse_result(), StreamResult dataclass
+- tui.py: session_id state management
+- cli.py: StreamResult handling (defer REPL loop if needed)
+- Subprocess lifecycle management (kill-with-timeout)
+- Input widget disable during streaming (prevents race condition)
+- Log widget max_lines setting (prevents unbounded memory growth)
 
-### Phase 3: Terminal UI Simulator
-**Rationale:** Most development and demo use happens without hardware. Without this, tool is unusable for 90% of users. Can develop with CharacterFlow as data source before printer hardware exists.
-**Delivers:** Textual split-screen (input pane + output pane) with scrolling, character-by-character rendering with typewriter pacing
-**Addresses:** Split-screen terminal simulator (table stakes), screen mirroring (table stakes)
-**Uses:** Textual 7.5.0, asyncio
-**Implements:** Terminal UI Renderer and Input Loop components
-**Avoids:** Terminal UI vs subprocess TTY conflict pitfall (#6)
-**Research flag:** Needs research — Textual layout system and async integration patterns are complex, consult official docs during implementation
+**Addresses features:**
+- MTURN-01 (Session-Persistent Multi-Turn) -- MUST HAVE
+- ERR-02 (Subprocess Lifecycle) -- MUST HAVE
 
-### Phase 4: USB-LPT Hardware Interface
-**Rationale:** Hardware is the differentiator but must not block development. Comes after simulator so product works without hardware. Strategy pattern allows swapping backends.
-**Delivers:** USB-LPT auto-discovery, CUPS raw queue driver, device file driver, graceful permission handling, disconnect detection
-**Addresses:** USB-LPT printer auto-discovery (table stakes), manual device selection fallback (table stakes), graceful hardware disconnect handling (table stakes), clean exit and paper positioning (table stakes)
-**Uses:** pyusb 1.3.1, libusb, subprocess for CUPS lp command
-**Implements:** Printer Driver strategy pattern components
-**Avoids:** macOS USB permission errors pitfall (#2), USB-LPT is not parallel port pitfall (#5), printer offline handling gaps
-**Research flag:** Needs research — USB-LPT adapter communication on macOS is highest-risk area with LOW confidence; will need hardware-specific research for adapter models during implementation
+**Avoids pitfalls:**
+- Pitfall 1: Using `--continue` -- Explicit session_id capture and `--resume`
+- Pitfall 2: Subprocess zombies -- Kill-with-timeout pattern
+- Pitfall 3: Session corruption -- Exit code checking, graceful fallback
+- Pitfall 4: Hybrid context management -- Commit to Approach A
+- Pitfall 8: Race condition -- Input disable during streaming
+- Pitfall 7: Unbounded memory -- Set max_lines
 
-### Phase 5: Audio Engine
-**Rationale:** Independent consumer that can be built after CharacterFlow exists. High user value but not blocking other features. Sound effects transform experience from visual to sensory.
-**Delivers:** Pre-loaded WAV buffers, non-blocking keystroke and carriage return sound playback, sound toggle
-**Addresses:** Typewriter sound effects (differentiator), carriage return sound + line pause (differentiator)
-**Uses:** sounddevice 0.5.5, numpy for audio buffers
-**Implements:** Audio Engine component
-**Avoids:** Audio playback latency pitfall (#4), performance trap of creating new sound objects per character
-**Research flag:** Standard patterns (skip deep research) — sounddevice is well-documented, pre-loading WAV files is straightforward
+**Research needs:** Standard patterns. Skip `/gsd:research-phase`. Implementation is well-documented in STACK.md and ARCHITECTURE.md.
 
-### Phase 6: Transcript and Session Management
-**Rationale:** Simplest consumer — just file I/O. Can be built any time after CharacterFlow. Essential for conversation persistence but low complexity.
-**Delivers:** Plain text file per session with timestamped conversations, session resume passthrough to Claude Code
-**Addresses:** Conversation transcript saving (table stakes), session resume (differentiator)
-**Uses:** Python file I/O, Claude Code `--resume` flag
-**Implements:** Transcript Store component
-**Avoids:** Unbounded transcript in memory performance trap, logging Claude API keys in transcripts
-**Research flag:** Standard patterns (skip deep research) — simple file I/O and CLI flag passthrough
+### Phase 2: Error Handling and Recovery
+**Rationale:** Depends on Phase 1 (multi-turn infrastructure). Multi-turn sessions encounter more error conditions (rate limits, session corruption, network failures) and run longer, making error classification critical. Builds on StreamResult infrastructure from Phase 1.
 
-### Phase 7: Polish and Enhancement
-**Rationale:** After core pipeline works, add features that improve experience. Variable pacing, ESC/P formatting, paper wrapping are polish, not foundation.
-**Delivers:** Variable character pacing by context (punctuation/code/prose), ESC/P formatting for bold user input, paper-aware line wrapping, interactive speed control, ASCII art session headers, input echo to printer
-**Addresses:** Variable character pacing (differentiator), ESC/P formatting (differentiator), paper-aware line wrapping (differentiator), interactive speed control (differentiator), ASCII art headers (differentiator), input echo (differentiator)
-**Uses:** ESC/P escape codes, pyfiglet, character class detection
-**Avoids:** UX pitfalls (no thinking indicator, code blocks sound identical to prose, no interrupt mechanism)
-**Research flag:** Needs research for ESC/P — printer-specific escape codes require reference manual lookup during implementation
+**Delivers:**
+- stderr capture and parsing
+- Error classification: CLI not found, auth failure, rate limit, context exhaustion, network error, timeout
+- Categorized error messages in TUI and CLI
+- First-run check for Claude Code installation
+- Graceful session recovery (start new session on corruption)
+
+**Addresses features:**
+- ERR-01 (Categorized Error Messages) -- MUST HAVE
+- ERR-04 (First-Run Check) -- SHOULD HAVE
+
+**Avoids pitfalls:**
+- Pitfall 6: Not reading stderr -- Parse and classify errors
+- Pitfall 9: Session_id not captured on failure -- Handle None gracefully
+
+**Uses stack:**
+- Python stdlib: asyncio subprocess patterns, shutil.which()
+- No new dependencies
+
+**Research needs:** Standard patterns. Skip `/gsd:research-phase`. Python asyncio error handling is well-documented.
+
+### Phase 3: Word Wrap for TUI and Printer
+**Rationale:** Independent of Phases 1-2. Can be built in parallel with Phase 2. Only dependency is knowing terminal width from TUI, which is available via widget.size. Benefits from multi-turn (long responses show wrapping value) but does not require it technically.
+
+**Delivers:**
+- wrap.py: WordWrapper class for character-level word-boundary wrapping
+- TUI integration: wrap log.write with WordWrapper
+- Printer integration: replace naive column counter with WordWrapper
+- Configurable column width (terminal width for TUI, 80 for printer)
+
+**Addresses features:**
+- WRAP-01 (TUI Word Wrap) -- MUST HAVE
+- WRAP-02 (Printer Word Wrap) -- MUST HAVE
+
+**Avoids pitfalls:**
+- Pitfall 5: CSS wrap breaks streaming -- Pipeline filter, not widget property
+- Pitfall 11: Width mismatch -- Document that screen and paper wrap differently (or sync to printer width)
+
+**Implements architecture:**
+- WordWrapper as output pipeline filter between pacer and destinations
+
+**Research needs:** Standard patterns. Skip `/gsd:research-phase`. Textual Log widget behavior is confirmed from source code.
+
+### Phase 4 (Optional): Polish and Advanced Features
+**Rationale:** Deferred features that are nice-to-have but not milestone-defining. Can be added post-v1.1 launch based on user feedback.
+
+**Delivers:**
+- MTURN-03: No-TUI REPL Mode (asyncio input loop)
+- MTURN-04: Turn Separators (visual markers between turns)
+- MTURN-05: Session Display (status bar with session_id, turn count, context %)
+- WRAP-03: Reactive Resize (update wrap width on terminal resize)
+- ERR-03: Retry with Backoff (auto-retry rate limits)
+
+**Rationale for deferral:** These add polish but are not blocking for basic multi-turn functionality. MTURN-03 (REPL mode) is simple but serves a smaller audience than TUI. MTURN-04 (separators) and MTURN-05 (status) are trivial but not critical for conversation continuity. WRAP-03 (resize) handles an edge case. ERR-03 (retry) is useful but automatic retries in conversation UI are contentious.
 
 ### Phase Ordering Rationale
 
-- **Phases 1-2 are the foundation**: Claude Bridge + CharacterFlow must work before anything else. Character-by-character streaming is the entire product.
-- **Phase 3 (UI) before Phase 4 (printer)**: Simulator mode is the development environment and fallback. Build what 90% of users will use first, hardware second.
-- **Phases 3-6 are independent consumers**: Once CharacterFlow exists, UI, printer, audio, and transcript can be built in parallel or any order. Suggested order prioritizes most visible/complex first.
-- **Phase 7 is polish**: Enhancement features that improve experience but aren't blocking the core pipeline.
-- **This order avoids critical pitfalls**: Asyncio architecture locked in Phase 1, prevents later refactor. Simulator built before printer prevents hardware dependency. Permission handling designed into Phase 4 from start.
+- **Phase 1 must come first:** Multi-turn is the foundation. Session state, subprocess lifecycle, and StreamResult infrastructure are prerequisites for error handling and enable word wrap testing with long responses.
+- **Phase 2 builds on Phase 1:** Error handling uses the StreamResult structure from Phase 1 and becomes critical only in multi-turn sessions where errors accumulate.
+- **Phase 3 is parallel:** Word wrap is independent. Can be built alongside Phase 2 or after Phase 1. Does not block error handling. Only soft dependency is that long multi-turn responses demonstrate wrapping value.
+- **Phase 4 is post-launch:** Deferred features add incremental value. None block the core milestone goal (multi-turn conversation).
+
+**Dependency chain:**
+```
+Phase 1 (Multi-Turn)
+    |
+    +--enables--> Phase 2 (Error Handling) [sequential]
+    |
+    +--parallel--> Phase 3 (Word Wrap) [can build during Phase 2]
+    |
+    +--post-launch--> Phase 4 (Polish) [defer]
+```
 
 ### Research Flags
 
-**Phases likely needing deeper research during planning:**
-- **Phase 3 (Terminal UI):** Textual layout system and async integration patterns are complex; consult official Textual docs and examples for split-screen setup
-- **Phase 4 (USB-LPT Hardware):** USB-LPT adapter communication on macOS is highest-risk area with LOW confidence; will need hardware-specific research for different adapter models, CUPS raw queue setup instructions, and macOS libusb permission handling
-- **Phase 7 (ESC/P Formatting):** Printer-specific escape codes require ESC/P reference manual lookup; codes vary between Epson, Star, and other manufacturers
+**Skip research for all phases:** All three phases use standard patterns with high-confidence documentation.
 
-**Phases with standard patterns (skip research-phase):**
-- **Phase 1 (Subprocess):** asyncio subprocess streaming is well-documented in Python docs, NDJSON parsing is straightforward
-- **Phase 2 (CharacterFlow):** pub/sub and fan-out are established async patterns with abundant examples
-- **Phase 5 (Audio):** sounddevice is well-documented, pre-loading WAV files is a standard audio programming pattern
-- **Phase 6 (Transcript):** simple file I/O and CLI flag passthrough, no deep research needed
+- **Phase 1:** Claude Code CLI reference (official), Python asyncio subprocess docs (official), Textual widget docs (official). Implementation path is clear from STACK.md and ARCHITECTURE.md.
+- **Phase 2:** Python stdlib error handling patterns (official), subprocess stderr capture (standard). No complex integrations.
+- **Phase 3:** Textual Log widget source code (verified), word-wrap algorithms (well-understood, proven in existing printer.py). No niche domain knowledge required.
+
+**No `/gsd:research-phase` needed.** Proceed directly to requirements definition for each phase.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM-HIGH | Core libraries verified via PyPI (HIGH confidence); printer I/O path has LOW confidence due to macOS USB-LPT adapter limitations and lack of hardware testing |
-| Features | HIGH | Table stakes and differentiators are well-scoped based on competitor analysis and Drew DeVault's line printer implementation; anti-features prevent scope creep |
-| Architecture | HIGH | Well-understood domains — Python subprocess, asyncio, TUI frameworks, USB I/O, and audio all have mature ecosystem patterns; fan-out pattern is proven |
-| Pitfalls | HIGH | Critical pitfalls verified with official docs (subprocess deadlock, buffering) and corroborating sources (USB-LPT adapter warnings from python-escpos, libusb macOS issues) |
+| Stack | HIGH | All recommendations verified against official Claude Code CLI docs, Textual docs, Python stdlib docs. Zero new dependencies confirmed by source code analysis. |
+| Features | HIGH | Table stakes identified from Claude Code session management docs and Textual streaming patterns. Anti-features validated by architecture constraints (no PTY for `/compact`, no markdown buffering for streaming). |
+| Architecture | HIGH | Surgical changes to 3 modules verified by reading existing codebase. Fan-out pipeline decoupling confirmed. StreamResult pattern matches asyncio best practices. WordWrapper algorithm proven in existing printer.py. |
+| Pitfalls | HIGH | Critical pitfalls sourced from official Claude Code issue tracker (session corruption #18880, OOM #13126) and subprocess lifecycle docs. Word-wrap jitter confirmed by reading Textual Log/RichLog source code on GitHub. |
 
-**Overall confidence:** MEDIUM-HIGH
+**Overall confidence:** HIGH
 
-Confidence is high for software architecture (subprocess, asyncio, TUI, audio) and medium for hardware integration (USB-LPT adapter reliability on macOS is inherently uncertain without testing multiple adapter models). The product must be designed simulation-first with hardware as a bonus feature.
+All recommendations are based on official documentation, verified source code, or existing codebase analysis. No speculative patterns or unverified community practices.
 
 ### Gaps to Address
 
-**USB-LPT adapter hardware compatibility** — Research is based on library documentation and community warnings, not testing with actual hardware. During Phase 4 implementation, will need to test with multiple USB-to-parallel adapter models to verify CUPS raw queue approach works reliably. If not, may need to pivot to simulation-only product or support only specific verified adapter models.
+**No significant gaps.** Research coverage is comprehensive across stack, features, architecture, and pitfalls.
 
-**NDJSON message format from Claude Code** — Research is based on community-documented spec and CLI reference, not live testing of `--output-format stream-json`. During Phase 1 implementation, actual message structure may differ from spec. Will need to inspect live output and adjust parsing logic.
+**Minor validation items during implementation:**
+- **Subprocess stderr format:** Exact error message formats from Claude Code are not formally documented. Will need empirical testing to refine error classification regex patterns. (MEDIUM priority, Phase 2)
+- **WordWrapper edge cases:** Long words (URLs), tab characters, wide Unicode. Test with real Claude responses during Phase 3. (LOW priority, Phase 3)
+- **Terminal resize behavior:** Whether Textual's `on_resize` event fires during active streaming. Easy to validate in Phase 3. (LOW priority, Phase 4 if deferred)
 
-**Textual layout performance with high-frequency updates** — Research assumes Textual can handle character-by-character updates at 75ms intervals without lag. During Phase 3 implementation, may need to batch multiple characters per UI refresh if per-character rendering is too slow.
-
-**macOS permission model for USB devices** — Research identified that libusb requires root or entitlements but actual behavior varies by macOS version and adapter. During Phase 4 implementation, will need to test on multiple macOS versions (12/13/14) to determine if CUPS raw queue approach bypasses permission issues or if sudo is mandatory.
-
-**ESC/P code compatibility across printers** — Research assumes ESC/P codes for bold/underline are standard across dot-matrix printers. During Phase 7 implementation, may discover that different printer models support different ESC/P command sets. Will need to test with target printers or make formatting optional with auto-detection fallback.
+**Handling:** All gaps are implementation-level validation, not design blockers. Proceed with recommended architecture; adjust error message parsing or wrap edge cases based on testing.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Textual PyPI and docs — version 7.5.0 verified, layout system and widgets documented
-- sounddevice PyPI — version 0.5.5 released Jan 2026, PortAudio-based, actively maintained
-- Python asyncio subprocess docs — official docs for async subprocess streaming patterns
-- Claude Code CLI Reference — official docs for `--output-format stream-json`, `--include-partial-messages`
-- pyusb PyPI and docs — version 1.3.1 released Jan 2025, USB device discovery and bulk transfers
-- Python subprocess docs — deadlock warnings, buffering behavior officially documented
+- [Claude Code CLI Reference](https://code.claude.com/docs/en/cli-reference) -- `--resume`, `--continue`, `--session-id`, `-p` flag combinations, `--output-format stream-json`
+- [Run Claude Code Programmatically (Headless)](https://code.claude.com/docs/en/headless) -- session_id capture pattern, multi-turn chaining
+- [Agent SDK Streaming Output](https://platform.claude.com/docs/en/agent-sdk/streaming-output) -- NDJSON event types, session_id field, result message format
+- [Agent SDK Session Management](https://platform.claude.com/docs/en/agent-sdk/sessions) -- session ID lifecycle, forking, resumption
+- [Claude API Context Windows](https://platform.claude.com/docs/en/build-with-claude/context-windows) -- 200K token context, auto-compaction behavior
+- [Claude Code Context Compaction](https://platform.claude.com/docs/en/build-with-claude/compaction) -- automatic context management at ~95% capacity
+- [Textual Log Widget](https://textual.textualize.io/widgets/log/) -- `write()` method, `max_lines`, no native word wrap
+- [Textual Log Widget Source](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_log.py) -- Confirms `write()` does `self._lines[-1] += line` (inline append)
+- [Textual RichLog Widget](https://textual.textualize.io/widgets/rich_log/) -- `wrap=True` parameter, renderable-level writes
+- [Textual RichLog Source](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_rich_log.py) -- Confirms `write()` does `Segment.split_lines()` -> new block per call
+- [Textual text-wrap CSS](https://textual.textualize.io/styles/text_wrap/) -- CSS property behavior
+- [Python asyncio subprocess](https://docs.python.org/3/library/asyncio-subprocess.html) -- Process lifecycle, SIGTERM/SIGKILL, deadlock prevention
+- [Python shutil](https://docs.python.org/3/library/shutil.html) -- `shutil.which()`, `get_terminal_size()`
+- [Python textwrap](https://docs.python.org/3/library/textwrap.html) -- Standard library word wrapping (operates on complete strings)
+- [Typer Exception Handling](https://typer.tiangolo.com/tutorial/exceptions/) -- `typer.Exit`, Rich traceback integration
 
 ### Secondary (MEDIUM confidence)
-- Drew DeVault line printer hack — Epson LX-350 via `/dev/usb/lp9`, paper feed management, real-world implementation
-- python-escpos USB-LPT warning — "Stay away from USB-to-Parallel-Adapter since they are unreliable" from GitHub issue #214
-- macOS CUPS raw printing setup — `lp -o raw` approach for raw byte sending
-- Daktilo GitHub — typewriter sound presets, TOML configuration, cross-platform keyboard monitoring (inspected for sound effect patterns)
-- Claude Agent SDK Spec NDJSON format — community-documented spec of stream-json message types
-- libusb macOS kernel driver detach PR — macOS device access limitations and permission requirements
-
-### Tertiary (LOW confidence, needs validation)
-- USB-LPT adapter behavior on macOS — no first-hand testing, extrapolated from Linux behavior and library warnings
-- NDJSON message structure details — based on community spec, not official Anthropic documentation
-- Textual performance with high-frequency updates — assumed based on framework design, not stress-tested for this use case
+- [Claude Code Session Corruption Issue #18880](https://github.com/anthropics/claude-code/issues/18880) -- Session file corruption from incomplete tool_use records
+- [Claude Code OOM Issue #13126](https://github.com/anthropics/claude-code/issues/13126) -- Memory growth in long sessions, session cache accumulation
+- [Claude Code Auto-Compact Failure #13929](https://github.com/anthropics/claude-code/issues/13929) -- Context limit edge cases
+- [Claude Code Exit Codes Issue #771](https://github.com/anthropics/claude-code/issues/771) -- Exit code documentation
+- [Claude Code stdin Hang Issue #3187](https://github.com/anthropics/claude-code/issues/3187) -- Stream-json stdin hangs
+- [Claude Code Result Hang #25629](https://github.com/anthropics/claude-code/issues/25629) -- Hanging after result event
+- [Textual TextLog Wrap Bug #1554](https://github.com/Textualize/textual/issues/1554) -- Historical layout corruption with wrap=True (fixed)
+- [Claude Flow Stream Chaining Wiki](https://github.com/ruvnet/claude-flow/wiki/Stream-Chaining) -- Community-documented NDJSON message structure
+- [Steve Kinney - Claude Code Session Management](https://stevekinney.com/courses/ai-development/claude-code-session-management) -- Session flag behavior
+- [Mastering Claude Code Sessions](https://www.vibesparking.com/en/blog/ai/claude-code/docs/cli/2025-08-28-mastering-claude-code-sessions-continue-resume-automate/) -- `--continue` vs `--resume` distinction
+- [CLI UX Patterns](http://lucasfcosta.com/2022/06/01/ux-patterns-cli-tools.html) -- Conversational CLI patterns, error suggestion
+- [Command Line Interface Guidelines](https://clig.dev/) -- CLI design best practices
+- [Claude API Tokenizer Discussion](https://claudelog.com/faqs/what-is-claude-code-auto-compact/) -- Auto-compact behavior
+- [Claude Code SDK Python Error Handling](https://deepwiki.com/anthropics/claude-code-sdk-python/4-error-handling) -- ProcessError, CLIJSONDecodeError, CLINotFoundError (third-party docs of official SDK)
 
 ---
-*Research completed: 2026-02-14*
+*Research completed: 2026-02-16*
 *Ready for roadmap: yes*

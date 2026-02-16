@@ -1,417 +1,587 @@
-# Architecture Research
+# Architecture Research: Multi-Turn Conversation Integration
 
-**Domain:** Python CLI tool — hardware I/O (USB-LPT printer), subprocess wrapping (Claude Code), audio playback, terminal UI (split-screen)
-**Researched:** 2026-02-14
-**Confidence:** HIGH (well-understood domains; Python subprocess, curses, USB I/O, and audio all have mature ecosystem patterns)
+**Domain:** Multi-turn conversation mode for existing Python CLI/TUI wrapping Claude Code CLI
+**Researched:** 2026-02-16
+**Confidence:** HIGH (official Claude Code docs confirm all required CLI flags; existing codebase is well-understood; changes are surgical)
 
-## Standard Architecture
+## Executive Summary
+
+Multi-turn conversation requires three changes to the existing architecture: (1) the bridge must capture session IDs from the NDJSON init message and pass `--resume <session_id>` on subsequent calls, (2) the TUI and CLI must hold session state across prompt submissions, and (3) error handling must surface structured errors from both subprocess failures and NDJSON result messages. The existing fan-out architecture (pacer -> output -> destinations) does NOT need to change. The bridge signature changes from `stream_claude_response(prompt)` to `stream_claude_response(prompt, session_id=None)` returning `(session_id, AsyncIterator[str])`, and callers (TUI and CLI) store the returned session_id for the next call.
+
+## Current Architecture (As-Built)
 
 ### System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Application Layer                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │  CLI Entry   │  │  Session      │  │  Config      │              │
-│  │  (argparse)  │  │  Manager      │  │  Manager     │              │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
-│         │                 │                  │                      │
-├─────────┴─────────────────┴──────────────────┴──────────────────────┤
-│                         Orchestrator Layer                           │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                      Main Event Loop                         │   │
-│  │               (asyncio — coordinates all I/O)                │   │
-│  └──────┬───────────────┬───────────────┬──────────────┬───────┘   │
-│         │               │               │              │           │
-├─────────┴───────────────┴───────────────┴──────────────┴───────────┤
-│                         Service Layer                               │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────────┐   │
-│  │ Claude     │ │ Printer    │ │ Audio      │ │ Terminal UI    │   │
-│  │ Bridge     │ │ Driver     │ │ Engine     │ │ Renderer       │   │
-│  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └──────┬─────────┘  │
-│        │              │              │               │             │
-├────────┴──────────────┴──────────────┴───────────────┴─────────────┤
-│                         Adapter Layer                               │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────────┐   │
-│  │ subprocess │ │ pyusb /    │ │ sounddevice│ │ curses         │   │
-│  │ (asyncio)  │ │ file I/O   │ │ / AppKit   │ │                │   │
-│  └────────────┘ └────────────┘ └────────────┘ └────────────────┘   │
-│                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                     Transcript Store                           │ │
-│  │                (plain text file on disk)                       │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+[User Input]
+    |
+    v
+[cli.py] ----prompt----> [bridge.py] --spawn--> claude -p "prompt" --output-format stream-json
+    |                         |
+    |                    yields str chunks
+    |                         |
+    v                         v
+[tui.py / _chat_async]  [pacer.py] --char-by-char--> [output.py] --fan-out--> destinations
+                                                          |
+                                          +---------------+---------------+
+                                          |               |               |
+                                     [Log.write]   [printer_write]  [bell/transcript]
 ```
 
-### Component Responsibilities
+### Key Characteristics of Current Design
 
-| Component | Responsibility | Typical Implementation |
-|-----------|----------------|------------------------|
-| **CLI Entry** | Parse args, detect hardware, select mode, launch event loop | `argparse` or `click`; `main()` entrypoint |
-| **Config Manager** | Manage device paths, timing params, sound toggle, transcript path | Dataclass or dict; CLI flags override defaults |
-| **Session Manager** | Track conversation state, handle start/continue/quit lifecycle | Manages Claude Code session IDs for `--resume` |
-| **Main Event Loop** | Coordinate concurrent tasks: subprocess I/O, printer writes, audio, UI refresh | `asyncio.run()` with `create_task()` per concern |
-| **Claude Bridge** | Spawn Claude Code subprocess, parse NDJSON stream, extract text tokens | `asyncio.create_subprocess_exec()` with `stdout=PIPE` |
-| **Printer Driver** | Discover USB-LPT device, write bytes character-by-character with throttling | `pyusb` bulk transfer or raw file I/O to device node |
-| **Audio Engine** | Play typewriter key-click and carriage-return sounds on each character/newline | Pre-loaded WAV buffers, fire-and-forget playback |
-| **Terminal UI Renderer** | Split-screen display: input pane (top) + output pane (bottom), scrolling | `curses` windows with `newpad()` for scrollable regions |
-| **Transcript Store** | Append each character to a plain text file as it flows through | Simple `open(path, 'a')` writes, flushed per line |
+1. **bridge.py** spawns a NEW `claude -p` subprocess per prompt. No session continuity.
+2. **bridge.py** only extracts `text_delta` from `content_block_delta` events. It ignores the `system` init message (which contains `session_id`), `result` messages, and all error states.
+3. **tui.py** calls `stream_claude_response(prompt)` in a `@work(exclusive=True)` decorated method. Each call is stateless.
+4. **cli.py** `_chat_async()` calls `stream_claude_response(prompt)` once and exits.
+5. The fan-out layer (output.py + pacer.py) is purely a character pipeline -- it has no knowledge of sessions, prompts, or conversation state.
 
-## Recommended Project Structure
+## Multi-Turn Strategy: `--resume` with Session ID
 
-```
-claude-teletype/
-├── pyproject.toml          # Project metadata, dependencies, entry point
-├── src/
-│   └── claude_teletype/
-│       ├── __init__.py
-│       ├── __main__.py     # Entry: `python -m claude_teletype`
-│       ├── cli.py          # Argument parsing, mode selection, startup
-│       ├── config.py       # Configuration dataclass, defaults
-│       ├── loop.py         # Main asyncio orchestrator
-│       ├── bridge.py       # Claude Code subprocess management
-│       ├── printer/
-│       │   ├── __init__.py
-│       │   ├── discovery.py    # USB-LPT device auto-detection
-│       │   ├── usb_driver.py   # pyusb bulk transfer writer
-│       │   ├── file_driver.py  # /dev/usb/lp* file-based writer
-│       │   └── null_driver.py  # No-op driver (simulator mode)
-│       ├── audio.py        # Sound effect loading and playback
-│       ├── ui/
-│       │   ├── __init__.py
-│       │   ├── terminal.py     # curses split-screen renderer
-│       │   └── simulator.py    # Printer simulation pane (replaces hardware)
-│       ├── transcript.py   # Conversation file writer
-│       └── charflow.py     # Character-by-character throttle + fan-out
-├── sounds/
-│   ├── keystroke.wav       # Typewriter key click
-│   └── carriage_return.wav # Line-end ding/return sound
-└── tests/
-    ├── test_bridge.py
-    ├── test_charflow.py
-    ├── test_printer_discovery.py
-    └── test_transcript.py
+### Why `--resume` (Not `--continue` or Persistent Subprocess)
+
+Three approaches were evaluated:
+
+| Approach | Mechanism | Verdict |
+|----------|-----------|---------|
+| **A. `--resume <session_id>`** | Each prompt spawns a new `claude -p --resume <id>` subprocess. Claude Code loads full conversation history from its own session storage. | **USE THIS.** Clean, stateless from our perspective. Claude manages context. |
+| **B. `--continue`** | Uses most recent session in current directory. No explicit ID. | Fragile in automation. If another Claude session runs in the same directory, `--continue` picks up the wrong session. Official docs recommend `--resume` over `--continue` for programmatic use. |
+| **C. Persistent subprocess** | Keep one `claude` process alive, pipe prompts via stdin with `--input-format stream-json`. | Tempting but risky: hangs, zombie processes, unclear lifecycle. Claude Code's `--input-format stream-json` is designed for SDK use, not raw stdin piping. Adds complexity with no clear benefit over A. |
+
+**Decision: Approach A.** Use `--resume <session_id>` for all follow-up prompts. The bridge captures the session_id from the first NDJSON `system` init message and passes it to subsequent calls.
+
+### How Claude Code Sessions Work (Verified)
+
+From official documentation at [code.claude.com/docs/en/headless](https://code.claude.com/docs/en/headless):
+
+```bash
+# First request -- no session ID, Claude creates one
+claude -p "Review this codebase" --output-format stream-json --verbose --include-partial-messages
+
+# The NDJSON stream starts with:
+# {"type": "system", "subtype": "init", "session_id": "550e8400-...", ...}
+
+# Subsequent requests -- resume with captured session ID
+claude -p "Now focus on the database queries" --resume "550e8400-..." --output-format stream-json ...
 ```
 
-### Structure Rationale
+Key facts (HIGH confidence, official docs):
+- Session ID appears in the FIRST NDJSON line (`type: "system"`, `subtype: "init"`)
+- `--resume <session_id>` loads full conversation history including tool results
+- Can combine `-p` + `--resume` + `--output-format stream-json` (explicitly documented)
+- Session data is stored by Claude Code in `~/.claude/sessions/`
+- Claude Code handles context window management and auto-truncation internally
 
-- **`src/claude_teletype/`:** Single-package layout. The `src/` prefix prevents accidental imports of uninstalled code during development.
-- **`printer/`:** Separate sub-package because USB discovery, USB driver, file driver, and null driver are distinct concerns with a shared interface (write bytes). Strategy pattern via a common protocol.
-- **`ui/`:** Separate sub-package because the terminal renderer and simulator pane have distinct rendering logic but share the same data feed (the character stream).
-- **`charflow.py`:** Central "character flow" module that sits between the Claude Bridge (source) and all consumers (printer, UI, audio, transcript). This is the fan-out point and the single place where throttling/pacing lives.
-- **`sounds/`:** Bundled WAV assets. Small files (~10-50KB each). Ship with the package via `package_data` in pyproject.toml.
+## Recommended Architecture Changes
 
-## Architectural Patterns
+### Component: bridge.py (MODIFY)
 
-### Pattern 1: Async Fan-Out via Character Channel
+The bridge needs three changes:
 
-**What:** A single async generator or `asyncio.Queue` receives characters from Claude Bridge and distributes them to all consumers (printer, UI, audio, transcript) concurrently.
-**When to use:** When one producer feeds multiple consumers that each process at different speeds.
-**Trade-offs:** Clean separation of concerns and easy to add/remove consumers. Slightly more complex than synchronous sequential writes, but necessary because printer I/O and audio playback are blocking operations that must not stall the UI.
+**Change 1: Parse the system init message to extract session_id.**
 
-**Example:**
+Currently `parse_text_delta` only looks for `stream_event` with `content_block_delta`. Add a new parser function:
+
 ```python
-import asyncio
-
-class CharacterFlow:
-    """Fan-out: one character from Claude → multiple consumers."""
-
-    def __init__(self, delay_ms: float = 75.0):
-        self._delay = delay_ms / 1000.0
-        self._consumers: list[asyncio.Queue] = []
-
-    def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue[str | None] = asyncio.Queue()
-        self._consumers.append(q)
-        return q
-
-    async def feed(self, char: str) -> None:
-        for q in self._consumers:
-            await q.put(char)
-        await asyncio.sleep(self._delay)  # Typewriter pacing
-
-    async def close(self) -> None:
-        for q in self._consumers:
-            await q.put(None)  # Sentinel
+def parse_session_id(line: bytes) -> str | None:
+    """Extract session_id from the system init NDJSON line."""
+    if not line or not line.strip():
+        return None
+    try:
+        msg = json.loads(line.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if msg.get("type") == "system" and msg.get("subtype") == "init":
+        return msg.get("session_id")
+    return None
 ```
 
-### Pattern 2: Strategy Pattern for Printer Backend
+**Change 2: Parse the result message for error detection.**
 
-**What:** A common `PrinterDriver` protocol with multiple implementations (USB, file, null). The CLI selects the implementation at startup based on hardware discovery.
-**When to use:** When the same operation (write bytes to printer) has fundamentally different transports depending on runtime conditions.
-**Trade-offs:** Clean abstraction boundary, easy testing (null driver), straightforward fallback chain. Minimal overhead since selection happens once at startup.
-
-**Example:**
 ```python
-from typing import Protocol
+def parse_result(line: bytes) -> dict | None:
+    """Extract result message fields (is_error, result, cost)."""
+    if not line or not line.strip():
+        return None
+    try:
+        msg = json.loads(line.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if msg.get("type") == "result":
+        return {
+            "is_error": msg.get("is_error", False),
+            "result": msg.get("result", ""),
+            "cost_usd": msg.get("total_cost_usd"),
+            "subtype": msg.get("subtype", ""),
+        }
+    return None
+```
 
-class PrinterDriver(Protocol):
-    async def write_char(self, char: str) -> None: ...
-    async def flush_line(self) -> None: ...
-    def close(self) -> None: ...
+**Change 3: Modify `stream_claude_response` signature.**
 
-class USBPrinterDriver:
-    """Writes to USB-LPT device via pyusb bulk transfer."""
-    def __init__(self, device):
-        self._dev = device
-        self._endpoint = self._find_bulk_out_endpoint()
+Current:
+```python
+async def stream_claude_response(prompt: str) -> AsyncIterator[str]:
+```
 
-    async def write_char(self, char: str) -> None:
-        await asyncio.to_thread(
-            self._dev.write, self._endpoint.bEndpointAddress, char.encode('ascii')
+Proposed:
+```python
+@dataclass
+class StreamResult:
+    session_id: str | None
+    is_error: bool
+    error_message: str | None
+    cost_usd: float | None
+
+async def stream_claude_response(
+    prompt: str,
+    session_id: str | None = None,
+) -> AsyncIterator[str | StreamResult]:
+```
+
+The function yields `str` chunks for text deltas as before, and yields a single `StreamResult` as the final item. The caller can capture the session_id from the StreamResult for the next call.
+
+**Alternative (simpler):** Return a tuple `(session_id, AsyncIterator[str])` where session_id is populated after the first line is read. But async generators cannot "return" values alongside yielding. The cleanest pattern is:
+
+```python
+async def stream_claude_response(
+    prompt: str,
+    session_id: str | None = None,
+) -> AsyncIterator[str | StreamResult]:
+    """Yield text chunks, then a final StreamResult with session metadata."""
+    args = ["claude", "-p", prompt, "--output-format", "stream-json",
+            "--verbose", "--include-partial-messages",
+            "--dangerously-skip-permissions",
+            "--allowedTools", "WebSearch", "--allowedTools", "WebFetch"]
+
+    if session_id is not None:
+        args.extend(["--resume", session_id])
+
+    proc = await asyncio.create_subprocess_exec(
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
+    captured_session_id = None
+    result_info = None
+
+    try:
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+
+            # Try session ID extraction (first message only)
+            if captured_session_id is None:
+                sid = parse_session_id(line)
+                if sid is not None:
+                    captured_session_id = sid
+                    continue
+
+            # Try result extraction (last message)
+            res = parse_result(line)
+            if res is not None:
+                result_info = res
+                continue
+
+            # Normal text delta
+            text = parse_text_delta(line)
+            if text is not None:
+                yield text
+
+        await proc.wait()
+
+        yield StreamResult(
+            session_id=captured_session_id,
+            is_error=result_info["is_error"] if result_info else (proc.returncode != 0),
+            error_message=result_info["result"] if result_info and result_info["is_error"] else None,
+            cost_usd=result_info["cost_usd"] if result_info else None,
         )
-
-class NullPrinterDriver:
-    """No-op driver when no hardware attached."""
-    async def write_char(self, char: str) -> None:
-        pass  # Simulator mode — UI handles display
-
-    async def flush_line(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
+    except BaseException:
+        proc.terminate()
+        await proc.wait()
+        raise
 ```
 
-### Pattern 3: Curses Split-Screen with Async Input Loop
+### Component: tui.py (MODIFY)
 
-**What:** Two curses windows (input pane + output pane) managed by the asyncio event loop. Keyboard input is polled non-blocking via `window.nodelay(True)` inside an async task. Output pane receives characters from the fan-out queue.
-**When to use:** When you need simultaneous keyboard input capture and streaming output display in the same terminal.
-**Trade-offs:** Curses is universally available (stdlib) and fast, but has a steep learning curve and raw API. Alternative: Textual is more ergonomic but adds a heavy dependency. For this project, curses is the right call — the UI is simple (two panes), and Textual would be overkill.
+The TUI needs to hold session state across prompt submissions.
+
+**Change 1: Add session_id instance variable.**
+
+```python
+class TeletypeApp(App):
+    def __init__(self, ...):
+        ...
+        self._session_id: str | None = None  # NEW: persists across prompts
+```
+
+**Change 2: Update stream_response to pass and capture session_id.**
+
+```python
+@work(exclusive=True)
+async def stream_response(self, prompt: str) -> None:
+    ...
+    async for item in stream_claude_response(prompt, session_id=self._session_id):
+        if isinstance(item, StreamResult):
+            self._session_id = item.session_id  # Capture for next prompt
+            if item.is_error:
+                log.write(f"\n[Error: {item.error_message}]\n")
+        else:
+            await pace_characters(item, base_delay_ms=self.base_delay_ms, output_fn=output_fn)
+    ...
+```
+
+**No change needed to:** `on_input_submitted`, `on_mount`, `on_unmount`, fan-out destinations, or any printer/audio/transcript logic. The session state lives only in the TUI app instance and is passed through the bridge.
+
+### Component: cli.py (MODIFY -- for --no-tui multi-turn only)
+
+Currently `_chat_async()` handles a single prompt. For multi-turn in non-TUI mode, add a REPL loop. This is a lower priority than TUI multi-turn since the TUI is the primary interface.
+
+```python
+async def _chat_loop_async(base_delay_ms, printer, no_audio, transcript_dir):
+    """Interactive multi-turn REPL for --no-tui mode."""
+    session_id = None
+    while True:
+        try:
+            prompt = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not prompt:
+            continue
+
+        async for item in stream_claude_response(prompt, session_id=session_id):
+            if isinstance(item, StreamResult):
+                session_id = item.session_id
+                if item.is_error:
+                    console.print(f"[bold red]Error: {item.error_message}")
+            else:
+                await pace_characters(item, ...)
+        print()
+```
+
+### Components NOT Modified
+
+| Component | Why No Change |
+|-----------|---------------|
+| **pacer.py** | Receives text chunks, has no knowledge of sessions. No change. |
+| **output.py** | Fan-out to destinations. Character-level. No change. |
+| **audio.py** | Receives characters, plays bell on newline. No change. |
+| **transcript.py** | Receives characters, writes to file. No change. |
+| **printer.py** | All printer drivers and discovery. No change. |
+| **teletype.py** | Raw keyboard-to-printer mode. No change. |
+
+This is the key architectural strength: the fan-out pipeline is completely decoupled from conversation state.
+
+## New Component: Word Wrap
+
+### Problem
+
+The current TUI uses `Log` widget which does NOT support word wrapping. Long lines extend beyond the visible area. For a typewriter aesthetic, text must wrap at word boundaries.
+
+### Options Evaluated
+
+| Option | Approach | Verdict |
+|--------|----------|---------|
+| **RichLog with wrap=True** | Replace `Log` with `RichLog(wrap=True)` | RichLog's `write()` expects complete renderables, not character-by-character. Would need to buffer lines and write them whole. Breaks the character-by-character pacing model. |
+| **Manual word wrap in output pipeline** | Add a wrap function between pacer and Log.write | Best option. Wrap happens at the character level, fits existing architecture. Log widget continues receiving pre-wrapped text. |
+| **CSS text-wrap** | Apply `text-wrap: wrap` CSS to Log widget | Textual's Log widget does not respect text-wrap CSS (it is a virtual widget that manages its own line rendering). |
+
+**Decision: Manual word wrap in the output pipeline.** Add a `WordWrapper` that sits between the pacer and the Log destination. It tracks column position and inserts `\n` at word boundaries when approaching the terminal width.
+
+### Word Wrap Architecture
+
+```python
+class WordWrapper:
+    """Tracks column position and wraps at word boundaries."""
+
+    def __init__(self, width: int, inner: Callable[[str], None]):
+        self._width = width
+        self._inner = inner
+        self._column = 0
+        self._word_buf: list[str] = []
+
+    def write(self, char: str) -> None:
+        if char == "\n":
+            self._flush_word()
+            self._inner("\n")
+            self._column = 0
+        elif char == " ":
+            self._flush_word()
+            if self._column < self._width:
+                self._inner(" ")
+                self._column += 1
+        else:
+            self._word_buf.append(char)
+            # If word alone exceeds width, force break
+            if len(self._word_buf) >= self._width:
+                self._flush_word()
+
+    def _flush_word(self) -> None:
+        word_len = len(self._word_buf)
+        if word_len == 0:
+            return
+        # Would this word overflow the line?
+        if self._column + word_len > self._width and self._column > 0:
+            self._inner("\n")
+            self._column = 0
+        for ch in self._word_buf:
+            self._inner(ch)
+        self._column += word_len
+        self._word_buf.clear()
+```
+
+The WordWrapper is inserted as a destination wrapper in the TUI's `stream_response`:
+
+```python
+# In tui.py stream_response:
+log_write = WordWrapper(width=self.size.width, inner=log.write).write
+destinations = [log_write]  # Wrapped log.write replaces raw log.write
+```
+
+For the printer, word wrapping already exists in `make_printer_output` (wraps at `A4_COLUMNS = 80`). No change needed there.
+
+## New Component: Error Handling
+
+### Error Sources
+
+| Source | How It Manifests | Current Handling | Needed |
+|--------|------------------|------------------|--------|
+| Claude Code not installed | `FileNotFoundError` from `create_subprocess_exec` | Crash | Catch, show "Claude Code not found" |
+| Claude Code not authenticated | Non-zero exit code, stderr message | Silent failure (no output) | Parse stderr, show auth error |
+| NDJSON result with `is_error: true` | Result message in stream | Ignored | Parse and surface |
+| Network error during response | Subprocess exits mid-stream | Stream ends, no error shown | Detect incomplete stream |
+| Invalid session ID on `--resume` | Non-zero exit code | Crash or silent | Catch, fall back to new session |
+| Process timeout | Subprocess hangs | Never resolves | Add optional timeout |
+
+### Error Handling Architecture
+
+Errors should be surfaced through the `StreamResult` dataclass that the bridge already yields as the final item. The callers (TUI and CLI) check `StreamResult.is_error` and display appropriately.
+
+For subprocess launch failures (FileNotFoundError, PermissionError), wrap the `create_subprocess_exec` call:
+
+```python
+try:
+    proc = await asyncio.create_subprocess_exec(...)
+except FileNotFoundError:
+    yield StreamResult(
+        session_id=None,
+        is_error=True,
+        error_message="Claude Code CLI not found. Install from https://code.claude.com",
+        cost_usd=None,
+    )
+    return
+```
+
+For stderr capture on non-zero exit:
+
+```python
+await proc.wait()
+if proc.returncode != 0 and result_info is None:
+    stderr_output = await proc.stderr.read()
+    error_msg = stderr_output.decode("utf-8", errors="replace").strip()
+    yield StreamResult(
+        session_id=captured_session_id,
+        is_error=True,
+        error_message=error_msg or f"Claude exited with code {proc.returncode}",
+        cost_usd=None,
+    )
+    return
+```
+
+## Updated Data Flow: Multi-Turn
+
+### First Prompt (No Session)
+
+```
+[User types prompt, presses Enter]
+    |
+    v
+[tui.py] on_input_submitted(prompt)
+    |-- self._session_id is None
+    |
+    v
+[bridge.py] stream_claude_response(prompt, session_id=None)
+    |-- spawns: claude -p "prompt" --output-format stream-json ...
+    |-- NDJSON line 1: {"type":"system","subtype":"init","session_id":"abc-123",...}
+    |-- captures session_id = "abc-123"
+    |-- NDJSON lines: stream_event/content_block_delta -> yield text chunks
+    |-- NDJSON last: {"type":"result","is_error":false,...}
+    |-- yield StreamResult(session_id="abc-123", is_error=False, ...)
+    |
+    v
+[tui.py] stream_response
+    |-- for each str chunk: pace_characters -> output_fn -> [log, printer, bell, transcript]
+    |-- for StreamResult: self._session_id = "abc-123"
+```
+
+### Second Prompt (With Session)
+
+```
+[User types follow-up, presses Enter]
+    |
+    v
+[tui.py] on_input_submitted(prompt)
+    |-- self._session_id is "abc-123"
+    |
+    v
+[bridge.py] stream_claude_response(prompt, session_id="abc-123")
+    |-- spawns: claude -p "prompt" --resume "abc-123" --output-format stream-json ...
+    |-- Claude Code loads full conversation history internally
+    |-- Response has full context of previous turns
+    |-- yield StreamResult(session_id="abc-123", ...)
+    |
+    v
+[tui.py] stream_response
+    |-- same fan-out as before, session_id unchanged (or updated if Claude returns new one)
+```
+
+### Error Flow
+
+```
+[bridge.py] stream_claude_response(prompt, session_id="invalid-id")
+    |-- spawns: claude -p "prompt" --resume "invalid-id" ...
+    |-- Claude exits with non-zero code
+    |-- stderr: "Session not found"
+    |-- yield StreamResult(session_id=None, is_error=True, error_message="Session not found")
+    |
+    v
+[tui.py] stream_response
+    |-- detects is_error=True
+    |-- log.write("[Error: Session not found]")
+    |-- self._session_id = None  (reset to start fresh next time)
+```
+
+## Component Boundary Summary
+
+### Modified Components
+
+| Component | What Changes | Lines of Change (est.) |
+|-----------|-------------|----------------------|
+| **bridge.py** | Add `parse_session_id()`, `parse_result()`, `StreamResult` dataclass. Modify `stream_claude_response()` signature to accept `session_id` and yield `StreamResult`. Add `--resume` flag injection. Add subprocess error handling. | ~60 lines added, ~15 lines modified |
+| **tui.py** | Add `self._session_id` state. Update `stream_response` to pass session_id, capture from StreamResult, handle errors. | ~15 lines modified |
+| **cli.py** | Update `_chat_async()` to handle StreamResult. Optionally add `_chat_loop_async()` for multi-turn REPL in --no-tui mode. | ~20-40 lines |
+
+### New Components
+
+| Component | Purpose | Size (est.) |
+|-----------|---------|-------------|
+| **wrap.py** (or inline in tui.py) | WordWrapper class for TUI output word wrapping | ~40 lines |
+
+### Unchanged Components
+
+| Component | Why |
+|-----------|-----|
+| pacer.py | Character-level pacing. No session awareness needed. |
+| output.py | Fan-out multiplexer. No session awareness needed. |
+| audio.py | Bell sound on newlines. No session awareness needed. |
+| transcript.py | File writer. No session awareness needed. |
+| printer.py | All printer drivers and discovery. No session awareness needed. |
+| teletype.py | Raw keyboard mode. Completely independent. |
+
+## Patterns to Follow
+
+### Pattern 1: Session State Lives at the Caller Level
+
+**What:** Session ID is stored by the caller (TUI app or CLI loop), not by the bridge. The bridge is stateless -- it receives session_id as a parameter and returns it in the result.
+
+**Why:** The bridge spawns a new subprocess per call. There is no persistent state to hold. The TUI app instance lives for the duration of the session, making it the natural owner of session state.
 
 **Example:**
 ```python
-import curses
-import asyncio
+# Good: Caller holds state
+class TeletypeApp(App):
+    _session_id: str | None = None
 
-class TerminalUI:
-    def __init__(self, stdscr):
-        height, width = stdscr.getmaxyx()
-        mid = height // 2
-        self._input_win = curses.newwin(mid, width, 0, 0)
-        self._output_win = curses.newwin(height - mid, width, mid, 0)
-        self._input_win.nodelay(True)   # Non-blocking key reads
-        self._input_win.scrollok(True)
-        self._output_win.scrollok(True)
+    async def stream_response(self, prompt):
+        async for item in stream_claude_response(prompt, session_id=self._session_id):
+            if isinstance(item, StreamResult):
+                self._session_id = item.session_id
 
-    async def read_input(self) -> str | None:
-        """Non-blocking key read, yields to event loop."""
-        ch = self._input_win.getch()
-        if ch == -1:
-            await asyncio.sleep(0.01)  # Yield
-            return None
-        return chr(ch)
-
-    def write_output_char(self, char: str) -> None:
-        self._output_win.addstr(char)
-        self._output_win.refresh()
+# Bad: Bridge holds state (stateful module-level variable)
+_global_session_id = None  # Don't do this
 ```
 
-## Data Flow
+### Pattern 2: Union Yield Type for Metadata-in-Stream
 
-### Primary Data Flow: User Question → Claude → Printer/Screen
+**What:** The async generator yields `str | StreamResult` -- text chunks during streaming, metadata at the end. The caller uses `isinstance()` to distinguish.
 
-```
-[Keyboard]
-    │ (raw keypress)
-    ▼
-[Terminal UI: Input Pane]  ←─── display echo
-    │
-    ▼ (accumulated line on Enter)
-[CharacterFlow: User Input Fan-Out]
-    ├──→ [Printer Driver] ──→ write char + CR/LF to hardware
-    ├──→ [Audio Engine] ──→ play keystroke.wav per char
-    └──→ [Transcript Store] ──→ append to file
-    │
-    ▼ (complete user prompt)
-[Claude Bridge]
-    │ spawn: claude -p --output-format stream-json --include-partial-messages "prompt"
-    │ parse NDJSON lines from stdout
-    │ extract text from content_block_delta events
-    │
-    ▼ (character stream from Claude)
-[CharacterFlow: Assistant Output Fan-Out]
-    ├──→ [Printer Driver] ──→ write char to hardware (throttled ~75ms)
-    ├──→ [Terminal UI: Output Pane] ──→ addstr + refresh
-    ├──→ [Audio Engine] ──→ play keystroke.wav per char, carriage_return.wav on \n
-    └──→ [Transcript Store] ──→ append to file
-```
+**Why:** Avoids complex return types from async generators (which can only return via `StopAsyncIteration`). Keeps the streaming interface simple. The StreamResult is always the last item, so callers can handle it in a straightforward if/else.
 
-### Secondary Flow: Hardware Discovery (Startup)
+### Pattern 3: Graceful Degradation on Session Errors
 
-```
-[CLI Entry]
-    │
-    ▼
-[Printer Discovery]
-    │ 1. pyusb.core.find() — scan for USB devices with printer class (0x07)
-    │ 2. Check /dev/usb/lp* (Linux) or libusb enumeration (macOS)
-    │ 3. If found → USBPrinterDriver or FilePrinterDriver
-    │ 4. If not found → prompt user for manual path OR NullPrinterDriver
-    │
-    ▼
-[Config Manager] → stores selected driver
-    │
-    ▼
-[Main Event Loop] → uses selected driver for all output
-```
+**What:** If `--resume` fails (invalid session, session expired), reset session_id to None and inform the user. Do not crash. The next prompt starts a fresh session.
 
-### Claude Code Subprocess Communication
+**Why:** Session storage is managed by Claude Code, not by us. Sessions can expire, be deleted, or become invalid. The user should not have to restart the app.
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Managing Conversation History Ourselves
+
+**What:** Building a list of `{"role": "user"/"assistant", "content": "..."}` messages and passing them to Claude somehow.
+
+**Why bad:** Claude Code already manages conversation history via its session persistence. Duplicating this logic means maintaining context window limits, truncation strategy, and message formatting -- all of which Claude Code handles internally.
+
+**Instead:** Use `--resume <session_id>`. Let Claude Code manage the conversation.
+
+### Anti-Pattern 2: Persistent Subprocess with stdin Piping
+
+**What:** Keeping one `claude` subprocess alive and writing prompts to its stdin.
+
+**Why bad:** No clean shutdown semantics. Zombie process risk. Error recovery requires killing and restarting the process. The `--input-format stream-json` stdin mode is designed for the Agent SDK, not for manual piping. Risk of hangs (documented in [GitHub issue #3187](https://github.com/anthropics/claude-code/issues/3187)).
+
+**Instead:** Spawn a new subprocess per prompt with `--resume`. Clean lifecycle per request.
+
+### Anti-Pattern 3: Storing Session ID in a File
+
+**What:** Writing session_id to a file so it persists across app restarts.
+
+**Why bad:** Unnecessary complexity. Claude Code already stores sessions in `~/.claude/sessions/`. If the user wants to resume a previous conversation, they can use the `--resume` flag themselves, or we can add a `--resume` CLI flag later that passes through to Claude. The app's session_id only needs to live in memory for the current run.
+
+**Instead:** Store session_id as an instance variable. Fresh session on app restart.
+
+## Build Order for Multi-Turn Integration
+
+The dependency chain dictates this order:
 
 ```
-[Claude Bridge]
-    │
-    │  Spawn: asyncio.create_subprocess_exec(
-    │      "claude", "-p",
-    │      "--output-format", "stream-json",
-    │      "--include-partial-messages",
-    │      prompt_text,
-    │      stdout=asyncio.subprocess.PIPE,
-    │      stderr=asyncio.subprocess.PIPE
-    │  )
-    │
-    │  Read stdout line-by-line (NDJSON):
-    │  ┌──────────────────────────────────────────────────────────────┐
-    │  │ {"type":"system", "session_id":"abc123", ...}               │ → store session ID
-    │  │ {"type":"stream_event", "event":"content_block_delta",      │
-    │  │  "data":{"delta":{"text":"H"}}}                             │ → emit "H" to CharacterFlow
-    │  │ {"type":"stream_event", "event":"content_block_delta",      │
-    │  │  "data":{"delta":{"text":"e"}}}                             │ → emit "e" to CharacterFlow
-    │  │ ...                                                         │
-    │  │ {"type":"assistant", "content":[{"type":"text","text":...}]}│ → complete message (ignore, already streamed)
-    │  │ {"type":"result", "status":"success"}                       │ → signal done
-    │  └──────────────────────────────────────────────────────────────┘
-    │
-    ▼
-[CharacterFlow] → distributes each character to all consumers
+Step 1: bridge.py — StreamResult + parse_session_id + parse_result + --resume flag
+    |   (Foundation. Can test in isolation with mock subprocess.)
+    |   (All existing tests continue to pass -- new functionality is additive.)
+    |
+Step 2: tui.py — Session state + StreamResult handling + error display
+    |   (Depends on Step 1. The TUI is the primary interface.)
+    |
+Step 3: cli.py — StreamResult handling in _chat_async + optional REPL loop
+    |   (Depends on Step 1. Lower priority than TUI.)
+    |
+Step 4: wrap.py — WordWrapper for TUI output
+    |   (Independent of Steps 1-3. Can be built in parallel.)
+    |   (Only depends on knowing terminal width from TUI.)
+    |
+Step 5: Error handling polish
+    |   (Depends on Steps 1-3. Adds edge case handling.)
+    |   (FileNotFoundError, timeout, stderr parsing, session recovery.)
 ```
 
-### Key Data Flows
-
-1. **User typing flow:** Keypress → echo to input pane + print to hardware + play click + append to transcript. All happen concurrently via fan-out. User sees characters appear immediately in the input pane while the printer and audio catch up.
-
-2. **Claude response flow:** NDJSON stream → parse → extract delta text → character-by-character fan-out (throttled at ~75ms) to output pane, printer, audio, and transcript. The throttle is the deliberate typewriter pacing.
-
-3. **Session continuity flow:** Claude Bridge stores the `session_id` from the `system` message. On subsequent prompts within the same session, it uses `--resume <session_id>` to maintain conversation context.
-
-## Scaling Considerations
-
-This is a single-user CLI tool, not a server. "Scaling" means handling edge cases gracefully.
-
-| Concern | Approach |
-|---------|----------|
-| Long Claude responses (thousands of chars) | Curses output pane uses `scrollok(True)` and `pad` for scrollback. Printer just keeps printing. Transcript file grows. No memory issue — characters are processed and discarded. |
-| Slow printer (hardware latency) | CharacterFlow queue buffers ahead. Printer consumer drains at its own pace. UI and transcript are not blocked. Back-pressure is natural — the queue just grows. For very slow printers, cap queue size and slow down Claude parsing. |
-| Claude Code tool use (Bash, Edit, etc.) | Tool invocations appear as `tool_use` and `tool_result` NDJSON messages. Render a summary to the printer (e.g., `[Running: git status...]` and `[Tool output: 3 lines]`) rather than printing raw tool I/O. |
-| Terminal resize | Handle `curses.KEY_RESIZE` in input loop. Recalculate window dimensions. Redraw borders. |
-| Audio stacking (rapid characters) | Pre-load WAV into memory. Use fire-and-forget playback (non-blocking). If characters arrive faster than audio duration, overlap is fine — typewriter keys overlap in reality too. |
-
-### Scaling Priorities
-
-1. **First bottleneck: Printer throughput.** Dot-matrix printers at 80 columns might max out at ~200 chars/sec. The intentional 75ms throttle means ~13 chars/sec, well within limits. If the user reduces throttle, the printer becomes the bottleneck. Solution: the async queue naturally buffers.
-
-2. **Second bottleneck: Audio overlap management.** Rapid character sequences produce overlapping sound effects. Solution: pre-load sounds into memory, use non-blocking playback, accept natural overlap. If it becomes cacophonous, add a minimum interval between audio triggers.
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Synchronous Blocking I/O in the Event Loop
-
-**What people do:** Call `device.write()` or `sound.play()` directly in the async event loop without `asyncio.to_thread()`.
-**Why it's wrong:** USB bulk transfers and audio playback are blocking operations. They stall the entire event loop, freezing the UI and halting Claude stream parsing. Even 5ms of blocking per character compounds to visible lag.
-**Do this instead:** Wrap all blocking I/O in `await asyncio.to_thread(blocking_call)`. USB writes, audio playback, and file I/O all go through this pattern.
-
-### Anti-Pattern 2: Polling Claude Output Synchronously
-
-**What people do:** Use `subprocess.Popen` with `stdout.readline()` in a while loop, blocking the main thread.
-**Why it's wrong:** Cannot simultaneously handle keyboard input, printer writes, audio, and UI updates. The tool becomes unresponsive during Claude's thinking time.
-**Do this instead:** Use `asyncio.create_subprocess_exec()` with `stdout=PIPE` and read from `process.stdout` asynchronously via `readline()` or `read(n)`.
-
-### Anti-Pattern 3: Tightly Coupling Printer and UI Logic
-
-**What people do:** Write printer output code and terminal display code in the same function, with if/else branches for "hardware mode" vs "simulator mode."
-**Why it's wrong:** Makes testing impossible without hardware, makes adding new output targets (e.g., network stream, log file) require modifying existing code, and produces tangled state.
-**Do this instead:** Use the CharacterFlow fan-out pattern. Each consumer subscribes independently. The printer driver is swapped at startup (strategy pattern). The UI always runs regardless of printer presence.
-
-### Anti-Pattern 4: Re-implementing Claude Code's Auth/Session Logic
-
-**What people do:** Try to call the Anthropic API directly, manage API keys, handle token limits, implement tool use, etc.
-**Why it's wrong:** Claude Code already handles all of this. Wrapping the CLI preserves its auth, context window management, tool use, MCP servers, and session persistence for free.
-**Do this instead:** Always delegate to `claude -p --output-format stream-json`. Parse the output. Do not attempt to replace Claude Code's internals.
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| **Claude Code CLI** | `asyncio.create_subprocess_exec("claude", "-p", "--output-format", "stream-json", "--include-partial-messages", prompt)` | Requires Claude Code installed and authenticated. Parse NDJSON from stdout. Session management via `--resume <id>`. |
-| **USB-LPT Printer** | `pyusb`: `usb.core.find(bDeviceClass=0x07)` → `dev.write(endpoint, bytes)`. File I/O fallback: `open("/dev/usb/lp0", "wb")`. | macOS: pyusb + libusb (install via `brew install libusb`). Linux: either pyusb or direct `/dev/usb/lp*` file writes. USB-LPT adapters can be unreliable — always have fallback. |
-| **Audio subsystem** | `sounddevice` (preferred, PortAudio-based, Apple Silicon native) or macOS `AppKit.NSSound` via PyObjC. | Pre-load WAV files at startup. Use `sd.play(data, samplerate)` non-blocking. Avoid `simpleaudio` — archived project, unclear Apple Silicon support. |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| CLI Entry → Main Loop | Function call, passes `Config` dataclass | One-way. CLI parses args, constructs config, hands off. |
-| Claude Bridge → CharacterFlow | `asyncio.Queue.put(char)` | Bridge is the sole producer. One char at a time. `None` sentinel signals end of response. |
-| CharacterFlow → Printer Driver | `asyncio.Queue.get()` → `driver.write_char()` | Consumer task. Runs `to_thread()` for blocking USB I/O. |
-| CharacterFlow → Terminal UI | `asyncio.Queue.get()` → `ui.write_output_char()` | Consumer task. Curses calls must happen on main thread — use `loop.call_soon_threadsafe()` if needed. |
-| CharacterFlow → Audio Engine | `asyncio.Queue.get()` → `audio.play_keystroke()` | Consumer task. Fire-and-forget, non-blocking. |
-| CharacterFlow → Transcript Store | `asyncio.Queue.get()` → `file.write(char)` | Consumer task. Buffered writes, flush per line. |
-| Terminal UI → Claude Bridge | User input line → `bridge.send_prompt(text)` | Triggered on Enter keypress. Bridge spawns new subprocess or resumes session. |
-
-## Build Order (Dependency Chain)
-
-The components have clear dependency relationships that dictate build order:
-
-```
-Phase 1: CLI + Config + Claude Bridge
-    │     (Can test with terminal output alone — no printer, no UI, no audio)
-    │
-Phase 2: CharacterFlow (fan-out + throttling)
-    │     (Depends on: Bridge as producer. Can test with print() as consumer.)
-    │
-Phase 3: Terminal UI (curses split-screen)
-    │     (Depends on: CharacterFlow as data source. Replaces print() consumer.)
-    │
-Phase 4: Printer Discovery + Drivers
-    │     (Depends on: CharacterFlow as data source. Adds a new consumer.)
-    │     (Can develop with NullDriver first, real USB later.)
-    │
-Phase 5: Audio Engine
-    │     (Depends on: CharacterFlow as data source. Adds a new consumer.)
-    │     (Independent of printer and UI — can be built in any order after Phase 2.)
-    │
-Phase 6: Transcript Store
-    │     (Depends on: CharacterFlow as data source. Adds a new consumer.)
-    │     (Simplest consumer — can be built at any point after Phase 2.)
-    │
-Phase 7: Polish (session continuity, error handling, graceful shutdown, packaging)
-```
-
-**Build order rationale:**
-- Phase 1 is the foundation — you cannot test anything without Claude Code integration.
-- Phase 2 (CharacterFlow) is the architectural spine — every subsequent component plugs into it.
-- Phases 3-6 are independent consumers that can be built in parallel once CharacterFlow exists. The suggested order prioritizes the most visible/complex components first (UI before printer before audio before transcript).
-- Phase 7 is integration polish that benefits from all components being in place.
+**Rationale:**
+- Step 1 is the foundation. The bridge change is the smallest, most testable unit. All existing tests pass because the new `session_id` parameter defaults to `None` (backward compatible).
+- Step 2 is the highest-value integration. Multi-turn in the TUI is the primary use case.
+- Step 3 can be deferred if not needed immediately. The `--no-tui` mode is secondary.
+- Step 4 (word wrap) is independent and can be done in parallel with Steps 2-3.
+- Step 5 is polish that benefits from all paths being wired up.
 
 ## Sources
 
-- [Claude Code CLI Reference](https://code.claude.com/docs/en/cli-reference) — HIGH confidence. Official docs for `--output-format stream-json`, `--include-partial-messages`, `-p` flag.
-- [Claude Agent SDK Spec (NDJSON format)](https://gist.github.com/SamSaffron/603648958a8c18ceae34939a8951d417) — MEDIUM confidence. Community-documented spec of stream-json message types.
-- [Claude Flow Stream Chaining Wiki](https://github.com/ruvnet/claude-flow/wiki/Stream-Chaining) — MEDIUM confidence. Documents NDJSON message structure with examples.
-- [PyUSB Documentation](https://pyusb.github.io/pyusb/) — HIGH confidence. Official pyusb docs for USB device discovery and bulk transfers.
-- [PyUSB Tutorial (GitHub)](https://github.com/pyusb/pyusb/blob/master/docs/tutorial.rst) — HIGH confidence. Official tutorial for device enumeration and data transfer.
-- [Python curses HOWTO](https://docs.python.org/3/howto/curses.html) — HIGH confidence. Official Python docs for curses windows, pads, and input handling.
-- [Python asyncio subprocess docs](https://docs.python.org/3/library/asyncio-subprocess.html) — HIGH confidence. Official docs for async subprocess management.
-- [sounddevice (GitHub)](https://github.com/spatialaudio/python-sounddevice) — HIGH confidence. Active project, PortAudio-based, cross-platform including Apple Silicon.
-- [simpleaudio (PyPI)](https://pypi.org/project/simpleaudio/) — MEDIUM confidence. Archived project. Unclear Apple Silicon support. Not recommended.
-- [python-escpos docs](https://python-escpos.readthedocs.io/en/latest/user/printers.html) — MEDIUM confidence. Documents USB printer class communication, warns about USB-LPT adapter reliability.
-- [Apple CUPS libusb backend (GitHub)](https://github.com/apple/cups/blob/master/backend/usb-libusb.c) — MEDIUM confidence. Reference for how macOS communicates with USB printers via libusb.
-- [Streaming subprocess output in Python](https://alexwlchan.net/til/2025/subprocess-line-by-line/) — MEDIUM confidence. Practical pattern for line-by-line subprocess output capture.
-- [Textual TUI framework](https://johal.in/textual-tui-widgets-python-rich-terminal-user-interfaces-apps-2025/) — LOW confidence (considered but not recommended for this project). Overkill for two-pane layout.
+- [Claude Code CLI Reference](https://code.claude.com/docs/en/cli-reference) -- HIGH confidence. Official docs confirming `--resume`, `--continue`, `--session-id`, `-p` flag combinations.
+- [Run Claude Code Programmatically (Headless)](https://code.claude.com/docs/en/headless) -- HIGH confidence. Official docs showing `claude -c -p "query"` and `session_id` capture pattern.
+- [Agent SDK Session Management](https://platform.claude.com/docs/en/agent-sdk/sessions) -- HIGH confidence. Official docs for session ID lifecycle, forking, and resumption.
+- [Agent SDK Streaming Output](https://platform.claude.com/docs/en/agent-sdk/streaming-output) -- HIGH confidence. Official StreamEvent reference with session_id field and event type documentation.
+- [Textual Log Widget](https://textual.textualize.io/widgets/log/) -- HIGH confidence. Official docs confirming `write()` method for character-by-character output, no native word wrap.
+- [Textual RichLog Widget](https://textual.textualize.io/widgets/rich_log/) -- HIGH confidence. Official docs confirming `wrap=True` parameter but renderable-level writes (not character-level).
+- [Textual text-wrap CSS](https://textual.textualize.io/styles/text_wrap/) -- HIGH confidence. Official docs for CSS text-wrap property.
+- [Claude Code GitHub Issue #3187](https://github.com/anthropics/claude-code/issues/3187) -- MEDIUM confidence. Documents stdin stream-json hangs.
+- [Claude Code GitHub Issue #25629](https://github.com/anthropics/claude-code/issues/25629) -- MEDIUM confidence. Documents stream-json hanging after result event.
+- [Claude Flow Stream Chaining Wiki](https://github.com/ruvnet/claude-flow/wiki/Stream-Chaining) -- MEDIUM confidence. Community-documented NDJSON message structure.
 
 ---
-*Architecture research for: Claude Teletype — Python CLI tool wrapping Claude Code with USB-LPT dot-matrix printer output*
-*Researched: 2026-02-14*
+*Architecture research for: Claude Teletype multi-turn conversation integration*
+*Researched: 2026-02-16*

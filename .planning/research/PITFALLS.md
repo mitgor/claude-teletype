@@ -1,264 +1,433 @@
-# Pitfalls Research
+# Domain Pitfalls: v1.1 Multi-Turn Conversation
 
-**Domain:** USB-LPT printer interface, CLI subprocess wrapping, real-time character streaming, terminal UI, audio synchronization
-**Researched:** 2026-02-14
-**Confidence:** HIGH (verified with official docs, multiple corroborating sources)
+**Domain:** Adding multi-turn conversation, context management, word wrap, and error handling to an existing CLI wrapper tool
+**Researched:** 2026-02-16
+**Confidence:** HIGH (verified with Claude Code official docs, Textual docs, Python asyncio docs, GitHub issues)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Claude Code Subprocess Buffering Destroys Character-by-Character Streaming
+Mistakes that cause rewrites or major breakage if not caught early.
+
+### Pitfall 1: Treating `--continue` as Stateless When It Relies on Claude Code's Session Storage
 
 **What goes wrong:**
-The entire product premise depends on receiving Claude's output character-by-character in real time. Developers use `subprocess.Popen` with `stdout=PIPE` and expect characters to arrive incrementally. Instead, the OS pipe buffer (typically 64KB on macOS) fills up and delivers output in large chunks, destroying the typewriter effect. The output arrives in bursts of thousands of characters rather than one-by-one.
+The developer builds multi-turn by spawning `claude -p "prompt" --continue --output-format stream-json` for each turn, assuming `--continue` always picks up the last conversation. It works in testing. In production, two things break: (a) if the user runs Claude Code interactively in another terminal between turns, `--continue` resumes THAT session instead of the teletype conversation; (b) if `~/.claude/projects/` is cleaned up (common OOM mitigation), all session state disappears and `--continue` starts fresh with no warning.
 
 **Why it happens:**
-POSIX pipes are **fully buffered** by default (not line-buffered) when the child process detects its stdout is a pipe rather than a TTY. Claude Code's streaming output mode (`--output-format stream-json`) writes JSON lines, but the pipe buffer batches these before the parent process sees them. Even `bufsize=0` on the Python side only controls the parent's read buffer -- it cannot force the child process to flush.
+`--continue` loads "the most recent conversation in the current directory." It has no affinity to your process -- it picks whatever session file was last modified in `~/.claude/projects/<project-hash>/`. Any Claude Code invocation (interactive, another script, even a pre-commit hook) can change which session is "most recent." The session state is stored in `.jsonl` files on disk that are outside your control.
 
-**How to avoid:**
-1. Use `--output-format stream-json --verbose --include-partial-messages` which emits `content_block_delta` events with `text_delta` payloads as tokens arrive. Each event is a full JSON line terminated by newline, which makes line-by-line reading viable.
-2. Use `asyncio.create_subprocess_exec()` with `asyncio.StreamReader` to read lines as they appear, or use a dedicated reading thread with `readline()` in a loop.
-3. Do NOT use `communicate()` -- it waits for the process to finish, which defeats streaming entirely.
-4. Test early by measuring inter-character arrival times. If you see >500ms gaps followed by bursts of many characters, buffering is the problem.
+**Consequences:**
+- Conversation context silently switches to a completely unrelated session
+- User sees Claude reference files/code from a different conversation
+- Auto-truncation logic operates on wrong conversation length
+- No error is raised -- everything appears to work, but context is wrong
 
-**Warning signs:**
-- Characters arrive in bursts rather than individually during testing
-- `time.time()` between successive characters shows near-zero gaps within bursts and long gaps between bursts
-- Output works perfectly with short responses but degrades with longer ones (buffer fills up)
+**Prevention:**
+1. Use `--resume <session_id>` instead of `--continue`. Capture the `session_id` from the first turn's JSON output (`result` message has `session_id` field) and pass it explicitly to every subsequent turn.
+2. Extract session_id from the `system/init` NDJSON event (first line of stream-json output) which contains `"session_id": "..."`.
+3. Store the session_id in your app state (TeletypeApp instance variable, or a module-level variable for CLI mode).
+4. If `--resume` fails (session file deleted/corrupted), detect the error and start a new session cleanly rather than silently losing context.
 
-**Phase to address:**
-Phase 1 (Core subprocess integration). This is the foundational data pipeline. If character-by-character streaming does not work, nothing downstream works.
+**Detection:**
+- Log the session_id from each turn's init event and compare across turns -- they should match
+- Test with a second Claude Code session running in parallel
+
+**Confidence:** HIGH -- verified from [official Claude Code CLI docs](https://code.claude.com/docs/en/cli-reference) and [headless mode docs](https://code.claude.com/docs/en/headless).
+
+**Phase to address:** First phase (multi-turn bridge). This is the foundational session management decision.
 
 ---
 
-### Pitfall 2: macOS USB Device Access Requires Root or Entitlements, Breaking Normal User Experience
+### Pitfall 2: Subprocess Lifecycle Leak -- Zombie Processes and Orphaned Claude Instances
 
 **What goes wrong:**
-The tool is built, tested with `sudo`, and ships. Users run it without `sudo` and get `USBError: [Errno 13] Access denied (insufficient permissions)`. The tool appears completely broken on first use.
+In the current one-shot design, each `stream_claude_response()` call spawns a subprocess, reads it to EOF, and waits for exit. Simple. In multi-turn, the user sends many prompts in a session. If any turn is interrupted (user types new prompt while response is streaming, TUI cancels the worker, KeyboardInterrupt, network timeout), the subprocess may not be properly terminated. Over a 30-minute conversation with 20 turns and a few interruptions, multiple orphaned `claude` processes accumulate, each consuming 200-500MB of RAM (Claude Code is a Node.js process with V8 heap).
 
 **Why it happens:**
-On macOS, `libusb` (which `pyusb` wraps) requires write access to USB device nodes. Unlike Linux where udev rules can grant per-device permissions, macOS controls USB access through kernel extension ownership and entitlements. If a kernel driver (KEXT) already claims the USB-LPT adapter, `libusb` cannot access it without detaching the kernel driver first, which requires either root privileges or the `com.apple.vm.device-access` entitlement (which is only available to signed apps with Apple's approval).
+The current code has a `try/except BaseException` that calls `proc.terminate()` and `await proc.wait()`. But in the TUI, the worker uses `@work(exclusive=True)` which cancels the previous worker via `asyncio.CancelledError`. If the cancellation happens between `proc.terminate()` and `await proc.wait()`, the wait is never completed, leaving a zombie. Additionally, `terminate()` sends SIGTERM which Claude Code may not handle during active API calls -- the process keeps running.
 
-As of libusb 1.0.25+, `libusb_detach_kernel_driver()` is available on macOS, but it still requires root for most device classes.
+**Consequences:**
+- Memory usage grows linearly with conversation length
+- System becomes sluggish after extended sessions
+- macOS may kill the parent process (the TUI) via OOM pressure
+- On next launch, `~/.claude/` cache accumulates from all the orphaned sessions
 
-**How to avoid:**
-1. Design the USB access layer with **two backends**: (a) raw device file I/O via `/dev/usb/lp*` or `/dev/cu.*` where the OS exposes the device as a file descriptor (preferred, no `pyusb` needed); (b) `pyusb`/`libusb` as fallback.
-2. On macOS, USB-to-parallel adapters often present as USB printer class devices. Check if macOS already exposes them through CUPS or as a character device. If so, simple `open('/dev/usblp0', 'wb')` works without elevated permissions.
-3. Detect permission errors gracefully and print a clear message: "Run with sudo, or see troubleshooting guide" -- do not crash with a raw traceback.
-4. Document the permission requirements in the README before users discover them the hard way.
+**Prevention:**
+1. Implement a robust subprocess cleanup pattern:
+   ```python
+   async def _kill_process(proc):
+       proc.terminate()
+       try:
+           await asyncio.wait_for(proc.wait(), timeout=5.0)
+       except asyncio.TimeoutError:
+           proc.kill()
+           await proc.wait()
+   ```
+2. Track the current subprocess in the app/bridge state so it can be explicitly killed before spawning a new one.
+3. In the TUI worker's `except asyncio.CancelledError` handler, ensure the subprocess is killed before re-raising.
+4. Add an `on_unmount` cleanup that kills any running subprocess.
+5. Consider using `proc.kill()` (SIGKILL) instead of `proc.terminate()` (SIGTERM) for Claude Code, since it is a Node.js process that may not handle SIGTERM during API calls.
 
-**Warning signs:**
-- Tool works in development (where developer uses `sudo` or has special permissions) but fails on fresh installs
-- Only tested on one machine with one adapter model
-- No permission error handling code exists
+**Detection:**
+- Run `ps aux | grep claude` after a few interrupted conversations
+- Monitor RSS memory growth over a 10-turn session with some cancellations
 
-**Phase to address:**
-Phase 2 (USB-LPT hardware interface). Design the device access abstraction from day one to handle the permission problem.
+**Confidence:** HIGH -- based on Python asyncio subprocess documentation and [Claude Code OOM issue #13126](https://github.com/anthropics/claude-code/issues/13126).
+
+**Phase to address:** First phase (multi-turn bridge). Must be designed into the subprocess lifecycle from the start.
 
 ---
 
-### Pitfall 3: Subprocess Pipe Deadlock on Bidirectional Communication
+### Pitfall 3: Session Corruption from `--resume` on Killed/Interrupted Sessions
 
 **What goes wrong:**
-The tool sends prompts to Claude Code's stdin and reads responses from stdout. If Claude produces enough output to fill the OS pipe buffer (~64KB on macOS) while the parent process is blocked writing to stdin, both processes deadlock permanently. The tool hangs indefinitely with no error message.
+The user's teletype session is interrupted (Ctrl+C, macOS sleep, network drop) while Claude Code is mid-response. The session `.jsonl` file in `~/.claude/projects/` now has an incomplete tool_use record with no corresponding tool_result. On the next turn, `claude -p "next prompt" --resume <session_id>` crashes with `Error: No messages returned` or produces unpredictable behavior.
 
 **Why it happens:**
-OS pipes have finite buffers. If the child's stdout pipe buffer fills while the parent is blocked on a synchronous `stdin.write()`, neither process can make progress. The child blocks trying to write more to stdout; the parent blocks trying to write to stdin. This is the classic subprocess deadlock documented in Python's own `subprocess` module warnings.
+Claude Code writes session events to `.jsonl` files incrementally. If the process is killed between writing a tool_use and its tool_result, the session file is semantically invalid. The `--resume` loader expects matched pairs and crashes when it finds an orphaned tool_use. This is a [known bug](https://github.com/anthropics/claude-code/issues/18880) with no automatic recovery.
 
-**How to avoid:**
-1. Use `asyncio` for all subprocess I/O. `asyncio.create_subprocess_exec()` with `asyncio.StreamReader/Writer` handles concurrent reads and writes without deadlock.
-2. If using threads instead, put stdin writes and stdout reads in separate threads -- never do both in the same thread.
-3. Never use `process.stdin.write()` followed by `process.stdout.read()` synchronously in the same execution path.
-4. Consider whether you even need stdin communication. If you invoke Claude Code with `-p "prompt"` for each interaction, you avoid bidirectional piping entirely -- each invocation is a one-shot read-only stream.
+**Consequences:**
+- Next turn crashes with an opaque Node.js error
+- Session cannot be resumed -- all conversation context is lost
+- User sees a cryptic error and must restart from scratch
+- If the wrapper retries `--resume` in a loop, it crashes in a loop
 
-**Warning signs:**
-- Tool freezes on long Claude responses
-- Works for short answers, hangs on detailed ones
-- No timeout mechanism in subprocess communication
+**Prevention:**
+1. Always check the subprocess exit code after each turn. If non-zero, do NOT retry with `--resume` on the same session_id.
+2. Implement a session recovery strategy: on `--resume` failure, start a fresh session (new session_id) and inform the user that context was lost.
+3. Read stderr from the subprocess -- Claude Code writes error details there. Parse for known error patterns like "No messages returned" or "Conversation too long."
+4. Before each `--resume`, consider using `--fork-session` to create a new session based on the old one, avoiding corruption of the original.
+5. Alternatively, manage conversation history in-process (see Pitfall 4) instead of relying on Claude Code's session persistence.
 
-**Phase to address:**
-Phase 1 (Core subprocess integration). The architecture decision between `-p` one-shot mode vs. interactive stdin/stdout must be made upfront.
+**Detection:**
+- Kill the subprocess mid-response and attempt to resume
+- Test with `kill -9` during an active stream
+
+**Confidence:** HIGH -- verified from [Claude Code issue #18880](https://github.com/anthropics/claude-code/issues/18880) which documents exact crash behavior.
+
+**Phase to address:** First phase (multi-turn bridge). Error recovery must be designed alongside the happy path.
 
 ---
 
-### Pitfall 4: Audio Playback Latency Makes Typewriter Effect Feel Wrong
+### Pitfall 4: Choosing Between Claude Code Session Management vs. In-Process History -- Getting Stuck Between Two Incomplete Approaches
 
 **What goes wrong:**
-Each character should trigger a typewriter key-click sound. With pygame's default mixer buffer (4096 samples), there is 50-100ms latency between triggering a sound and hearing it. At the target character pacing of 50-100ms, the sound for character N plays when character N+1 or N+2 is already visible. The experience feels disconnected and cheap rather than mechanical.
+The developer starts with `--resume` for multi-turn (let Claude Code manage context), then hits corruption issues (Pitfall 3), then partially switches to maintaining conversation history in-process (building message arrays and passing them somehow), but cannot cleanly pass history to `claude -p` since it only accepts a single prompt string. They end up with a hybrid: sometimes using `--resume`, sometimes reconstructing context in the prompt, with no clear ownership of conversation state.
 
 **Why it happens:**
-Audio libraries use buffers to prevent glitches. Larger buffers mean higher latency but fewer dropouts. pygame's default buffer is tuned for games with background music, not for per-event sound effects at 10-20Hz frequency. Additionally, loading a sound file from disk on each keypress (rather than pre-loading) adds disk I/O latency.
+There are two fundamentally different approaches to multi-turn in a CLI wrapper:
 
-**How to avoid:**
-1. Use `simpleaudio` instead of `pygame.mixer` -- it is designed for low-latency event-driven playback of short WAV files and does not require initializing a full game framework.
-2. Pre-load all sound effects into memory at startup (key click, carriage return ding, line feed). Never load from disk per character.
-3. If using pygame, initialize the mixer with a small buffer: `pygame.mixer.pre_init(44100, -16, 1, 512)` -- buffer size 512 gives ~11ms latency at 44100Hz.
-4. Play sounds in a dedicated thread or use the library's async playback. Do not block the character output loop waiting for audio to finish.
-5. Use uncompressed `.wav` files, not `.mp3` or `.ogg` -- decoding compressed audio adds latency per play event.
+**Approach A: Claude Code manages sessions** -- Use `--resume <session_id>` and let Claude Code's internal session storage handle context. Pros: zero token counting, automatic tool result tracking, handles compaction. Cons: session corruption, no control over truncation, relies on disk state you do not own.
 
-**Warning signs:**
-- Sound plays noticeably after the character appears on screen
-- Sound timing drifts over long responses (accumulating latency)
-- Audio glitches or pops between rapid character sounds
-- CPU usage spikes during rapid character output
+**Approach B: In-process history management** -- Build conversation history in your process, concatenate it into the prompt string, spawn fresh `claude -p` each time. Pros: full control, no session corruption, portable. Cons: must implement token counting/truncation yourself, lose tool use context, prompt gets huge, no access to Claude Code's compaction.
 
-**Phase to address:**
-Phase 3 (Audio/sound effects). Must be tested with the character pacing loop active, not in isolation.
+Neither approach is complete on its own. The trap is starting one, hitting a wall, and grafting the other on top.
+
+**Consequences:**
+- Inconsistent context across turns (some turns have full history, some do not)
+- Duplicate code paths for session management
+- Truncation logic fights with Claude Code's own compaction
+- Impossible to test reliably because behavior depends on disk state
+
+**Prevention:**
+Pick ONE approach and commit to it. For Claude Teletype, the recommendation is **Approach A (Claude Code manages sessions)** because:
+1. The tool already uses `--output-format stream-json` which provides `session_id`
+2. Claude Code handles its own context compaction at ~95% capacity
+3. Tool use results (WebSearch, WebFetch) are tracked automatically
+4. The only mitigation needed is robust error handling for session corruption (Pitfall 3)
+
+If Approach A is chosen:
+- Extract `session_id` from first turn, store it, pass via `--resume` on subsequent turns
+- On any subprocess error, fall back to a new session (lose context gracefully)
+- Do NOT also try to track history in-process -- let Claude Code own it entirely
+- Set `max_lines` on the Log widget to prevent unbounded UI memory growth (separate from API context)
+
+**Detection:**
+- Code review: search for both `--resume` AND manual prompt history construction in the same codebase
+- If conversation history is stored in two places, architecture is confused
+
+**Confidence:** HIGH -- synthesis of official docs and architectural analysis of the codebase.
+
+**Phase to address:** First phase (multi-turn bridge). This is the foundational architecture decision.
 
 ---
 
-### Pitfall 5: USB-LPT Adapters Are Not Real Parallel Ports -- pyparallel Will Not Work
+## Moderate Pitfalls
+
+Mistakes that cause significant bugs or rework but are contained to specific modules.
+
+### Pitfall 5: Word Wrap in Textual Log Widget Breaks Mid-Word During Character-by-Character Streaming
 
 **What goes wrong:**
-Developer finds `pyparallel` (parallel port library) and builds the printer interface on top of it. Nothing works. The USB-LPT adapter is not a parallel port -- it is a USB device that speaks a USB printer protocol internally and has a parallel connector on the other end. `pyparallel` expects a hardware parallel port at I/O address `0x378`, which does not exist on any modern Mac.
+The developer adds `text-wrap: wrap` CSS to the Log widget to enable word wrapping. It works for complete lines. But Claude Teletype writes characters one at a time via `log.write(char)`. The Log widget has no way to know that the current sequence of characters is a word in progress. It wraps at the widget boundary mid-word, then when the next character arrives, the layout re-flows and the word jumps to a new position. The visual effect is jarring -- text jitters and re-wraps constantly as each character is added.
 
 **Why it happens:**
-The name "USB-to-LPT adapter" is misleading. These devices are USB printer class devices, not parallel port pass-through devices. They accept data over USB bulk endpoints and translate it to parallel printer signals internally. The operating system sees a USB device, not a parallel port.
+Textual's Log widget (and its CSS text-wrap property) operates on complete lines. When you call `log.write("H")`, `log.write("e")`, `log.write("l")`, `log.write("l")`, `log.write("o")`, each write potentially triggers a layout recalculation. The widget does not buffer partial words or defer wrapping until a word boundary (space or newline). There was a [historical bug](https://github.com/Textualize/textual/issues/1554) with TextLog and wrap=True causing layout corruption, which was fixed, but the fundamental issue of character-by-character writing conflicting with word-level wrapping remains.
 
-**How to avoid:**
-1. Treat the USB-LPT adapter as a **USB printer class device**, not a parallel port.
-2. Use one of: (a) raw device file I/O if the OS exposes it (`/dev/usb/lp*` on Linux, or through the CUPS subsystem on macOS); (b) `pyusb` to send raw bytes to the printer's USB bulk OUT endpoint; (c) `python-escpos` if the printer supports ESC/POS commands.
-3. For plain dot-matrix printers, sending raw ASCII bytes to the device's output endpoint is sufficient -- no printer language needed. The printer interprets raw bytes as characters.
-4. Test with `lsusb` (Linux) or `system_profiler SPUSBDataType` (macOS) to identify the adapter's vendor ID and product ID before writing any code.
+**Prevention:**
+1. Do NOT apply word wrap at the Log widget level for character-by-character streaming. Instead, implement word wrap in the output pipeline BEFORE writing to the Log.
+2. Create a `WordWrapFilter` in the output chain that buffers characters, tracks column position, and emits wrapped text:
+   - On space/newline: flush the current word to the Log
+   - On non-space: buffer the character
+   - When buffered word + column position would exceed width: emit a newline first, then the word
+3. This filter sits between the pacer and the Log write, so the Log only receives pre-wrapped text and never needs to re-flow.
+4. The printer already has column-tracking word wrap in `make_printer_output()` (wraps at 80 columns). Apply the same pattern to the TUI output, but with the Log widget's width.
+5. Handle widget resize: when the Log width changes, the wrap width changes. For simplicity, only apply the new width to NEW text -- do not re-wrap existing content (matches physical printer behavior where printed text cannot be un-printed).
 
-**Warning signs:**
-- Code references port addresses like `0x378`
-- Dependencies include `pyparallel`
-- Device detection code looks for `/dev/lp*` on macOS (these do not exist for USB adapters)
+**Detection:**
+- Type a long prompt, watch the Log output -- if text visibly jumps/re-flows as characters appear, wrapping is fighting with streaming
+- Test with a response containing long words or URLs that exceed the widget width
 
-**Phase to address:**
-Phase 2 (USB-LPT hardware interface). The correct device communication protocol must be determined before any hardware code is written.
+**Confidence:** MEDIUM -- Textual docs confirm text-wrap CSS exists but do not specifically document behavior with character-by-character write(). The jitter behavior is inferred from how layout recalculation works. Needs validation.
+
+**Phase to address:** Word wrap phase. Must be designed as a pipeline filter, not a CSS property.
 
 ---
 
-### Pitfall 6: Terminal UI and Subprocess Output Compete for the Same TTY
+### Pitfall 6: Not Reading stderr -- Missing Claude Code Error Messages
 
 **What goes wrong:**
-The split-screen terminal UI (simulated printer view) uses curses or a TUI library that takes over the terminal. Meanwhile, Claude Code subprocess tries to detect terminal capabilities, or the tool tries to print debug output to stdout. The result is garbled display, cursor jumping, or the TUI framework crashing because someone else wrote to the terminal behind its back.
+The current `stream_claude_response()` creates the subprocess with `stderr=asyncio.subprocess.PIPE` but never reads from it. When Claude Code encounters an error (network failure, authentication expired, rate limit, model overloaded), it writes the error to stderr and exits with a non-zero code. The wrapper sees an empty stdout stream (no text_delta events), reports "No response received from Claude," and the user has no idea what went wrong. This is already a latent bug in v1.0 but becomes critical in multi-turn where errors need to be surfaced and recovered from.
 
 **Why it happens:**
-Curses/TUI frameworks assume exclusive control of the terminal. They manage cursor position, screen regions, and escape sequences. If any other code writes directly to stdout (including debug print statements, logging to stderr that the terminal catches, or the subprocess itself trying to interact with the terminal), the display corrupts.
+In the v1.0 one-shot design, the error path was simple: no output = no response, show a generic message. The developer never needed stderr because there was no recovery action to take. In multi-turn, the error type determines the recovery: network error = retry, auth expired = tell user, rate limit = wait and retry, session corrupt = new session.
 
-**How to avoid:**
-1. Ensure the Claude Code subprocess has NO direct terminal access. Use `subprocess.PIPE` for both stdout and stderr, never inherit the parent's TTY.
-2. Route ALL logging through the TUI framework's own display mechanism (a log pane or status bar), never to raw stdout/stderr.
-3. If using `Textual` (recommended over raw curses), it provides a proper logging facility and prevents accidental stdout writes from corrupting the display.
-4. Wrap the subprocess with `env` variables to prevent it from detecting a TTY: set `TERM=dumb` or similar in the subprocess environment to prevent ANSI escape sequences in the output.
-5. Test the TUI with the subprocess actively generating output -- display corruption only manifests under concurrent I/O.
+**Consequences:**
+- User sees "No response received" for every error type -- no actionable information
+- Multi-turn retry logic cannot distinguish recoverable from fatal errors
+- Rate limit hits cause immediate retry, making the rate limit worse
+- Authentication failures loop forever instead of exiting
 
-**Warning signs:**
-- Screen flickers or garbles when Claude responses arrive
-- Cursor jumps to wrong position intermittently
-- Works perfectly when tested without the TUI (just printing to stdout)
-- `print()` statements in the codebase that go to raw stdout
+**Prevention:**
+1. After `await proc.wait()`, check `proc.returncode`. If non-zero, read stderr:
+   ```python
+   stderr_bytes = await proc.stderr.read()
+   error_msg = stderr_bytes.decode("utf-8", errors="replace")
+   ```
+2. Classify errors by parsing stderr content:
+   - "not found" / exit code 127 = Claude Code not installed
+   - "rate limit" / "overloaded" = transient, retry with backoff
+   - "authentication" / "API key" = fatal, tell user
+   - "No messages returned" = session corruption, start new session
+   - "context" / "too long" = conversation exceeded limits
+3. Surface the classified error to the user in the TUI (write to Log) and CLI (print to stderr).
+4. Drain stderr concurrently with stdout to prevent deadlock (unlikely with stderr being small, but correct practice):
+   ```python
+   stderr_task = asyncio.create_task(proc.stderr.read())
+   # ... read stdout lines ...
+   stderr_bytes = await stderr_task
+   ```
 
-**Phase to address:**
-Phase 4 (Terminal simulator UI). Must be designed in coordination with Phase 1 subprocess output, as they share the terminal resource.
+**Detection:**
+- Test with `claude` not on PATH -- should show "Claude Code not installed," not "No response"
+- Test with expired auth token
+- Test by killing network mid-response
+
+**Confidence:** HIGH -- verified by reading the current `bridge.py` code which pipes stderr but never reads it, and [Claude Code exit code documentation](https://github.com/anthropics/claude-code/issues/771).
+
+**Phase to address:** Error handling phase, but the stderr reading infrastructure should be added to the bridge in the multi-turn phase.
 
 ---
 
-## Technical Debt Patterns
+### Pitfall 7: Unbounded Memory Growth in Long Conversations -- Log Widget and Transcript
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Synchronous subprocess I/O with threads | Faster to implement than asyncio | Thread safety bugs, harder to debug deadlocks, GIL contention with audio threads | Never -- asyncio is the right foundation for concurrent I/O + audio + UI |
-| Hardcoded USB device vendor/product IDs | Works with one specific adapter | Breaks with any other adapter model, no auto-discovery | Only for initial hardware bring-up proof-of-concept, replace within same phase |
-| Using `os.system()` or `subprocess.run()` for Claude Code | Quick prototype works | Cannot stream output, blocks until completion, no character-by-character capability | Never -- the core product requirement is streaming |
-| Storing sound files as bundled MP3s | Smaller package size | Decode latency per play event, codec dependency, licensing concerns | Never -- WAV files are small enough for a few sound effects |
-| Global mutable state for printer/audio handles | No need for dependency injection | Impossible to test, hard to swap implementations, simulator mode requires duplication | Only in earliest prototype, refactor before Phase 2 |
+**What goes wrong:**
+A user has a 50-turn conversation over 2 hours. Each Claude response averages 500 words. The Textual Log widget stores all text in memory (no `max_lines` set -- current default is None/unlimited). The transcript writer keeps a file handle open and writes incrementally (good), but the Log widget's internal line buffer grows to tens of thousands of lines. Combined with the pacer's character-by-character writes causing layout recalculation on each character, the TUI becomes sluggish, then unresponsive.
 
-## Integration Gotchas
+**Why it happens:**
+The Log widget's `max_lines` parameter defaults to `None` (unlimited). Each `log.write(char)` call appends to the internal line list. Over a long conversation, this list grows without bound. The widget must render all lines for scrollback, even if only the last screenful is visible.
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Claude Code CLI | Using interactive mode and trying to parse TTY output with ANSI escape codes | Use `-p` flag with `--output-format stream-json --verbose --include-partial-messages` for clean, parseable JSON lines |
-| Claude Code CLI | Assuming response is a single text block | Parse `stream_event` objects, filter for `content_block_delta` with `text_delta` type. Handle `tool_use` events, `result` events, and errors as distinct event types |
-| pyusb/libusb on macOS | Calling `usb.core.find()` without installing libusb backend first | Install libusb via Homebrew (`brew install libusb`) before using pyusb. pyusb does not bundle libusb. |
-| pyusb/libusb on macOS | Not detaching kernel driver before claiming interface | Call `dev.detach_kernel_driver(interface)` in a try/except before `dev.set_configuration()`. Requires root on macOS. |
-| python-escpos with USB-to-Serial adapters | Using the USB driver class for USB-to-Serial devices | python-escpos USB driver is only for native USB devices. USB-to-Serial adapters need the Serial driver class instead. |
-| simpleaudio | Assuming it works on all macOS versions out of the box | simpleaudio requires working CoreAudio. Test on target macOS version. Consider `sounddevice` as fallback. |
+Additionally, Claude Code's own session cache in `~/.claude/` grows with conversation length. The `.jsonl` session file can reach 77MB+ in extended sessions, and `shell-snapshots/` can grow to 1.5GB ([issue #13126](https://github.com/anthropics/claude-code/issues/13126)). This is outside the wrapper's control but affects overall system memory.
 
-## Performance Traps
+**Prevention:**
+1. Set `max_lines` on the Log widget to a reasonable limit (e.g., 5000 lines). This drops the oldest lines when the limit is reached. The transcript file retains everything.
+2. In `compose()`, change: `Log(id="output", auto_scroll=True, max_lines=5000)`
+3. For the CLI mode (stdout), memory is not an issue since stdout is not buffered by the app.
+4. Consider adding a status indicator showing conversation length/turn count so users know how long the session has been.
+5. Document that very long sessions (50+ turns) may slow down due to Claude Code's own session management overhead.
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Creating new sound objects per character | Memory grows over long conversations, audio latency increases | Pre-load a pool of `simpleaudio.WaveObject` instances at startup, reuse them | After ~1000 characters (a few paragraphs of output) |
-| Unbounded conversation transcript in memory | Memory usage grows linearly with conversation length | Write transcript to disk incrementally, keep only recent context in memory | After ~100 exchanges or very long code outputs |
-| Synchronous USB writes blocking the event loop | Character pacing becomes irregular, UI freezes during printer writes | Use async I/O or a dedicated printer writer thread with a queue | When printer is slow or USB bus is congested |
-| Regex parsing of stream-json output | CPU spikes on long JSON lines with tool results | Use `json.loads()` per line, not regex. JSON lines format guarantees one object per line | When Claude returns large code blocks or file contents |
-| Opening/closing USB device per print operation | Multi-second pauses between characters while device re-enumerates | Open device once at startup, keep handle alive, reconnect only on error | Immediately -- every character would trigger USB enumeration |
+**Detection:**
+- Monitor RSS memory over a 20-turn automated conversation
+- Check `len(log.lines)` after extended use
 
-## Security Mistakes
+**Confidence:** HIGH -- Textual Log docs confirm `max_lines` exists and defaults to None.
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Running the entire tool with `sudo` because USB needs it | All of Claude Code's subprocess commands execute as root, including Bash tool calls that can modify system files | Elevate privileges ONLY for the USB device open, then drop back to user privileges. Or use device file permissions to avoid sudo entirely. |
-| Logging Claude Code API keys or session tokens in transcripts | Transcript files could contain sensitive auth tokens visible in Claude Code's `stream-json` verbose output | Filter `stream_event` objects before logging -- only persist `text_delta` content, never raw event metadata or system messages |
-| Storing conversation transcripts in world-readable locations | Other users on shared machines can read conversation history | Create transcript directory with `0o700` permissions, warn if directory permissions are too open |
+**Phase to address:** Multi-turn phase (set max_lines when adding conversation loop).
 
-## UX Pitfalls
+---
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| No feedback during Claude's "thinking" time before first token | User thinks tool is frozen -- no output for 2-10 seconds while Claude processes | Show a visual indicator (blinking cursor, spinner, or "thinking..." text on the printer/terminal) until the first `text_delta` event arrives |
-| Typewriter sound plays during code blocks at same speed as prose | Code output sounds identical to text, loses the "reading" feel; long code blocks take forever | Detect code blocks (markdown fences in `text_delta`) and optionally speed up character pacing or use a different sound for code |
-| No way to interrupt/stop a long print | User must wait for entire response to print character-by-character, even if they see the answer early | Support Ctrl+C to stop printing but keep the full response available in the transcript |
-| Carriage return / line feed timing identical to regular characters | Line breaks feel identical to character output -- no mechanical "carriage return" feel | Add a longer pause and distinct "ding" sound on newlines, shorter pause on regular characters, mimicking physical carriage return mechanics |
-| Printer simulation mode looks nothing like a real printer | Users without hardware feel like they are using a worse terminal | Make the simulator visually reference dot-matrix output: fixed-width font, greenbar paper aesthetic, visible character-by-character rendering |
+### Pitfall 8: Race Condition -- User Submits New Prompt While Previous Response Is Still Streaming
 
-## "Looks Done But Isn't" Checklist
+**What goes wrong:**
+In the TUI, the user types a new prompt and presses Enter while Claude's previous response is still streaming character-by-character. The current code uses `@work(exclusive=True)` which cancels the previous worker. But cancellation races with subprocess I/O: the old subprocess may still be writing to stdout while the new one is spawning. Both subprocesses' output intermixes in the Log widget, producing garbled text.
 
-- [ ] **USB auto-discovery:** Often missing fallback for adapters that report non-standard USB class codes -- verify with 2-3 different adapter brands
-- [ ] **Character encoding:** Often only tested with ASCII -- verify with Unicode characters in Claude's responses (curly quotes, em-dashes, code symbols). Dot-matrix printers may only support specific code pages.
-- [ ] **Subprocess cleanup:** Often missing graceful shutdown of Claude Code process on Ctrl+C -- verify the child process is terminated, not orphaned
-- [ ] **Long conversation handling:** Often only tested with single Q&A -- verify with 10+ exchanges that session continuation (`--continue` / `--resume`) works correctly through the wrapper
-- [ ] **Printer offline handling:** Often crashes if printer is disconnected mid-print -- verify graceful degradation to simulator mode on USB disconnect
-- [ ] **Line width handling:** Often ignores physical printer column width (typically 80 columns) -- verify word wrap at correct column, not at terminal width
-- [ ] **Sound file licensing:** Often uses sound effects downloaded from the internet without checking license -- verify all audio assets are CC0/public domain or self-recorded
-- [ ] **macOS Gatekeeper:** Often forgets that downloaded Python tools may trigger security warnings -- verify the install process works without Gatekeeper/quarantine issues
+**Why it happens:**
+`@work(exclusive=True)` cancels the previous worker's asyncio task, which raises `CancelledError` in the `stream_response` coroutine. But the subprocess is a separate OS process -- cancelling the Python task does not immediately stop the subprocess. Between cancellation and subprocess termination, the old process may emit more NDJSON lines. If the new subprocess starts before the old one is fully dead, there is a window where both are writing.
 
-## Recovery Strategies
+In v1.0 this was not an issue because each prompt started a separate subprocess and the TUI did not support rapid prompt submission during streaming.
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Wrong subprocess architecture (synchronous instead of async) | HIGH | Rewrite the core event loop from sync to async. Affects every component that touches subprocess output. Must be caught in Phase 1. |
-| Wrong USB library choice (pyparallel instead of pyusb) | MEDIUM | Swap library, rewrite device communication layer. Contained to one module if device abstraction exists. |
-| Audio latency from wrong library | LOW | Swap audio library (e.g., pygame to simpleaudio). Sound playback is a leaf dependency, not deeply integrated. |
-| TTY corruption from mixed stdout | MEDIUM | Audit and redirect all output paths through TUI framework. Requires finding every print/logging call. |
-| Hardcoded device IDs | LOW | Add auto-discovery scan. Small change if device access is properly abstracted. |
-| No permission error handling | LOW | Add try/except around device open with clear error messages. Quick fix but embarrassing if shipped without. |
+**Prevention:**
+1. In the TUI's `on_input_submitted`, disable the input widget immediately while a response is streaming (already partially done with placeholder text, but the widget is not actually disabled).
+2. In `stream_response`, before spawning the new subprocess, explicitly await termination of any previous subprocess.
+3. Add a gate: store the current subprocess reference on the app instance. Before spawning a new one, kill and wait for the old one:
+   ```python
+   if self._current_proc is not None:
+       self._current_proc.kill()
+       await self._current_proc.wait()
+       self._current_proc = None
+   ```
+4. Alternatively (simpler): disable the Input widget during streaming and re-enable after the response completes. This prevents the race entirely by blocking new submissions.
 
-## Pitfall-to-Phase Mapping
+**Detection:**
+- Rapidly submit prompts in the TUI while responses are streaming
+- Watch for interleaved text from different responses in the Log
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Subprocess buffering kills streaming | Phase 1: Core subprocess integration | Measure inter-character arrival time; must be consistent, not bursty |
-| macOS USB permission errors | Phase 2: USB-LPT hardware interface | Test on clean macOS install without sudo |
-| Subprocess pipe deadlock | Phase 1: Core subprocess integration | Stress test with 5000+ word Claude responses while sending new prompts |
-| Audio playback latency | Phase 3: Sound effects | Time delta between character display and sound playback start; must be <20ms |
-| USB-LPT is not a parallel port | Phase 2: USB-LPT hardware interface | Code review: no references to pyparallel, port addresses, or /dev/lp* |
-| Terminal UI vs subprocess TTY conflict | Phase 4: Terminal simulator | Run full integration test: subprocess + TUI + audio simultaneously for 5 minutes |
-| Subprocess architecture choice (sync vs async) | Phase 1: Core subprocess integration | Architecture review before implementation: must be asyncio-based |
-| Character encoding on printer | Phase 2: USB-LPT hardware interface | Send Unicode test string to printer, verify output or graceful fallback to ASCII |
-| No thinking/loading feedback | Phase 1: Core subprocess integration | Observe tool with 5-second response delay; must show activity indicator |
-| Printer disconnect mid-session | Phase 2: USB-LPT hardware interface | Unplug USB during active print; tool must switch to simulator without crash |
+**Confidence:** HIGH -- direct analysis of current TUI code and Textual's `@work(exclusive=True)` behavior.
+
+**Phase to address:** Multi-turn phase. The input disable/enable pattern must be part of the conversation loop design.
+
+---
+
+## Minor Pitfalls
+
+Mistakes that cause user-facing bugs but are quick to fix.
+
+### Pitfall 9: `--resume` Session ID Not Available in `stream-json` Init Event Until Process Starts
+
+**What goes wrong:**
+The developer tries to extract `session_id` from the first NDJSON line (the `system/init` event) to store for future `--resume` calls. But on the first turn (no session to resume), the session_id in the init event is the one Claude Code just created. The developer stores it. On the second turn, they pass `--resume <stored_id>`. This works. But if the first turn's subprocess exits with an error before emitting the init event (e.g., Claude Code not installed, immediate crash), `session_id` is never captured and the code tries to `--resume None`.
+
+**Prevention:**
+1. Default session_id to None. Only set it when successfully parsed from the init event.
+2. On the second turn, if session_id is None (first turn failed), start a fresh session without `--resume`.
+3. Validate that session_id is a UUID format before passing to `--resume`.
+
+**Detection:**
+- Test the flow where the first turn fails (claude not found, network error) and verify the second turn still works.
+
+**Confidence:** HIGH -- straightforward edge case.
+
+**Phase to address:** Multi-turn bridge phase.
+
+---
+
+### Pitfall 10: Transcript File Per-Session vs. Per-Conversation Confusion
+
+**What goes wrong:**
+In v1.0, the transcript writer creates one file per TUI app launch (session-scoped, init in `on_mount`, close in `on_unmount`). In multi-turn, a single TUI session now contains many turns. The transcript captures everything correctly. But if the user quits and restarts the TUI, resuming the same Claude Code session (via `--resume`), the transcript starts a new file. The conversation is now split across two transcript files with no cross-reference.
+
+**Prevention:**
+1. Include the Claude Code session_id in the transcript filename (e.g., `transcript_<session_id>_<timestamp>.txt`).
+2. When resuming a session, append to the existing transcript file for that session_id instead of creating a new one.
+3. Alternatively, accept the split and include a header in each transcript file noting the session_id and whether it is a continuation.
+
+**Detection:**
+- Resume a session after restarting the TUI. Check that both parts of the conversation are findable.
+
+**Confidence:** MEDIUM -- depends on product decision about transcript continuity.
+
+**Phase to address:** Multi-turn phase, alongside session_id management.
+
+---
+
+### Pitfall 11: Printer Word Wrap and TUI Word Wrap Disagree on Column Width
+
+**What goes wrong:**
+The printer wraps at 80 columns (A4_COLUMNS constant). The TUI wraps at the Log widget's current width, which varies by terminal size. The same response wraps at different points on paper vs. screen. In multi-turn, where the user is watching screen output and expecting the printer to match, the mismatch is noticeable -- especially if they are reading the printed output to someone while looking at the screen.
+
+**Prevention:**
+1. Accept the mismatch as intentional -- screen and paper have different widths. Document it.
+2. OR: Add a "printer column width" setting that the TUI word-wrap filter also uses, so both outputs wrap at the same column. This means the TUI output may not fill the screen width, but it matches the paper.
+3. For v1.1, option 1 (accept mismatch) is simpler. The printer already has its own wrap in `make_printer_output()`.
+
+**Detection:**
+- Compare printed output vs. TUI output for the same response with long lines.
+
+**Confidence:** HIGH -- direct code analysis shows A4_COLUMNS=80 hardcoded.
+
+**Phase to address:** Word wrap phase, as a design decision.
+
+---
+
+### Pitfall 12: Auto-Truncation Confusion -- Claude Code Already Does Compaction
+
+**What goes wrong:**
+The developer implements auto-truncation (dropping old messages when context gets too long) in the wrapper, AND Claude Code's internal compaction runs at ~95% context capacity. Both systems fight: the wrapper drops messages to stay under a token estimate, but Claude Code's compaction runs anyway because the wrapper's estimate is wrong, or the wrapper's truncation point differs from what Claude Code considers "old." The conversation summary from compaction references messages the wrapper already dropped.
+
+**Why it happens:**
+Claude Code has [built-in automatic context compaction](https://platform.claude.com/docs/en/build-with-claude/compaction) that triggers at ~95% of context window capacity. When using `--resume`, Claude Code manages the full conversation history internally. If the wrapper ALSO tries to manage history length, the two systems have conflicting views of what the conversation contains.
+
+**Prevention:**
+1. Since the recommendation is Approach A (Claude Code manages sessions -- see Pitfall 4), do NOT implement auto-truncation in the wrapper. Let Claude Code's compaction handle it.
+2. The wrapper's job is to: capture session_id, pass `--resume`, handle errors, display output. NOT to manage conversation length.
+3. If you must show the user that compaction happened, watch for compaction events in the NDJSON stream (Claude Code emits a system message about "organizing thoughts").
+4. The only "truncation" the wrapper should do is `max_lines` on the Log widget (visual only, not affecting API context).
+
+**Detection:**
+- Search the codebase for both "truncat" and "resume" -- if both exist, there may be a conflict.
+
+**Confidence:** HIGH -- verified from [Claude Code compaction docs](https://platform.claude.com/docs/en/build-with-claude/compaction).
+
+**Phase to address:** Multi-turn phase. Explicitly decide NOT to implement truncation, and document why.
+
+---
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Multi-turn bridge | Using `--continue` instead of `--resume` (Pitfall 1) | Capture session_id, use `--resume` explicitly |
+| Multi-turn bridge | Subprocess zombies from interrupted turns (Pitfall 2) | Kill-with-timeout pattern, track current proc |
+| Multi-turn bridge | Session corruption on interrupted turns (Pitfall 3) | Check exit code, fall back to new session |
+| Multi-turn bridge | Hybrid context management (Pitfall 4) | Commit to Approach A, let Claude Code manage sessions |
+| Multi-turn bridge | Implementing auto-truncation (Pitfall 12) | Do NOT implement -- rely on Claude Code's compaction |
+| Multi-turn bridge | Race condition on rapid prompts (Pitfall 8) | Disable input during streaming, kill old proc before new |
+| Multi-turn bridge | Unbounded Log memory (Pitfall 7) | Set max_lines on Log widget |
+| Word wrap | Character-by-character jitter (Pitfall 5) | Pipeline filter, not CSS property |
+| Word wrap | Printer vs TUI width mismatch (Pitfall 11) | Accept mismatch or sync to printer width |
+| Error handling | Not reading stderr (Pitfall 6) | Read and classify stderr on non-zero exit |
+| Error handling | Session_id not captured on first-turn failure (Pitfall 9) | Default to None, handle gracefully |
+| Transcript | Split transcripts across restarts (Pitfall 10) | Include session_id in filename |
+
+## Integration Gotchas Specific to v1.1
+
+| Integration Point | Common Mistake | Correct Approach |
+|-------------------|----------------|------------------|
+| bridge.py + multi-turn | Passing `--continue` flag | Pass `--resume <session_id>` captured from first turn's init event |
+| bridge.py + error handling | Ignoring subprocess return code | Check `proc.returncode`, read stderr, classify error type |
+| tui.py + multi-turn | Allowing input during streaming | Disable Input widget while worker is active, re-enable on completion |
+| tui.py + word wrap | Using CSS `text-wrap: wrap` on Log | Implement word-wrap filter in output pipeline before Log.write() |
+| tui.py + long sessions | Unbounded Log line storage | Set `max_lines=5000` (or similar) on Log widget |
+| cli.py + multi-turn | Using asyncio.run() per prompt in a loop | Use a single asyncio event loop with a prompt-response loop inside |
+| printer + word wrap | Different wrap widths for printer vs TUI | Document the difference or sync to a common column width |
+| transcript + multi-turn | New file per TUI launch | Include session_id in filename, consider append-on-resume |
+
+## "Changed Assumptions" Checklist
+
+Things that were true in v1.0 but are no longer true in v1.1:
+
+- [ ] **One subprocess per session:** v1.0 spawned one process and read it to completion. v1.1 spawns one process per TURN. Process lifecycle management is now critical.
+- [ ] **No session state:** v1.0 had no state between prompts. v1.1 must track session_id across turns.
+- [ ] **Input always available:** v1.0's input was always ready (one prompt, done). v1.1 must manage input availability during streaming.
+- [ ] **Short conversations:** v1.0 was one turn. v1.1 conversations can be 50+ turns. Memory management matters.
+- [ ] **Simple error path:** v1.0's error was "no response." v1.1 needs classified errors with different recovery actions.
+- [ ] **Transcript is one exchange:** v1.0 wrote one prompt and one response. v1.1 transcripts contain full multi-turn conversations.
 
 ## Sources
 
-- [Python subprocess documentation](https://docs.python.org/3/library/subprocess.html) -- deadlock warnings, buffering behavior
-- [Python asyncio subprocess documentation](https://docs.python.org/3/library/asyncio-subprocess.html) -- async subprocess streaming
-- [Claude Code headless/programmatic docs](https://code.claude.com/docs/en/headless) -- stream-json format, partial messages
-- [Capture Python subprocess output in real-time](https://lucadrf.dev/blog/python-subprocess-buffers/) -- buffering analysis
-- [libusb macOS kernel driver detach PR #911](https://github.com/libusb/libusb/pull/911) -- macOS device access limitations
-- [libusb FAQ](https://github.com/libusb/libusb/wiki/FAQ) -- kernel driver conflicts
-- [pyusb permission issues on macOS (#208)](https://github.com/pyusb/pyusb/issues/208) -- Access denied errors
-- [pyusb device not found on macOS M1 (#482)](https://github.com/pyusb/pyusb/discussions/482) -- hardware compatibility
-- [python-escpos documentation](https://python-escpos.readthedocs.io/en/latest/user/printers.html) -- USB vs Serial driver distinction
-- [Python curses programming HOWTO](https://docs.python.org/3/howto/curses.html) -- terminal UI pitfalls
-- [Textual TUI framework](https://github.com/Textualize/textual) -- modern terminal UI alternative
-- [pygame mixer lag discussion](https://groups.google.com/g/pygame-mirror-on-google-groups/c/mP2P3QfSoV4) -- audio buffer sizing
-- [python-sounddevice threading issues (#187)](https://github.com/spatialaudio/python-sounddevice/issues/187) -- GIL and audio threading
-- [PTY pseudo-terminal pitfalls](https://runebook.dev/en/docs/python/library/pty) -- macOS pty safety concerns
+- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference) -- session management flags, --resume vs --continue
+- [Claude Code headless/programmatic docs](https://code.claude.com/docs/en/headless) -- multi-turn chaining with session_id
+- [Claude Code --resume crash on killed sessions (issue #18880)](https://github.com/anthropics/claude-code/issues/18880) -- session corruption details
+- [Claude Code OOM from accumulated cache (issue #13126)](https://github.com/anthropics/claude-code/issues/13126) -- memory growth in long sessions
+- [Claude Code auto-compact failure (issue #13929)](https://github.com/anthropics/claude-code/issues/13929) -- context limit edge cases
+- [Claude Code context compaction docs](https://platform.claude.com/docs/en/build-with-claude/compaction) -- automatic context management
+- [Textual Log widget docs](https://textual.textualize.io/widgets/log/) -- max_lines, auto_scroll, write methods
+- [Textual text-wrap CSS](https://textual.textualize.io/styles/text_wrap/) -- wrap/nowrap behavior
+- [Textual TextLog wrap=True layout bug (issue #1554)](https://github.com/Textualize/textual/issues/1554) -- historical wrapping issues (fixed)
+- [Python asyncio subprocess docs](https://docs.python.org/3/library/asyncio-subprocess.html) -- process lifecycle, deadlock prevention
+- [Steve Kinney - Claude Code Session Management](https://stevekinney.com/courses/ai-development/claude-code-session-management) -- session flag behavior
+- [Mastering Claude Code Sessions](https://www.vibesparking.com/en/blog/ai/claude-code/docs/cli/2025-08-28-mastering-claude-code-sessions-continue-resume-automate/) -- --continue vs --resume distinction
 
 ---
-*Pitfalls research for: USB-LPT printer CLI wrapper with real-time character streaming*
-*Researched: 2026-02-14*
+*Pitfalls research for: v1.1 multi-turn conversation, context management, word wrap, and error handling*
+*Researched: 2026-02-16*
