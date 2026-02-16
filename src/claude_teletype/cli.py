@@ -126,6 +126,11 @@ def chat(
         "--transcript-dir",
         help="Directory for transcript files (default: ./transcripts)",
     ),
+    resume: str = typer.Option(
+        None,
+        "--resume",
+        help="Resume a previous session by ID",
+    ),
     juki: bool = typer.Option(
         False,
         "--juki",
@@ -221,5 +226,13 @@ def chat(
             printer=printer,
             no_audio=no_audio,
             transcript_dir=transcript_dir,
+            resume_session_id=resume,
         )
         tui_app.run()
+
+        if tui_app.session_id:
+            console.print(
+                f"To resume: claude-teletype --resume {tui_app.session_id}",
+                style="dim",
+                stderr=True,
+            )

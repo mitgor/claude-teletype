@@ -48,6 +48,7 @@ class TeletypeApp(App):
         printer=None,
         no_audio: bool = False,
         transcript_dir: str | None = None,
+        resume_session_id: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -59,11 +60,16 @@ class TeletypeApp(App):
         self._transcript_close = None
         self._printer_write = None
         self._prev_input_value = ""
-        self._session_id: str | None = None
+        self._session_id: str | None = resume_session_id
         self._turn_count: int = 0
         self._proc_holder: list = []
         self._model_name: str = "--"
         self._context_pct: str = "--"
+
+    @property
+    def session_id(self) -> str | None:
+        """Current session ID for resume support. Read by CLI after exit."""
+        return self._session_id
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -88,6 +94,13 @@ class TeletypeApp(App):
             from claude_teletype.printer import make_printer_output
 
             self._printer_write = make_printer_output(self.printer)
+
+        if self._session_id is not None:
+            log = self.query_one("#output", Log)
+            log.write(f"Resumed session {self._session_id[:8]}...\n\n")
+            self.query_one("#prompt", Input).placeholder = (
+                "Resumed session. Type a prompt and press Enter..."
+            )
 
         self.query_one("#prompt", Input).focus()
 
@@ -228,7 +241,14 @@ class TeletypeApp(App):
                 proc_holder=self._proc_holder,
             ):
                 if isinstance(item, StreamResult):
-                    self._session_id = item.session_id
+                    if item.is_error and self._session_id is not None:
+                        # Resume failed — fall back to new session
+                        self._session_id = None
+                        log.write(
+                            "\n[Session expired or corrupted. Starting new session.]\n"
+                        )
+                    else:
+                        self._session_id = item.session_id
                     self._model_name = extract_model_name(item.model_usage) or "--"
                     self._context_pct = calc_context_pct(item.model_usage)
                     self._update_status()
