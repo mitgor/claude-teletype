@@ -44,10 +44,12 @@ async def _chat_async(
 
     destinations = [sys.stdout.write]
 
+    printer_write = None
     if printer is not None and printer.is_connected:
         from claude_teletype.printer import make_printer_output
 
-        destinations.append(make_printer_output(printer))
+        printer_write = make_printer_output(printer)
+        destinations.append(printer_write)
 
     if not no_audio:
         from claude_teletype.audio import make_bell_output
@@ -65,9 +67,11 @@ async def _chat_async(
     first_token = True
 
     try:
-        # Write user prompt to transcript before streaming
+        # Write user prompt to transcript and printer before streaming
         for ch in f"\n> {prompt}\n\n":
             transcript_write(ch)
+            if printer_write:
+                printer_write(ch)
 
         with console.status("[bold cyan]Thinking...", spinner="dots") as status:
             async for text_chunk in stream_claude_response(prompt):
@@ -122,16 +126,79 @@ def chat(
         "--transcript-dir",
         help="Directory for transcript files (default: ./transcripts)",
     ),
+    juki: bool = typer.Option(
+        False,
+        "--juki",
+        help="Enable Juki 6100 impact printer mode",
+    ),
+    teletype: bool = typer.Option(
+        False,
+        "--teletype",
+        help="Raw teletype mode: keyboard to printer, char by char",
+    ),
 ) -> None:
     """Send a prompt to Claude and watch the response appear character by character."""
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():
         no_tui = True
 
+    if teletype:
+        from claude_teletype.printer import (
+            FilePrinterDriver,
+            discover_cups_printers,
+            discover_macos_usb_printers,
+            discover_usb_device_verbose,
+        )
+        from claude_teletype.teletype import run_teletype
+
+        usb_driver, diagnostics = discover_usb_device_verbose()
+
+        if usb_driver is not None:
+            run_teletype(usb_driver, juki=juki)
+            return
+
+        # Discovery failed — show diagnostics
+        for msg in diagnostics:
+            console.print(f"[yellow]  {msg}", highlight=False)
+
+        # macOS IOKit fallback
+        if sys.platform == "darwin":
+            iokit_printers = discover_macos_usb_printers()
+            if iokit_printers:
+                console.print("[cyan]macOS IOKit sees:")
+                for p in iokit_printers:
+                    vid = p.get("vid", 0)
+                    pid = p.get("pid", 0)
+                    console.print(
+                        f"[cyan]  {p['name']} (0x{vid:04x}:0x{pid:04x})", highlight=False
+                    )
+
+        # CUPS fallback info
+        cups_printers = discover_cups_printers()
+        usb_cups = [p for p in cups_printers if p["uri"].startswith("usb://")]
+        if usb_cups:
+            console.print("[cyan]CUPS sees USB printers:")
+            for p in usb_cups:
+                console.print(
+                    f"[cyan]  {p['name']} ({p['uri']}) "
+                    "— but teletype needs direct USB access.",
+                    highlight=False,
+                )
+            console.print("[cyan]  Ensure pyusb is installed: uv sync --extra usb")
+
+        # --device fallback
+        if device:
+            console.print(f"[yellow]Falling back to device file: {device}")
+            run_teletype(FilePrinterDriver(device), juki=juki)
+            return
+
+        console.print("[bold red]No USB printer available for teletype mode.")
+        raise typer.Exit(1)
+
     # Discover printer (lazy import to avoid loading printer module when unused)
     from claude_teletype.printer import discover_printer
 
-    printer = discover_printer(device_override=device)
+    printer = discover_printer(device_override=device, juki=juki)
 
     if no_tui:
         if not prompt:

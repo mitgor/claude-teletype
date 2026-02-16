@@ -5,11 +5,19 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from claude_teletype.printer import (
+    A4_COLUMNS,
     CupsPrinterDriver,
     FilePrinterDriver,
+    JukiPrinterDriver,
     NullPrinterDriver,
+    UsbPrinterDriver,
+    discover_cups_printers,
+    discover_macos_usb_printers,
     discover_printer,
+    discover_usb_device,
+    discover_usb_device_verbose,
     make_printer_output,
+    select_printer,
 )
 
 # ---------------------------------------------------------------------------
@@ -90,7 +98,7 @@ def test_file_driver_close(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# CupsPrinterDriver tests (mock subprocess.run)
+# CupsPrinterDriver tests (per-line flush for real-time output)
 # ---------------------------------------------------------------------------
 
 
@@ -101,8 +109,8 @@ def test_cups_driver_is_connected():
 
 
 @patch("claude_teletype.printer.subprocess.run")
-def test_cups_driver_buffers_until_newline(mock_run: MagicMock):
-    """write('A'), write('B') does NOT call subprocess; write('\\n') flushes."""
+def test_cups_driver_flushes_on_newline(mock_run: MagicMock):
+    """write('A'), write('B') buffers; write('\\n') flushes line via lp."""
     driver = CupsPrinterDriver("TestPrinter")
     driver.write("A")
     driver.write("B")
@@ -113,7 +121,7 @@ def test_cups_driver_buffers_until_newline(mock_run: MagicMock):
         ["lp", "-o", "raw", "-d", "TestPrinter"],
         input=b"AB\n",
         capture_output=True,
-        timeout=10,
+        timeout=30,
     )
 
 
@@ -241,3 +249,740 @@ def test_make_printer_output_compatible_with_make_output_fn(tmp_path: Path):
     driver.close()
     assert collected == ["H", "i"]
     assert dev.read_bytes() == b"Hi"
+
+
+# ---------------------------------------------------------------------------
+# A4 column wrapping tests
+# ---------------------------------------------------------------------------
+
+
+def test_a4_columns_constant():
+    """A4_COLUMNS is 80."""
+    assert A4_COLUMNS == 80
+
+
+def test_wrapping_at_a4_width():
+    """Auto-inserts newline when column reaches A4_COLUMNS."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    for _ in range(A4_COLUMNS):
+        output_fn("X")
+    # Column is now 80; next printable char should trigger a newline first
+    output_fn("Y")
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    assert calls[A4_COLUMNS] == "\n"  # auto-inserted newline
+    assert calls[A4_COLUMNS + 1] == "Y"  # then the char
+
+
+def test_newline_resets_column():
+    """Explicit newline resets column counter, no double newline."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    for _ in range(A4_COLUMNS):
+        output_fn("X")
+    # At column 80, send newline — should NOT auto-insert extra newline
+    output_fn("\n")
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    assert calls == ["X"] * A4_COLUMNS + ["\n"]
+
+
+def test_wrapping_resets_after_newline():
+    """After a newline, column resets and next 80 chars fit without wrap."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    # Fill first line
+    for _ in range(A4_COLUMNS):
+        output_fn("A")
+    output_fn("\n")
+
+    # Fill second line exactly — no auto-wrap triggered
+    for _ in range(A4_COLUMNS):
+        output_fn("B")
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    # 80 A's + newline + 80 B's = 161 calls, no extra newlines
+    assert len(calls) == A4_COLUMNS + 1 + A4_COLUMNS
+    assert "\n" not in calls[A4_COLUMNS + 1:]  # no wrap in second line
+
+
+def test_formfeed_resets_column():
+    """Form feed resets column counter."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    for _ in range(50):
+        output_fn("X")
+    output_fn("\f")
+
+    # After form feed, should be at column 0 — 80 more chars fit
+    for _ in range(A4_COLUMNS):
+        output_fn("Y")
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    # No auto-wrap newlines should appear
+    newlines = [c for c in calls if c == "\n"]
+    assert newlines == []
+
+
+def test_cr_resets_column():
+    """Carriage return resets column counter."""
+    driver = MagicMock()
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    for _ in range(50):
+        output_fn("X")
+    output_fn("\r")
+
+    # After CR, column is 0 — 80 chars fit without wrap
+    for _ in range(A4_COLUMNS):
+        output_fn("Y")
+
+    calls = [c.args[0] for c in driver.write.call_args_list]
+    newlines = [c for c in calls if c == "\n"]
+    assert newlines == []
+
+
+# ---------------------------------------------------------------------------
+# select_printer() tests
+# ---------------------------------------------------------------------------
+
+
+def test_select_printer_no_printers():
+    """Empty list returns None."""
+    assert select_printer([]) is None
+
+
+def test_select_printer_single_auto_selects():
+    """Single printer is auto-selected without prompting."""
+    printers = [{"name": "USB2.0-Print", "uri": "usb:///USB2.0-Print"}]
+    result = select_printer(printers)
+    assert result == "USB2.0-Print"
+
+
+@patch("builtins.input", return_value="2")
+def test_select_printer_multiple_interactive(mock_input: MagicMock):
+    """With 2+ printers, user picks by number."""
+    printers = [
+        {"name": "PrinterA", "uri": "usb://A"},
+        {"name": "PrinterB", "uri": "usb://B"},
+    ]
+    result = select_printer(printers)
+    assert result == "PrinterB"
+    mock_input.assert_called_once()
+
+
+@patch("builtins.input", side_effect=["bad", "0", "1"])
+def test_select_printer_retries_on_invalid(mock_input: MagicMock):
+    """Invalid input retries until valid."""
+    printers = [
+        {"name": "PrinterA", "uri": "usb://A"},
+        {"name": "PrinterB", "uri": "usb://B"},
+    ]
+    result = select_printer(printers)
+    assert result == "PrinterA"
+    assert mock_input.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# JukiPrinterDriver tests
+# ---------------------------------------------------------------------------
+
+
+def test_juki_sends_init_on_first_write():
+    """First write sends RESET + LINE_SPACING + FIXED_PITCH init sequence."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+
+    juki.write("A")
+
+    # Collect all chars written to inner
+    calls = [c.args[0] for c in inner.write.call_args_list]
+    raw = bytes(ord(ch) for ch in calls)
+
+    expected_init = (
+        b"\x1b\x1aI"  # RESET
+        b"\x1b\x1e\x09"  # LINE_SPACING
+        b"\x1bQ"  # FIXED_PITCH
+    )
+    assert raw.startswith(expected_init)
+    assert raw[-1:] == b"A"
+
+
+def test_juki_no_double_init():
+    """Init sequence only sent once, not on subsequent writes."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+
+    juki.write("A")
+    first_count = inner.write.call_count
+
+    juki.write("B")
+    # Second write should add exactly 1 call (just "B")
+    assert inner.write.call_count == first_count + 1
+
+
+def test_juki_converts_newline_to_crlf_and_reinits():
+    """\\n is converted to \\r\\n followed by LINE_SPACING + FIXED_PITCH."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+    juki._initialized = True  # skip init for clarity
+
+    juki.write("\n")
+
+    calls = [c.args[0] for c in inner.write.call_args_list]
+    raw = bytes(ord(ch) for ch in calls)
+    expected = b"\r\n" + JukiPrinterDriver.LINE_SPACING + JukiPrinterDriver.FIXED_PITCH
+    assert raw == expected
+
+
+def test_juki_regular_chars_pass_through():
+    """Non-newline chars pass through unchanged."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+    juki._initialized = True
+
+    juki.write("X")
+
+    inner.write.assert_called_once_with("X")
+
+
+def test_juki_close_sends_formfeed():
+    """close() sends form feed before closing inner driver."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+    juki._initialized = True
+
+    juki.close()
+
+    inner.write.assert_called_once_with("\f")
+    inner.close.assert_called_once()
+
+
+def test_juki_close_skips_formfeed_when_not_initialized():
+    """close() skips form feed if never initialized (nothing was printed)."""
+    inner = MagicMock()
+    inner.is_connected = True
+    juki = JukiPrinterDriver(inner)
+
+    juki.close()
+
+    inner.write.assert_not_called()
+    inner.close.assert_called_once()
+
+
+def test_juki_is_connected_delegates():
+    """is_connected delegates to inner driver."""
+    inner = MagicMock()
+    inner.is_connected = False
+    juki = JukiPrinterDriver(inner)
+    assert juki.is_connected is False
+
+    inner.is_connected = True
+    assert juki.is_connected is True
+
+
+def test_juki_write_noop_when_disconnected():
+    """write() does nothing when inner is disconnected."""
+    inner = MagicMock()
+    inner.is_connected = False
+    juki = JukiPrinterDriver(inner)
+
+    juki.write("A")
+    inner.write.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# discover_printer() with juki=True tests
+# ---------------------------------------------------------------------------
+
+
+def test_discover_juki_wraps_file_driver(tmp_path: Path):
+    """discover_printer(device_override=..., juki=True) wraps in JukiPrinterDriver."""
+    dev = tmp_path / "dev"
+    dev.touch()
+    driver = discover_printer(device_override=str(dev), juki=True)
+    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver._inner, FilePrinterDriver)
+    driver._inner.close()
+
+
+@patch("claude_teletype.printer.discover_usb_device")
+@patch("claude_teletype.printer.subprocess.run")
+def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMock):
+    """discover_printer(juki=True) with CUPS printer wraps in JukiPrinterDriver."""
+    mock_usb.return_value = None
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://Vendor/Model?serial=123\n",
+        returncode=0,
+    )
+    driver = discover_printer(juki=True)
+    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver._inner, CupsPrinterDriver)
+
+
+@patch("claude_teletype.printer.discover_usb_device")
+@patch("claude_teletype.printer.subprocess.run")
+def test_discover_juki_null_not_wrapped(mock_run: MagicMock, mock_usb: MagicMock):
+    """discover_printer(juki=True) with no printers returns NullPrinterDriver (not wrapped)."""
+    mock_usb.return_value = None
+    mock_run.return_value = MagicMock(stdout="", returncode=0)
+    driver = discover_printer(juki=True)
+    assert isinstance(driver, NullPrinterDriver)
+
+
+# ---------------------------------------------------------------------------
+# UsbPrinterDriver tests
+# ---------------------------------------------------------------------------
+
+
+def test_usb_driver_is_connected():
+    """UsbPrinterDriver is connected after construction."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    assert driver.is_connected is True
+
+
+def test_usb_driver_write_calls_endpoint():
+    """write('A') calls ep_out.write(b'A')."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    driver.write("A")
+    ep_out.write.assert_called_once_with(b"A")
+
+
+def test_usb_driver_disconnect_on_error():
+    """USB error during write sets is_connected=False."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    ep_out.write.side_effect = Exception("USB error")
+    driver = UsbPrinterDriver(dev, ep_out)
+    driver.write("A")
+    assert driver.is_connected is False
+
+
+def test_usb_driver_noop_when_disconnected():
+    """write() does nothing when already disconnected."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    driver._connected = False
+    driver.write("A")
+    ep_out.write.assert_not_called()
+
+
+def test_usb_driver_close_disposes_resources():
+    """close() calls usb.util.dispose_resources."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.util = mock_usb_util
+    with patch.dict("sys.modules", {"usb": mock_usb, "usb.util": mock_usb_util}):
+        driver.close()
+        mock_usb_util.dispose_resources.assert_called_once_with(dev)
+    assert driver._dev is None
+
+
+def test_usb_driver_close_handles_import_error():
+    """close() handles missing usb module gracefully."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    # Simulate usb not installed: setting to None causes ImportError
+    with patch.dict("sys.modules", {"usb": None, "usb.util": None}):
+        driver.close()  # should not raise
+    assert driver._dev is None
+
+
+# ---------------------------------------------------------------------------
+# discover_usb_device() tests
+# ---------------------------------------------------------------------------
+
+
+def test_discover_usb_returns_none_when_no_pyusb():
+    """discover_usb_device() returns None when pyusb is not installed."""
+    # Setting sys.modules entries to None causes ImportError on import
+    with patch.dict("sys.modules", {"usb": None, "usb.core": None, "usb.util": None}):
+        result = discover_usb_device()
+    assert result is None
+
+
+def test_discover_usb_returns_none_when_no_backend():
+    """discover_usb_device() returns None when libusb backend is missing."""
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.side_effect = mock_usb_core.NoBackendError("no backend")
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict("sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}):
+        result = discover_usb_device()
+    assert result is None
+
+
+def test_discover_usb_returns_driver_when_device_found():
+    """discover_usb_device() returns UsbPrinterDriver when a printer-class device exists."""
+    mock_ep = MagicMock()
+    mock_ep.bEndpointAddress = 0x01
+
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = 7
+    mock_intf.bInterfaceNumber = 0
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+    mock_dev.is_kernel_driver_active.return_value = False
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.return_value = [mock_dev]
+
+    mock_usb_util = MagicMock()
+    mock_usb_util.ENDPOINT_OUT = 0x00
+    mock_usb_util.endpoint_direction.return_value = 0x00
+    mock_usb_util.find_descriptor.return_value = mock_ep
+
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict("sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}):
+        result = discover_usb_device()
+    assert result is not None
+    assert isinstance(result, UsbPrinterDriver)
+    assert result.is_connected is True
+
+
+def test_discover_usb_returns_none_when_no_printer_class():
+    """discover_usb_device() returns None when no device has printer class."""
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = 3  # HID, not printer
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.return_value = [mock_dev]
+
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict("sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}):
+        result = discover_usb_device()
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# discover_printer() USB priority tests
+# ---------------------------------------------------------------------------
+
+
+@patch("claude_teletype.printer.discover_usb_device")
+@patch("claude_teletype.printer.subprocess.run")
+def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: MagicMock):
+    """discover_printer(juki=True) tries USB first; if found, skips CUPS."""
+    mock_usb.return_value = UsbPrinterDriver(MagicMock(), MagicMock())
+    driver = discover_printer(juki=True)
+    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver._inner, UsbPrinterDriver)
+    mock_run.assert_not_called()  # CUPS not tried
+
+
+@patch("claude_teletype.printer.discover_usb_device")
+@patch("claude_teletype.printer.subprocess.run")
+def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_usb: MagicMock):
+    """discover_printer(juki=True) falls back to CUPS when USB returns None."""
+    mock_usb.return_value = None
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://Vendor/Model?serial=123\n",
+        returncode=0,
+    )
+    driver = discover_printer(juki=True)
+    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver._inner, CupsPrinterDriver)
+
+
+@patch("claude_teletype.printer.discover_usb_device")
+@patch("claude_teletype.printer.subprocess.run")
+def test_discover_no_juki_skips_usb(mock_run: MagicMock, mock_usb: MagicMock):
+    """discover_printer(juki=False) does not try USB discovery."""
+    mock_run.return_value = MagicMock(stdout="", returncode=0)
+    discover_printer(juki=False)
+    mock_usb.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# discover_usb_device_verbose() tests
+# ---------------------------------------------------------------------------
+
+
+def test_verbose_returns_diagnostics_when_no_pyusb():
+    """discover_usb_device_verbose() returns diagnostic when pyusb missing."""
+    with patch.dict("sys.modules", {"usb": None, "usb.core": None, "usb.util": None}):
+        driver, diagnostics = discover_usb_device_verbose()
+    assert driver is None
+    assert any("pyusb not installed" in d for d in diagnostics)
+
+
+def test_verbose_returns_diagnostics_when_no_backend():
+    """discover_usb_device_verbose() returns diagnostic when no libusb backend."""
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.side_effect = mock_usb_core.NoBackendError("no backend")
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}
+    ):
+        driver, diagnostics = discover_usb_device_verbose()
+    assert driver is None
+    assert any("libusb backend not found" in d for d in diagnostics)
+
+
+def test_verbose_returns_driver_and_success_message():
+    """discover_usb_device_verbose() returns driver + success diagnostic."""
+    mock_ep = MagicMock()
+    mock_ep.bEndpointAddress = 0x01
+
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = 7
+    mock_intf.bInterfaceNumber = 0
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+    mock_dev.is_kernel_driver_active.return_value = False
+    mock_dev.idVendor = 0x1234
+    mock_dev.idProduct = 0x5678
+    mock_dev.product = "TestPrinter"
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.return_value = [mock_dev]
+
+    mock_usb_util = MagicMock()
+    mock_usb_util.ENDPOINT_OUT = 0x00
+    mock_usb_util.endpoint_direction.return_value = 0x00
+    mock_usb_util.find_descriptor.return_value = mock_ep
+
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}
+    ):
+        driver, diagnostics = discover_usb_device_verbose()
+    assert driver is not None
+    assert isinstance(driver, UsbPrinterDriver)
+    assert any("Found USB device: TestPrinter" in d for d in diagnostics)
+    assert any("USB printer found: endpoint OUT" in d for d in diagnostics)
+
+
+def test_verbose_no_printer_class_shows_device_count():
+    """discover_usb_device_verbose() reports device count when no printers found."""
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = 3  # HID
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.return_value = [mock_dev]
+
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}
+    ):
+        driver, diagnostics = discover_usb_device_verbose()
+    assert driver is None
+    assert any("No USB printer-class devices found. 1 other" in d for d in diagnostics)
+
+
+def test_verbose_kernel_driver_detach_reported():
+    """discover_usb_device_verbose() reports kernel driver detach attempt."""
+    mock_ep = MagicMock()
+    mock_ep.bEndpointAddress = 0x01
+
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = 7
+    mock_intf.bInterfaceNumber = 0
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+    mock_dev.is_kernel_driver_active.return_value = True
+    mock_dev.detach_kernel_driver.side_effect = OSError("access denied")
+    mock_dev.idVendor = 0x1234
+    mock_dev.idProduct = 0x5678
+    mock_dev.product = "TestPrinter"
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+    mock_usb_core.find.return_value = [mock_dev]
+
+    mock_usb_util = MagicMock()
+    mock_usb_util.ENDPOINT_OUT = 0x00
+    mock_usb_util.endpoint_direction.return_value = 0x00
+    mock_usb_util.find_descriptor.return_value = mock_ep
+
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util}
+    ):
+        driver, diagnostics = discover_usb_device_verbose()
+    assert any("Kernel driver active on interface 0" in d for d in diagnostics)
+    assert any("Could not detach kernel driver" in d for d in diagnostics)
+
+
+# ---------------------------------------------------------------------------
+# discover_macos_usb_printers() tests
+# ---------------------------------------------------------------------------
+
+
+@patch("claude_teletype.printer.sys")
+@patch("claude_teletype.printer.subprocess.run")
+def test_macos_discovery_parses_ioreg(mock_run: MagicMock, mock_sys: MagicMock):
+    """discover_macos_usb_printers() parses ioreg output for printer devices."""
+    mock_sys.platform = "darwin"
+    mock_run.return_value = MagicMock(
+        stdout='''\
++-o USB2.0-Print@1234  <class IOUSBHostDevice>
+  {
+    "USB Product Name" = "USB2.0-Print"
+    "idVendor" = 1234
+    "idProduct" = 5678
+    "locationID" = 12345678
+  }
+''',
+        returncode=0,
+    )
+
+    result = discover_macos_usb_printers()
+
+    assert len(result) == 1
+    assert result[0]["name"] == "USB2.0-Print"
+    assert result[0]["vid"] == 1234
+    assert result[0]["pid"] == 5678
+
+
+@patch("claude_teletype.printer.sys")
+def test_macos_discovery_skips_non_darwin(mock_sys: MagicMock):
+    """discover_macos_usb_printers() returns empty on non-macOS."""
+    mock_sys.platform = "linux"
+    result = discover_macos_usb_printers()
+    assert result == []
+
+
+@patch("claude_teletype.printer.sys")
+@patch("claude_teletype.printer.subprocess.run")
+def test_macos_discovery_filters_non_printers(mock_run: MagicMock, mock_sys: MagicMock):
+    """discover_macos_usb_printers() filters out non-printer devices."""
+    mock_sys.platform = "darwin"
+    mock_run.return_value = MagicMock(
+        stdout='''\
++-o USB Keyboard@1234  <class IOUSBHostDevice>
+  {
+    "USB Product Name" = "USB Keyboard"
+    "idVendor" = 1111
+    "idProduct" = 2222
+    "locationID" = 11111111
+  }
+''',
+        returncode=0,
+    )
+
+    result = discover_macos_usb_printers()
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# discover_cups_printers() URI enrichment tests
+# ---------------------------------------------------------------------------
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_discovery_parses_usb_uri(mock_run: MagicMock):
+    """discover_cups_printers() extracts vendor, model, serial from USB URI."""
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://Acme/LaserJet?serial=ABC123\n",
+        returncode=0,
+    )
+    printers = discover_cups_printers()
+    assert len(printers) == 1
+    assert printers[0]["vendor"] == "Acme"
+    assert printers[0]["model"] == "LaserJet"
+    assert printers[0]["serial"] == "ABC123"
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_discovery_handles_uri_without_serial(mock_run: MagicMock):
+    """discover_cups_printers() works when URI has no serial parameter."""
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://Acme/LaserJet\n",
+        returncode=0,
+    )
+    printers = discover_cups_printers()
+    assert len(printers) == 1
+    assert printers[0]["vendor"] == "Acme"
+    assert printers[0]["model"] == "LaserJet"
+    assert "serial" not in printers[0]
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_discovery_decodes_percent_encoding(mock_run: MagicMock):
+    """discover_cups_printers() decodes %20 in vendor/model names."""
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://My%20Vendor/My%20Model?serial=X\n",
+        returncode=0,
+    )
+    printers = discover_cups_printers()
+    assert printers[0]["vendor"] == "My Vendor"
+    assert printers[0]["model"] == "My Model"

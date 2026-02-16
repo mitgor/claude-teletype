@@ -83,3 +83,52 @@ async def test_default_delay():
     """Default base_delay_ms is 75.0."""
     app = TeletypeApp()
     assert app.base_delay_ms == 75.0
+
+
+async def test_typing_sends_chars_to_printer():
+    """Each typed character is sent to the printer in real-time."""
+    app = TeletypeApp(base_delay_ms=0)
+    printed: list[str] = []
+    async with app.run_test() as pilot:
+        app._printer_write = lambda ch: printed.append(ch)
+        await pilot.press(*"hi")
+        await pilot.pause()
+    # First char triggers prefix "\n> " then "h", then "i"
+    assert printed == ["\n", ">", " ", "h", "i"]
+
+
+async def test_submit_sends_newlines_to_printer():
+    """On submit, printer gets two newlines (not the full prompt again)."""
+    app = TeletypeApp(base_delay_ms=0)
+    printed: list[str] = []
+    async with app.run_test() as pilot:
+        app._printer_write = lambda ch: printed.append(ch)
+        await pilot.press(*"ab")
+        await pilot.pause()
+        printed.clear()  # Reset to only capture submit output
+        await pilot.press("enter")
+        await pilot.pause()
+    assert printed == ["\n", "\n"]
+
+
+async def test_backspace_does_not_send_to_printer():
+    """Backspace/deletion does not send anything to the printer."""
+    app = TeletypeApp(base_delay_ms=0)
+    printed: list[str] = []
+    async with app.run_test() as pilot:
+        app._printer_write = lambda ch: printed.append(ch)
+        await pilot.press(*"abc")
+        await pilot.pause()
+        printed.clear()
+        await pilot.press("backspace")
+        await pilot.pause()
+    assert printed == []
+
+
+async def test_no_printer_write_does_not_crash():
+    """on_input_changed exits early when no printer is attached."""
+    app = TeletypeApp(base_delay_ms=0)
+    async with app.run_test() as pilot:
+        # _printer_write is None by default, should not crash
+        await pilot.press(*"hello")
+        await pilot.pause()

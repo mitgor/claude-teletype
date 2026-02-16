@@ -62,6 +62,11 @@ async def stream_claude_response(prompt: str) -> AsyncIterator[str]:
         "stream-json",
         "--verbose",
         "--include-partial-messages",
+        "--dangerously-skip-permissions",
+        "--allowedTools",
+        "WebSearch",
+        "--allowedTools",
+        "WebFetch",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

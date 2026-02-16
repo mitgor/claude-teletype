@@ -12,6 +12,9 @@ dependencies = [
     "numpy>=1.26.0",
 ]
 
+[project.optional-dependencies]
+usb = ["pyusb>=1.3.0"]
+
 [project.scripts]
 claude-teletype = "claude_teletype.cli:app"
 

@@ -46,6 +46,8 @@ class TeletypeApp(App):
         self.transcript_dir = transcript_dir
         self._transcript_write = None
         self._transcript_close = None
+        self._printer_write = None
+        self._prev_input_value = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -54,7 +56,7 @@ class TeletypeApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Focus the input widget on app start and initialize transcript."""
+        """Focus the input widget on app start and initialize transcript + printer."""
         from pathlib import Path
 
         from claude_teletype.transcript import make_transcript_output
@@ -65,6 +67,11 @@ class TeletypeApp(App):
         self._transcript_write = write_fn
         self._transcript_close = close_fn
 
+        if self.printer is not None and self.printer.is_connected:
+            from claude_teletype.printer import make_printer_output
+
+            self._printer_write = make_printer_output(self.printer)
+
         self.query_one("#prompt", Input).focus()
 
     def on_unmount(self) -> None:
@@ -74,6 +81,24 @@ class TeletypeApp(App):
         if self._transcript_close is not None:
             self._transcript_close()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Print each character to printer as user types."""
+        if self._printer_write is None:
+            return
+        new_val = event.value
+        old_val = self._prev_input_value
+        self._prev_input_value = new_val
+
+        if len(new_val) > len(old_val) and new_val[: len(old_val)] == old_val:
+            # Characters added at end (normal typing or paste)
+            if not old_val:
+                # First char — print prompt prefix
+                for ch in "\n> ":
+                    self._printer_write(ch)
+            added = new_val[len(old_val) :]
+            for ch in added:
+                self._printer_write(ch)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user pressing Enter in the input field."""
         prompt = event.value.strip()
@@ -81,13 +106,19 @@ class TeletypeApp(App):
             return
 
         event.input.clear()
+        self._prev_input_value = ""
         log = self.query_one("#output", Log)
         log.write(f"\n> {prompt}\n\n")
 
-        # Write user prompt to transcript
-        if self._transcript_write is not None:
-            for ch in f"\n> {prompt}\n\n":
+        # Write user prompt to transcript (printer already got chars live)
+        for ch in f"\n> {prompt}\n\n":
+            if self._transcript_write is not None:
                 self._transcript_write(ch)
+
+        # End-of-prompt newlines to printer
+        if self._printer_write is not None:
+            self._printer_write("\n")
+            self._printer_write("\n")
 
         # Indicate thinking state
         self.query_one("#prompt", Input).placeholder = "Thinking..."
@@ -101,14 +132,12 @@ class TeletypeApp(App):
         from claude_teletype.bridge import stream_claude_response
         from claude_teletype.output import make_output_fn
         from claude_teletype.pacer import pace_characters
-        from claude_teletype.printer import make_printer_output
 
         log = self.query_one("#output", Log)
 
         destinations = [log.write]
-        if self.printer is not None and self.printer.is_connected:
-            printer_write = make_printer_output(self.printer)
-            destinations.append(printer_write)
+        if self._printer_write is not None:
+            destinations.append(self._printer_write)
 
         if not self.no_audio:
             destinations.append(make_bell_output())
