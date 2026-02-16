@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 5 - Multi-Turn Conversation Foundation
+**Current focus:** Phase 5 complete - Multi-Turn Conversation Foundation
 
 ## Current Position
 
 Phase: 5 of 7 (Multi-Turn Conversation Foundation)
-Plan: 2 of 3 in current phase
-Status: Executing phase
-Last activity: 2026-02-16 — Completed 05-02 TUI multi-turn conversation
+Plan: 3 of 3 in current phase (COMPLETE)
+Status: Phase complete
+Last activity: 2026-02-16 — Completed 05-03 CLI resume flag and end-to-end verification
 
-Progress: [████████░░] 57% (4 of 7 phases complete)
+Progress: [██████████░░░░] 71% (5 of 7 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 3min
-- Total execution time: 0.47 hours
+- Total execution time: 0.52 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [████████░░] 57% (4 of 7 phases complete)
 | 02-terminal-simulator | 2 | 8min | 4min |
 | 03-printer-hardware | 2 | 5min | 2.5min |
 | 04-audio-and-persistence | 2 | 4min | 2min |
-| 05-multi-turn-conversation-foundation | 2 | 6min | 3min |
+| 05-multi-turn-conversation-foundation | 3 | 9min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [2.5min, 2.5min, 2min, 2min, 3min, 3min]
+- Last 5 plans: [2min, 2min, 3min, 3min, 3min]
 - Trend: Stable (average ~3min per plan)
 
 ## Accumulated Context
@@ -56,6 +56,8 @@ Recent decisions affecting current work:
 - Static widget for status bar (not Footer) — Footer only shows keybindings, Static supports custom text
 - Input disabled + 70% opacity CSS during streaming — prevents race conditions on rapid submission
 - Escape cancel writes " [interrupted]" with space prefix for readability after partial response
+- Session ID printed to stderr (not stdout) — avoids interference with piped output
+- Resume failure resets session_id and starts new session with warning (no retry)
 
 ### Pending Todos
 
@@ -76,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Completed 05-02-PLAN.md (TUI multi-turn conversation)
+Stopped at: Completed 05-03-PLAN.md (CLI resume flag and end-to-end verification) — Phase 5 COMPLETE
 Resume file: None
