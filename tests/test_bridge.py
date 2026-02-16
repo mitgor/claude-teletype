@@ -803,8 +803,11 @@ class TestStreamClaudeResponseTimeout:
 
         mock_proc = MagicMock()
         mock_proc.stdout = mock_stdout
-        # Simulate process not exiting after terminate (wait times out)
-        mock_proc.wait = AsyncMock(side_effect=asyncio.TimeoutError)
+        # Simulate process not exiting after terminate (first wait times out),
+        # then exiting after kill (second wait succeeds)
+        mock_proc.wait = AsyncMock(
+            side_effect=[asyncio.TimeoutError, 0]
+        )
         mock_proc.terminate = MagicMock()
         mock_proc.kill = MagicMock()
         mock_proc.returncode = None
@@ -867,8 +870,14 @@ class TestStreamClaudeResponseTimeout:
             async for item in stream_claude_response("test prompt"):
                 items.append(item)
 
-        # Verify wait_for was called with shorter timeout after result
-        # The last wait_for call (which timed out) should use POST_RESULT_TIMEOUT_SECONDS
-        last_call = mock_wait_for.call_args_list[-1]
-        assert last_call.kwargs.get("timeout") == POST_RESULT_TIMEOUT_SECONDS or \
-            (len(last_call.args) > 1 and last_call.args[1] == POST_RESULT_TIMEOUT_SECONDS)
+        # Verify wait_for was called with shorter timeout after result.
+        # The wait_for calls include: 3 readline calls (INIT, HELLO, RESULT)
+        # with READ_TIMEOUT, then 1 readline call with POST_RESULT_TIMEOUT,
+        # then 1 proc.wait call with 5.0 in the cleanup handler.
+        # Filter for the POST_RESULT_TIMEOUT call (4th readline call).
+        timeout_values = [
+            call.kwargs.get("timeout") for call in mock_wait_for.call_args_list
+        ]
+        assert POST_RESULT_TIMEOUT_SECONDS in timeout_values, (
+            f"Expected {POST_RESULT_TIMEOUT_SECONDS} in timeout values: {timeout_values}"
+        )

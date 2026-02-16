@@ -3,12 +3,22 @@
 Spawns the Claude Code CLI, reads its NDJSON stream output,
 and yields text chunks from text_delta events. Supports multi-turn
 sessions via --resume flag and returns session metadata as StreamResult.
+
+Includes readline timeout protection (ERR-03) and kill-with-timeout
+subprocess cleanup (ERR-04) to handle the known stream-json hang bug
+(Claude Code issue #25629).
 """
 
 import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+
+# Readline timeout: generous default for long tool operations (5 minutes).
+# After result message received, switch to shorter timeout since no more
+# content is expected -- only the known hang bug can keep the process alive.
+READ_TIMEOUT_SECONDS: float = 300.0
+POST_RESULT_TIMEOUT_SECONDS: float = 30.0
 
 
 @dataclass
@@ -205,10 +215,13 @@ async def stream_claude_response(
 
     captured_session_id: str | None = None
     captured_result: dict | None = None
+    current_timeout: float = READ_TIMEOUT_SECONDS
 
     try:
         while True:
-            line = await proc.stdout.readline()
+            line = await asyncio.wait_for(
+                proc.stdout.readline(), timeout=current_timeout
+            )
             if not line:
                 break  # EOF
 
@@ -221,6 +234,9 @@ async def stream_claude_response(
             result_data = parse_result(line)
             if result_data is not None:
                 captured_result = result_data
+                # After result message, use shorter timeout since no more
+                # content is expected (catches stream-json hang bug #25629)
+                current_timeout = POST_RESULT_TIMEOUT_SECONDS
 
             # Yield text chunks
             text = parse_text_delta(line)
@@ -244,6 +260,22 @@ async def stream_claude_response(
             if sr.session_id is None:
                 sr.session_id = captured_result.get("session_id")
         yield sr
+
+    except asyncio.TimeoutError:
+        # Kill subprocess with SIGTERM -> wait 5s -> SIGKILL (ERR-04)
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+        yield StreamResult(
+            is_error=True,
+            error_message=(
+                f"Claude Code subprocess timed out "
+                f"(no output for {current_timeout:.0f} seconds)"
+            ),
+        )
 
     except BaseException:
         proc.terminate()
