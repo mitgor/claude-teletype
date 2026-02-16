@@ -2,19 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-14)
+See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** PROJECT COMPLETE. All 4 phases delivered. 8 plans executed.
+**Current focus:** v1.1 Conversation Mode
 
 ## Current Position
 
-Phase: 4 of 4 (Audio & Persistence)
-Plan: 2 of 2 in current phase
-Status: Complete
-Last activity: 2026-02-15 -- Completed 04-02 (Wire Audio + Transcript into CLI/TUI)
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-16 — Milestone v1.1 started
 
 ## Performance Metrics
 
@@ -31,10 +29,6 @@ Progress: [██████████] 100%
 | 02-terminal-simulator | 2 | 8min | 4min |
 | 03-printer-hardware | 2 | 5min | 2.5min |
 | 04-audio-and-persistence | 2 | 4min | 2min |
-
-**Recent Trend:**
-- Last 5 plans: 2min, 3min, 2min, 2min
-- Trend: stable
 
 *Updated after each plan completion*
 
@@ -75,11 +69,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- USB-LPT adapter communication on macOS has LOW confidence from research. Phase 3 may need hardware-specific investigation. Product must work simulation-first.
-- NDJSON message format from Claude Code CLI needs live validation in Phase 1 -- research was based on community docs, not live testing. UPDATE: Human-verified working end-to-end in 01-02.
+- Claude Code CLI conversation context: need to determine whether to use `--resume` flag or manage message history in-process
+- Auto-truncation strategy needs research: token counting vs message counting vs character limit
 
 ## Session Continuity
 
-Last session: 2026-02-15
-Stopped at: PROJECT COMPLETE -- All 4 phases, 8 plans executed successfully
-Resume file: .planning/phases/04-audio-and-persistence/04-02-SUMMARY.md
+Last session: 2026-02-16
+Stopped at: Milestone v1.1 initialization — defining requirements
+Resume file: —
