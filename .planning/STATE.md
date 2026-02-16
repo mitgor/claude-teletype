@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 5 complete - Multi-Turn Conversation Foundation
+**Current focus:** Phase 6 in progress - Error Handling and Recovery
 
 ## Current Position
 
-Phase: 5 of 7 (Multi-Turn Conversation Foundation)
-Plan: 3 of 3 in current phase (COMPLETE)
-Status: Phase complete
-Last activity: 2026-02-16 — Completed 05-03 CLI resume flag and end-to-end verification
+Phase: 6 of 7 (Error Handling and Recovery)
+Plan: 1 of 2 in current phase (COMPLETE)
+Status: Executing phase
+Last activity: 2026-02-17 — Completed 06-01 error classification and bridge timeout
 
-Progress: [██████████░░░░] 71% (5 of 7 phases complete)
+Progress: [██████████░░░░] 71% (5 of 7 phases complete, 6-01 done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: 3min
-- Total execution time: 0.52 hours
+- Total execution time: 0.57 hours
 
 **By Phase:**
 
@@ -32,9 +32,10 @@ Progress: [██████████░░░░] 71% (5 of 7 phases comple
 | 03-printer-hardware | 2 | 5min | 2.5min |
 | 04-audio-and-persistence | 2 | 4min | 2min |
 | 05-multi-turn-conversation-foundation | 3 | 9min | 3min |
+| 06-error-handling-and-recovery | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [2min, 2min, 3min, 3min, 3min]
+- Last 5 plans: [2min, 3min, 3min, 3min, 3min]
 - Trend: Stable (average ~3min per plan)
 
 ## Accumulated Context
@@ -58,6 +59,9 @@ Recent decisions affecting current work:
 - Escape cancel writes " [interrupted]" with space prefix for readability after partial response
 - Session ID printed to stderr (not stdout) — avoids interference with piped output
 - Resume failure resets session_id and starts new session with warning (no retry)
+- Substring matching (not regex) for error classification -- simpler, maintainable, sufficient for known patterns
+- 300s readline timeout as generous default, 30s after result message for hang bug detection
+- ErrorCategory as str+Enum for JSON serialization compatibility
 
 ### Pending Todos
 
@@ -77,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-16
-Stopped at: Completed 05-03-PLAN.md (CLI resume flag and end-to-end verification) — Phase 5 COMPLETE
+Last session: 2026-02-17
+Stopped at: Completed 06-01-PLAN.md (error classification and bridge timeout)
 Resume file: None
