@@ -32,10 +32,14 @@ class TeletypeApp(App):
     #prompt {
         dock: bottom;
     }
+    #prompt:disabled {
+        opacity: 70%;
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit"),
+        Binding("escape", "cancel_stream", "Cancel", show=False),
     ]
 
     def __init__(
@@ -87,8 +91,9 @@ class TeletypeApp(App):
 
         self.query_one("#prompt", Input).focus()
 
-    def on_unmount(self) -> None:
-        """Clean up printer and transcript on app exit."""
+    async def on_unmount(self) -> None:
+        """Clean up printer, transcript, and subprocess on app exit."""
+        await self._kill_process()
         if self.printer is not None:
             self.printer.close()
         if self._transcript_close is not None:
@@ -99,6 +104,28 @@ class TeletypeApp(App):
         self.query_one("#status-bar", Static).update(
             f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name}"
         )
+
+    def action_cancel_stream(self) -> None:
+        """Cancel the current streaming response."""
+        for worker in self.workers:
+            if not worker.is_finished:
+                worker.cancel()
+
+    async def _kill_process(self) -> None:
+        """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL."""
+        if not self._proc_holder:
+            return
+        proc = self._proc_holder[0]
+        if proc.returncode is not None:
+            self._proc_holder.clear()
+            return
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+        self._proc_holder.clear()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Print each character to printer as user types."""
@@ -159,8 +186,10 @@ class TeletypeApp(App):
             if self._printer_write is not None:
                 self._printer_write(ch)
 
-        # Indicate thinking state
-        self.query_one("#prompt", Input).placeholder = "Thinking..."
+        # Indicate thinking state and block input
+        input_widget = self.query_one("#prompt", Input)
+        input_widget.placeholder = "Thinking..."
+        input_widget.disabled = True
 
         self.stream_response(prompt)
 
@@ -168,7 +197,12 @@ class TeletypeApp(App):
     async def stream_response(self, prompt: str) -> None:
         """Background worker: stream Claude response with typewriter pacing."""
         from claude_teletype.audio import make_bell_output
-        from claude_teletype.bridge import stream_claude_response
+        from claude_teletype.bridge import (
+            StreamResult,
+            calc_context_pct,
+            extract_model_name,
+            stream_claude_response,
+        )
         from claude_teletype.output import make_output_fn
         from claude_teletype.pacer import pace_characters
 
@@ -188,16 +222,30 @@ class TeletypeApp(App):
         input_widget = self.query_one("#prompt", Input)
 
         try:
-            async for chunk in stream_claude_response(prompt):
-                await pace_characters(
-                    chunk,
-                    base_delay_ms=self.base_delay_ms,
-                    output_fn=output_fn,
-                )
+            async for item in stream_claude_response(
+                prompt,
+                session_id=self._session_id,
+                proc_holder=self._proc_holder,
+            ):
+                if isinstance(item, StreamResult):
+                    self._session_id = item.session_id
+                    self._model_name = extract_model_name(item.model_usage) or "--"
+                    self._context_pct = calc_context_pct(item.model_usage)
+                    self._update_status()
+                else:
+                    await pace_characters(
+                        item,
+                        base_delay_ms=self.base_delay_ms,
+                        output_fn=output_fn,
+                    )
             log.write("\n")
         except asyncio.CancelledError:
-            log.write_line("\n[Cancelled]")
+            log.write(" [interrupted]")
+            raise
         except Exception as exc:
             log.write_line(f"\n[Error: {exc}]")
         finally:
+            await self._kill_process()
+            input_widget.disabled = False
+            input_widget.focus()
             input_widget.placeholder = "Type a prompt and press Enter..."

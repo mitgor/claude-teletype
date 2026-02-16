@@ -1,6 +1,6 @@
 """Tests for the Textual split-screen TUI application."""
 
-from textual.widgets import Footer, Header, Input, Log
+from textual.widgets import Footer, Header, Input, Log, Static
 
 from claude_teletype.tui import TeletypeApp
 
@@ -39,7 +39,7 @@ async def test_enter_clears_input():
 
 
 async def test_prompt_echoed_to_log():
-    """Submitted prompt appears in the Log with '>' prefix."""
+    """Submitted prompt appears in the Log with 'You: ' label."""
     app = TeletypeApp(base_delay_ms=0)
     async with app.run_test() as pilot:
         await pilot.press(*"test prompt")
@@ -47,7 +47,7 @@ async def test_prompt_echoed_to_log():
         await pilot.pause()
         log = app.query_one("#output", Log)
         log_text = "\n".join(str(line) for line in log.lines)
-        assert "> test prompt" in log_text
+        assert "You: test prompt" in log_text
 
 
 async def test_empty_input_not_submitted():
@@ -93,12 +93,12 @@ async def test_typing_sends_chars_to_printer():
         app._printer_write = lambda ch: printed.append(ch)
         await pilot.press(*"hi")
         await pilot.pause()
-    # First char triggers prefix "\n> " then "h", then "i"
-    assert printed == ["\n", ">", " ", "h", "i"]
+    # First char triggers prefix "\nYou: " then "h", then "i"
+    assert printed == ["\n", "Y", "o", "u", ":", " ", "h", "i"]
 
 
-async def test_submit_sends_newlines_to_printer():
-    """On submit, printer gets two newlines (not the full prompt again)."""
+async def test_submit_sends_newlines_and_label_to_printer():
+    """On submit, printer gets two newlines then 'Claude: ' label."""
     app = TeletypeApp(base_delay_ms=0)
     printed: list[str] = []
     async with app.run_test() as pilot:
@@ -108,7 +108,8 @@ async def test_submit_sends_newlines_to_printer():
         printed.clear()  # Reset to only capture submit output
         await pilot.press("enter")
         await pilot.pause()
-    assert printed == ["\n", "\n"]
+    # Two newlines for end-of-prompt, then "Claude: " label
+    assert printed == ["\n", "\n", "C", "l", "a", "u", "d", "e", ":", " "]
 
 
 async def test_backspace_does_not_send_to_printer():
@@ -132,3 +133,61 @@ async def test_no_printer_write_does_not_crash():
         # _printer_write is None by default, should not crash
         await pilot.press(*"hello")
         await pilot.pause()
+
+
+async def test_status_bar_exists():
+    """Status bar Static widget with id 'status-bar' is present in layout."""
+    app = TeletypeApp(base_delay_ms=0)
+    async with app.run_test() as pilot:  # noqa: F841
+        status = app.query_one("#status-bar", Static)
+        assert status is not None
+
+
+async def test_input_disabled_during_streaming():
+    """Input widget is disabled after submitting a prompt (before worker completes)."""
+    disabled_seen = False
+
+    app = TeletypeApp(base_delay_ms=0)
+    # Replace stream_response with a no-op to prevent the finally block from re-enabling
+    original_stream = app.stream_response
+    app.stream_response = lambda prompt: None  # type: ignore[assignment]
+
+    async with app.run_test() as pilot:
+        await pilot.press(*"hello")
+        await pilot.press("enter")
+        await pilot.pause()
+        input_widget = app.query_one("#prompt", Input)
+        disabled_seen = input_widget.disabled
+
+    app.stream_response = original_stream  # type: ignore[assignment]
+    assert disabled_seen is True
+
+
+async def test_escape_binding_exists():
+    """Escape key binding is registered for cancel_stream action."""
+    app = TeletypeApp(base_delay_ms=0)
+    async with app.run_test() as pilot:  # noqa: F841
+        binding_keys = [b.key for b in app.BINDINGS]
+        assert "escape" in binding_keys
+
+
+async def test_claude_label_in_log():
+    """'Claude: ' label appears in the log after submitting a prompt."""
+    app = TeletypeApp(base_delay_ms=0)
+    async with app.run_test() as pilot:
+        await pilot.press(*"hello")
+        await pilot.press("enter")
+        await pilot.pause()
+        log = app.query_one("#output", Log)
+        log_text = "\n".join(str(line) for line in log.lines)
+        assert "Claude: " in log_text
+
+
+async def test_turn_count_increments():
+    """Turn count increments on each prompt submission."""
+    app = TeletypeApp(base_delay_ms=0)
+    async with app.run_test() as pilot:
+        assert app._turn_count == 0
+        await pilot.press(*"hello")
+        await pilot.press("enter")
+        assert app._turn_count == 1
