@@ -134,27 +134,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONV-01 | — | Pending |
-| CONV-02 | — | Pending |
-| CONV-03 | — | Pending |
-| CONV-04 | — | Pending |
-| CONV-05 | — | Pending |
-| WRAP-01 | — | Pending |
-| WRAP-02 | — | Pending |
-| WRAP-03 | — | Pending |
-| ERR-01 | — | Pending |
-| ERR-02 | — | Pending |
-| ERR-03 | — | Pending |
-| ERR-04 | — | Pending |
-| ERR-05 | — | Pending |
-| ERR-06 | — | Pending |
+| CONV-01 | Phase 5 | Pending |
+| CONV-02 | Phase 5 | Pending |
+| CONV-03 | Phase 5 | Pending |
+| CONV-04 | Phase 5 | Pending |
+| CONV-05 | Phase 5 | Pending |
+| WRAP-01 | Phase 7 | Pending |
+| WRAP-02 | Phase 7 | Pending |
+| WRAP-03 | Phase 7 | Pending |
+| ERR-01 | Phase 6 | Pending |
+| ERR-02 | Phase 6 | Pending |
+| ERR-03 | Phase 6 | Pending |
+| ERR-04 | Phase 6 | Pending |
+| ERR-05 | Phase 6 | Pending |
+| ERR-06 | Phase 6 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 13 total, 13 complete ✓
-- v1.1 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14 ⚠️
+- v1.1 requirements: 14 total, 14 mapped to phases ✓
+- Mapped to phases: 14/14 (100%)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-16 after v1.1 milestone requirements definition*
+*Last updated: 2026-02-16 after v1.1 roadmap creation*

@@ -1,23 +1,14 @@
 # Roadmap: Claude Teletype
 
-## Overview
+## Milestones
 
-Claude Teletype delivers a character-by-character typewriter experience for Claude Code conversations, streaming AI responses to both a physical dot-matrix printer and a terminal simulator. The roadmap builds the streaming pipeline first (the entire product hinges on character-by-character flow), then the terminal simulator (what 90% of users will actually use), then printer hardware (the differentiator), and finally audio and persistence (independent consumers that complete the experience).
+- ✅ **v1.0 MVP** - Phases 1-4 (shipped 2026-02-15)
+- 🚧 **v1.1 Conversation Mode** - Phases 5-7 (in progress)
 
 ## Phases
 
-**Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
-
-Decimal phases appear between their surrounding integers in numeric order.
-
-- [x] **Phase 1: Streaming Pipeline** - Claude Code bridge with character-by-character flow and typewriter pacing ✓ 2026-02-15
-- [x] **Phase 2: Terminal Simulator** - Split-screen TUI with mirrored typewriter output ✓ 2026-02-15
-- [x] **Phase 3: Printer Hardware** - USB-LPT auto-discovery, manual selection, and graceful disconnect ✓ 2026-02-15
-- [x] **Phase 4: Audio and Persistence** - Carriage return sound effects and conversation transcripts ✓ 2026-02-15
-
-## Phase Details
+<details>
+<summary>✅ v1.0 MVP (Phases 1-4) - SHIPPED 2026-02-15</summary>
 
 ### Phase 1: Streaming Pipeline
 **Goal**: User can send a prompt and watch Claude's response appear character by character with typewriter pacing in a basic terminal output
@@ -77,14 +68,69 @@ Plans:
 - [x] 04-01-PLAN.md — Audio bell module + transcript writer module with tests (TDD) ✓
 - [x] 04-02-PLAN.md — Wire audio + transcript into CLI/TUI with --no-audio and --transcript-dir flags ✓
 
+</details>
+
+### 🚧 v1.1 Conversation Mode (In Progress)
+
+**Milestone Goal:** Turn the one-shot prompt/response tool into a real multi-turn conversation experience with proper error handling and text wrapping.
+
+#### Phase 5: Multi-Turn Conversation Foundation
+**Goal**: Enable session-persistent multi-turn conversation in TUI with proper subprocess lifecycle management
+**Depends on**: Phase 4
+**Requirements**: CONV-01, CONV-02, CONV-03, CONV-04, CONV-05
+**Success Criteria** (what must be TRUE):
+  1. User can submit multiple prompts in TUI, and each response includes context from all previous turns
+  2. User sees visual separators between conversation turns in TUI and on printer
+  3. User sees session metadata (turn count, context usage) in TUI status area
+  4. User cannot submit new prompts while Claude's response is streaming
+  5. TUI session resumes correctly after restart using same session_id
+**Plans**: TBD
+
+Plans:
+- [ ] 05-01: TBD
+- [ ] 05-02: TBD
+- [ ] 05-03: TBD
+
+#### Phase 6: Error Handling and Recovery
+**Goal**: Provide clear, actionable error messages for common failure modes
+**Depends on**: Phase 5
+**Requirements**: ERR-01, ERR-02, ERR-03, ERR-04, ERR-05, ERR-06
+**Success Criteria** (what must be TRUE):
+  1. User who hasn't installed Claude Code sees clear message with install URL, not subprocess errors
+  2. User sees categorized error messages (network, auth, rate limit, context exhausted) instead of raw stack traces
+  3. User sees automatic retry with backoff when rate limit or overload errors occur
+  4. Sessions that become corrupted automatically fall back to new session with clear notification to user
+**Plans**: TBD
+
+Plans:
+- [ ] 06-01: TBD
+- [ ] 06-02: TBD
+
+#### Phase 7: Word Wrap for TUI and Printer
+**Goal**: Wrap long lines at word boundaries in both TUI output and printer output
+**Depends on**: Phase 5 (soft dependency - benefits from multi-turn but can be built in parallel)
+**Requirements**: WRAP-01, WRAP-02, WRAP-03
+**Success Criteria** (what must be TRUE):
+  1. Long lines in TUI wrap at word boundaries without breaking mid-word or extending off-screen
+  2. Long lines on printer wrap at word boundaries instead of hard-breaking at 80 columns
+  3. TUI wrap width updates automatically when terminal is resized
+**Plans**: TBD
+
+Plans:
+- [ ] 07-01: TBD
+- [ ] 07-02: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Streaming Pipeline | 2/2 | ✓ Complete | 2026-02-15 |
-| 2. Terminal Simulator | 2/2 | ✓ Complete | 2026-02-15 |
-| 3. Printer Hardware | 2/2 | ✓ Complete | 2026-02-15 |
-| 4. Audio and Persistence | 2/2 | ✓ Complete | 2026-02-15 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Streaming Pipeline | v1.0 | 2/2 | ✓ Complete | 2026-02-15 |
+| 2. Terminal Simulator | v1.0 | 2/2 | ✓ Complete | 2026-02-15 |
+| 3. Printer Hardware | v1.0 | 2/2 | ✓ Complete | 2026-02-15 |
+| 4. Audio and Persistence | v1.0 | 2/2 | ✓ Complete | 2026-02-15 |
+| 5. Multi-Turn Foundation | v1.1 | 0/3 | Not started | - |
+| 6. Error Handling | v1.1 | 0/2 | Not started | - |
+| 7. Word Wrap | v1.1 | 0/2 | Not started | - |
