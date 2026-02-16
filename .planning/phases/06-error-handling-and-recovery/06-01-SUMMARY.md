@@ -123,6 +123,12 @@ None - no external service configuration required.
 - ERROR_MESSAGES dict provides user-facing strings for TUI display
 - Bridge timeout protection is active and will yield error StreamResult on hang
 
+## Self-Check: PASSED
+
+- All 4 key files verified present on disk
+- Both task commits verified in git log (cdf11ec, 36f519d)
+- 243/243 tests passing
+
 ---
 *Phase: 06-error-handling-and-recovery*
 *Completed: 2026-02-17*

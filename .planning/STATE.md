@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 6 in progress - Error Handling and Recovery
+**Current focus:** Phase 6 complete - Error Handling and Recovery
 
 ## Current Position
 
-Phase: 6 of 7 (Error Handling and Recovery)
-Plan: 1 of 2 in current phase (COMPLETE)
-Status: Executing phase
-Last activity: 2026-02-17 — Completed 06-01 error classification and bridge timeout
+Phase: 6 of 7 (Error Handling and Recovery) -- COMPLETE
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: Phase complete
+Last activity: 2026-02-17 — Completed 06-02 CLI pre-flight, TUI retry, classified errors
 
-Progress: [██████████░░░░] 71% (5 of 7 phases complete, 6-01 done)
+Progress: [████████████░░] 86% (6 of 7 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 3min
-- Total execution time: 0.57 hours
+- Total execution time: 0.60 hours
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [██████████░░░░] 71% (5 of 7 phases comple
 | 03-printer-hardware | 2 | 5min | 2.5min |
 | 04-audio-and-persistence | 2 | 4min | 2min |
 | 05-multi-turn-conversation-foundation | 3 | 9min | 3min |
-| 06-error-handling-and-recovery | 1 | 3min | 3min |
+| 06-error-handling-and-recovery | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: [2min, 3min, 3min, 3min, 3min]
+- Last 5 plans: [3min, 3min, 3min, 3min, 2min]
 - Trend: Stable (average ~3min per plan)
 
 ## Accumulated Context
@@ -62,6 +62,9 @@ Recent decisions affecting current work:
 - Substring matching (not regex) for error classification -- simpler, maintainable, sufficient for known patterns
 - 300s readline timeout as generous default, 30s after result message for hang bug detection
 - ErrorCategory as str+Enum for JSON serialization compatibility
+- Pre-flight check at chat() entry point catches missing CLI before TUI launch
+- Only retry when no text streamed yet to prevent response duplication (Pitfall 4)
+- Session ID reset happens BEFORE retry decision to ensure fresh session on retry
 
 ### Pending Todos
 
@@ -82,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 06-01-PLAN.md (error classification and bridge timeout)
+Stopped at: Completed 06-02-PLAN.md (CLI pre-flight, TUI retry, classified errors) -- Phase 6 complete
 Resume file: None
