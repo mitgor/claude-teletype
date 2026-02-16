@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-16)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 7 - Word Wrap for TUI and Printer (Plan 01 complete)
+**Current focus:** Phase 7 - Word Wrap for TUI and Printer (COMPLETE)
 
 ## Current Position
 
-Phase: 7 of 7 (Word Wrap for TUI and Printer)
-Plan: 1 of 2 in current phase (COMPLETE)
-Status: Plan 01 complete, Plan 02 remaining
-Last activity: 2026-02-17 -- Completed 07-01 WordWrapper core algorithm (TDD)
+Phase: 7 of 7 (Word Wrap for TUI and Printer) -- COMPLETE
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: All plans complete. Phase 7 done. Milestone v1.0 complete.
+Last activity: 2026-02-17 -- Completed 07-02 TUI and Printer WordWrapper integration
 
-Progress: [█████████████░] 93% (6 of 7 phases complete, 1 of 2 plans in phase 7)
+Progress: [██████████████] 100% (7 of 7 phases complete, 2 of 2 plans in phase 7)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 3min
-- Total execution time: 0.63 hours
+- Total execution time: 0.70 hours
 
 **By Phase:**
 
@@ -33,11 +33,11 @@ Progress: [█████████████░] 93% (6 of 7 phases comple
 | 04-audio-and-persistence | 2 | 4min | 2min |
 | 05-multi-turn-conversation-foundation | 3 | 9min | 3min |
 | 06-error-handling-and-recovery | 2 | 5min | 2.5min |
-| 07-word-wrap-for-tui-and-printer | 1 | 2min | 2min |
+| 07-word-wrap-for-tui-and-printer | 2 | 6min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [3min, 3min, 3min, 2min, 2min]
-- Trend: Stable (average ~2.5min per plan)
+- Last 5 plans: [3min, 3min, 2min, 2min, 4min]
+- Trend: Stable (average ~2.8min per plan)
 
 ## Accumulated Context
 
@@ -69,6 +69,9 @@ Recent decisions affecting current work:
 - Deferred space pattern in WordWrapper prevents trailing whitespace on wrapped lines
 - Hard-break words longer than width (same as textwrap break_long_words=True)
 - Width clamped to min 1 via max(1, value) to prevent infinite loops
+- TUI wrapper wraps only log.write; printer/audio/transcript receive unwrapped chars via output_fn
+- Claude: label routed through TUI wrapper for accurate column tracking
+- Printer CR/FF handled as special control chars: flush buffer, pass through, reset column
 
 ### Pending Todos
 
@@ -79,7 +82,7 @@ None yet.
 **From research (Phase 5 critical):**
 - Session corruption: If Claude Code process killed mid-response, session file becomes invalid. Need exit code checking and graceful fallback to new session.
 - ~~Subprocess zombies: Multi-turn spawns many subprocesses. Interruptions leave 200-500MB processes. Need kill-with-timeout pattern (SIGTERM -> wait 5s -> SIGKILL).~~ RESOLVED in 05-02: _kill_process() implemented in TUI with SIGTERM -> wait_for(5s) -> SIGKILL, called in finally block and on_unmount.
-- Word wrap via CSS breaks streaming: Must implement as pipeline filter before Log.write(), not as widget property (Phase 7).
+- ~~Word wrap via CSS breaks streaming: Must implement as pipeline filter before Log.write(), not as widget property (Phase 7).~~ RESOLVED in 07-02: WordWrapper wraps log.write in stream_response, on_resize updates width dynamically.
 
 **Resolution approach:**
 - Phase 5 implements kill-with-timeout and session_id capture from NDJSON
@@ -89,5 +92,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 07-01-PLAN.md (WordWrapper core algorithm, TDD) -- Plan 02 remaining
+Stopped at: Completed 07-02-PLAN.md (TUI and Printer WordWrapper integration) -- Phase 7 complete, Milestone v1.0 complete
 Resume file: None
