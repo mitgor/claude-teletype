@@ -6,7 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from claude_teletype.bridge import parse_text_delta, stream_claude_response
+from claude_teletype.bridge import (
+    StreamResult,
+    calc_context_pct,
+    extract_model_name,
+    parse_result,
+    parse_session_id,
+    parse_text_delta,
+    stream_claude_response,
+)
 
 # --- Test fixtures: NDJSON lines from 01-RESEARCH.md Code Examples ---
 
@@ -126,6 +134,41 @@ RESULT_MESSAGE = json.dumps(
         "is_error": False,
         "result": "Hello, world!",
         "total_cost_usd": 0.0234,
+    }
+).encode()
+
+RESULT_MESSAGE_FULL = json.dumps(
+    {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "550e8400-test",
+        "is_error": False,
+        "result": "Hello, world!",
+        "total_cost_usd": 0.0234,
+        "num_turns": 3,
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+        "modelUsage": {
+            "claude-sonnet-4-5-20250929": {
+                "inputTokens": 9,
+                "outputTokens": 143,
+                "cacheReadInputTokens": 39900,
+                "cacheCreationInputTokens": 439,
+                "contextWindow": 200000,
+                "maxOutputTokens": 64000,
+                "costUSD": 0.0157882,
+            }
+        },
+    }
+).encode()
+
+RESULT_MESSAGE_ERROR = json.dumps(
+    {
+        "type": "result",
+        "subtype": "error",
+        "session_id": "550e8400-test",
+        "is_error": True,
+        "result": "Something went wrong",
+        "total_cost_usd": 0.001,
     }
 ).encode()
 
@@ -351,3 +394,364 @@ class TestStreamClaudeResponse:
 
         mock_proc.terminate.assert_called_once()
         mock_proc.wait.assert_awaited_once()
+
+
+class TestParseSessionId:
+    """Tests for parse_session_id helper function."""
+
+    def test_extracts_session_id_from_system_init(self) -> None:
+        """system/init NDJSON line returns session_id string."""
+        result = parse_session_id(SYSTEM_INIT)
+        assert result == "550e8400-test"
+
+    def test_non_init_message_returns_none(self) -> None:
+        """Non-system messages return None."""
+        assert parse_session_id(MESSAGE_START) is None
+
+    def test_result_message_returns_none(self) -> None:
+        """Result messages return None."""
+        assert parse_session_id(RESULT_MESSAGE) is None
+
+    def test_system_non_init_subtype_returns_none(self) -> None:
+        """System message with non-init subtype returns None."""
+        msg = json.dumps(
+            {"type": "system", "subtype": "other", "session_id": "abc123"}
+        ).encode()
+        assert parse_session_id(msg) is None
+
+    def test_malformed_json_returns_none(self) -> None:
+        """Malformed JSON returns None."""
+        assert parse_session_id(b"not valid json {{{") is None
+
+    def test_empty_line_returns_none(self) -> None:
+        """Empty bytes return None."""
+        assert parse_session_id(b"") is None
+
+    def test_whitespace_only_returns_none(self) -> None:
+        """Whitespace-only bytes return None."""
+        assert parse_session_id(b"   \n") is None
+
+
+class TestParseResult:
+    """Tests for parse_result helper function."""
+
+    def test_extracts_fields_from_result_message(self) -> None:
+        """Result NDJSON line returns dict with expected fields."""
+        result = parse_result(RESULT_MESSAGE_FULL)
+        assert result is not None
+        assert result["is_error"] is False
+        assert result["result"] == "Hello, world!"
+        assert result["cost_usd"] == 0.0234
+        assert result["num_turns"] == 3
+        assert result["session_id"] == "550e8400-test"
+        assert result["usage"] == {"input_tokens": 100, "output_tokens": 50}
+        assert "claude-sonnet-4-5-20250929" in result["model_usage"]
+
+    def test_extracts_error_result(self) -> None:
+        """Error result message returns is_error=True."""
+        result = parse_result(RESULT_MESSAGE_ERROR)
+        assert result is not None
+        assert result["is_error"] is True
+        assert result["result"] == "Something went wrong"
+
+    def test_non_result_message_returns_none(self) -> None:
+        """Non-result messages return None."""
+        assert parse_result(MESSAGE_START) is None
+
+    def test_system_init_returns_none(self) -> None:
+        """System/init messages return None."""
+        assert parse_result(SYSTEM_INIT) is None
+
+    def test_malformed_json_returns_none(self) -> None:
+        """Malformed JSON returns None."""
+        assert parse_result(b"not valid json {{{") is None
+
+    def test_empty_line_returns_none(self) -> None:
+        """Empty bytes return None."""
+        assert parse_result(b"") is None
+
+    def test_minimal_result_has_defaults(self) -> None:
+        """Result message with minimal fields uses defaults."""
+        minimal = json.dumps({"type": "result"}).encode()
+        result = parse_result(minimal)
+        assert result is not None
+        assert result["is_error"] is False
+        assert result["result"] == ""
+        assert result["cost_usd"] is None
+        assert result["num_turns"] is None
+        assert result["session_id"] is None
+        assert result["usage"] is None
+        assert result["model_usage"] is None
+
+
+class TestCalcContextPct:
+    """Tests for calc_context_pct helper function."""
+
+    def test_calculates_percentage_correctly(self) -> None:
+        """Computes correct percentage from modelUsage data."""
+        model_usage = {
+            "claude-sonnet-4-5-20250929": {
+                "inputTokens": 9,
+                "outputTokens": 143,
+                "cacheReadInputTokens": 39900,
+                "cacheCreationInputTokens": 439,
+                "contextWindow": 200000,
+            }
+        }
+        result = calc_context_pct(model_usage)
+        # (9 + 143 + 39900 + 439) / 200000 * 100 = 20.2455%
+        assert result == "20%"
+
+    def test_none_returns_dash(self) -> None:
+        """None input returns '--'."""
+        assert calc_context_pct(None) == "--"
+
+    def test_empty_dict_returns_dash(self) -> None:
+        """Empty dict returns '--'."""
+        assert calc_context_pct({}) == "--"
+
+    def test_zero_context_window_returns_dash(self) -> None:
+        """contextWindow of 0 returns '--'."""
+        model_usage = {
+            "some-model": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+                "contextWindow": 0,
+            }
+        }
+        assert calc_context_pct(model_usage) == "--"
+
+    def test_small_usage_rounds_to_zero(self) -> None:
+        """Very small token usage rounds to 0%."""
+        model_usage = {
+            "some-model": {
+                "inputTokens": 1,
+                "outputTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+                "contextWindow": 200000,
+            }
+        }
+        assert calc_context_pct(model_usage) == "0%"
+
+
+class TestExtractModelName:
+    """Tests for extract_model_name helper function."""
+
+    def test_returns_first_model_key(self) -> None:
+        """Returns the model name from modelUsage dict."""
+        model_usage = {"claude-sonnet-4-5-20250929": {"inputTokens": 9}}
+        assert extract_model_name(model_usage) == "claude-sonnet-4-5-20250929"
+
+    def test_none_returns_none(self) -> None:
+        """None input returns None."""
+        assert extract_model_name(None) is None
+
+    def test_empty_dict_returns_none(self) -> None:
+        """Empty dict returns None."""
+        assert extract_model_name({}) is None
+
+
+class TestStreamClaudeResponseMultiTurn:
+    """Tests for stream_claude_response with session_id, proc_holder, and StreamResult."""
+
+    @pytest.mark.asyncio
+    async def test_no_session_id_omits_resume_flag(self) -> None:
+        """When session_id is None, --resume is NOT in subprocess args."""
+        ndjson_lines = [
+            TEXT_DELTA_HELLO + b"\n",
+            RESULT_MESSAGE + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ) as mock_exec:
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test prompt"):
+                items.append(item)
+
+        # Verify --resume is NOT in the call args
+        call_args = mock_exec.call_args[0]
+        assert "--resume" not in call_args
+
+    @pytest.mark.asyncio
+    async def test_session_id_adds_resume_flag(self) -> None:
+        """When session_id is provided, --resume session_id is in subprocess args."""
+        ndjson_lines = [
+            SYSTEM_INIT + b"\n",
+            TEXT_DELTA_HELLO + b"\n",
+            RESULT_MESSAGE + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ) as mock_exec:
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response(
+                "test prompt", session_id="abc-123"
+            ):
+                items.append(item)
+
+        call_args = mock_exec.call_args[0]
+        assert "--resume" in call_args
+        resume_idx = call_args.index("--resume")
+        assert call_args[resume_idx + 1] == "abc-123"
+
+    @pytest.mark.asyncio
+    async def test_proc_holder_populated_after_spawn(self) -> None:
+        """When proc_holder is provided, it is populated with the subprocess."""
+        ndjson_lines = [
+            TEXT_DELTA_HELLO + b"\n",
+            RESULT_MESSAGE + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        proc_holder: list = []
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            async for _ in stream_claude_response(
+                "test", proc_holder=proc_holder
+            ):
+                pass
+
+        assert len(proc_holder) == 1
+        assert proc_holder[0] is mock_proc
+
+    @pytest.mark.asyncio
+    async def test_yields_stream_result_as_final_item(self) -> None:
+        """StreamResult is yielded as the final item after all text chunks."""
+        ndjson_lines = [
+            SYSTEM_INIT + b"\n",
+            TEXT_DELTA_HELLO + b"\n",
+            TEXT_DELTA_WORLD + b"\n",
+            RESULT_MESSAGE_FULL + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test"):
+                items.append(item)
+
+        # Text chunks first, StreamResult last
+        assert items[0] == "Hello"
+        assert items[1] == ", world!"
+        assert isinstance(items[2], StreamResult)
+
+        sr = items[2]
+        assert sr.session_id == "550e8400-test"
+        assert sr.is_error is False
+        assert sr.cost_usd == 0.0234
+        assert sr.num_turns == 3
+        assert sr.model == "claude-sonnet-4-5-20250929"
+        assert sr.model_usage is not None
+
+    @pytest.mark.asyncio
+    async def test_stream_result_with_no_result_message(self) -> None:
+        """StreamResult is yielded even if no result NDJSON message was received."""
+        ndjson_lines = [
+            SYSTEM_INIT + b"\n",
+            TEXT_DELTA_HELLO + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            items: list[str | StreamResult] = []
+            async for item in stream_claude_response("test"):
+                items.append(item)
+
+        assert items[0] == "Hello"
+        assert isinstance(items[1], StreamResult)
+        sr = items[1]
+        assert sr.session_id == "550e8400-test"  # From system/init
+        assert sr.is_error is False
+        assert sr.cost_usd is None
+        assert sr.model is None
+
+    @pytest.mark.asyncio
+    async def test_backward_compatible_with_existing_tests(self) -> None:
+        """Calling with no new params still yields text chunks (and StreamResult)."""
+        ndjson_lines = [
+            TEXT_DELTA_HELLO + b"\n",
+            b"",
+        ]
+        mock_stdout = MagicMock()
+        line_iter = iter(ndjson_lines)
+        mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.terminate = MagicMock()
+
+        with patch(
+            "claude_teletype.bridge.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            text_items: list[str] = []
+            async for item in stream_claude_response("test"):
+                if isinstance(item, str):
+                    text_items.append(item)
+
+        assert text_items == ["Hello"]
