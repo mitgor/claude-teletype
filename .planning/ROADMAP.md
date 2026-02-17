@@ -59,7 +59,9 @@
   3. User can override any config value with a CLI flag for a single session without modifying the file
   4. User can run `claude-teletype config show` and see the effective merged configuration (file + env + flags)
   5. User can set `CLAUDE_TELETYPE_*` environment variables that override config file values
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 09-01-PLAN.md — TDD: Config module (TeletypeConfig dataclass, TOML load/save, env overrides, CLI merge)
+- [ ] 09-02-PLAN.md — CLI restructure with config subcommands and three-layer config integration
 
 ### Phase 10: Printer Profiles
 **Goal**: Users can target different printer hardware without manually configuring control codes
