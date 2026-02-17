@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A Python CLI tool that wraps Claude Code and streams all input/output character-by-character to a physical dot-matrix printer connected via USB-LPT adapter. It recreates the experience of using a mechanical typewriter that thinks — you type a question, hear the keys clatter, and watch Claude's answer appear on paper one character at a time. When no printer hardware is available, it runs a split-screen terminal simulator. Supports multi-turn conversations with session persistence, error recovery, and word-wrapped output.
+A Python CLI tool that streams AI conversation to a physical dot-matrix printer character-by-character via USB-LPT adapter. Supports multiple LLM backends (Claude Code CLI, OpenAI, OpenRouter), configurable printer profiles (Juki, Epson, IBM, HP, custom), and a pure typewriter mode for direct keystroke-to-paper output. When no printer hardware is available, it runs a split-screen terminal simulator. Includes persistent TOML configuration, a TUI settings modal, multi-turn conversations with session persistence, error recovery, and word-wrapped output.
 
 ## Core Value
 
@@ -34,16 +34,20 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ Word-boundary wrapping in TUI and printer output — v1.1
 - ✓ Dynamic TUI resize updates wrap width — v1.1
 
+- ✓ Persistent TOML configuration with three-layer merge (file < env < CLI flags) — v1.2
+- ✓ Config file creation via `--init-config` and `config show`/`config init` subcommands — v1.2
+- ✓ Data-driven printer profiles (Juki, Epson ESC/P, IBM PPDS, HP PCL, generic) with custom TOML profiles — v1.2
+- ✓ USB auto-detection matching printer profiles by VID:PID — v1.2
+- ✓ Multi-LLM backends: Claude Code CLI, OpenAI, OpenRouter via `--backend`/`--model` flags — v1.2
+- ✓ Clear startup error messages for misconfigured backends — v1.2
+- ✓ TUI settings modal via ctrl+comma for runtime config changes — v1.2
+- ✓ Typewriter mode via ctrl+t: keystrokes to screen and printer with pacing and sound — v1.2
+- ✓ Fixed `--no-tui` mode StreamResult crash with test coverage — v1.2
+- ✓ system_prompt preserved during backend hot-swap in settings modal — v1.2
+
 ### Active
 
-**v1.2 — Configuration, Printer Profiles, Multi-LLM, Settings UI**
-
-- Configuration system with persistent settings file (delays, sound, default printer, API keys)
-- Printer profiles with per-printer control codes and paper handling (Juki 9100, Epson/IBM dot matrix, HP/Epson inkjet)
-- Multi-LLM backends: keep Claude Code CLI as default, add OpenAI and OpenRouter via direct API
-- TUI settings page accessible via keyboard shortcut (printer, LLM, paper options)
-- Simple typewriter mode: no LLM, keystrokes go straight to printer/screen with pacing and sound
-- Fix `--no-tui` mode crash (StreamResult guard) and add test coverage
+(No active requirements — define next milestone via `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -55,15 +59,17 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.1 shipped (2026-02-17). 1,839 LOC source + 3,139 LOC tests (Python).
+**Current state:** v1.2 shipped (2026-02-17). 3,191 LOC source + 5,349 LOC tests (Python). 401 tests passing.
 
-**Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners), Typer (argument parsing), sounddevice/numpy (audio).
+**Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null drivers), audio.py (bell sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile drivers), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), settings_screen.py (TUI settings modal).
 
 **Known tech debt:**
-- `_chat_async` in cli.py crashes with TypeError in `--no-tui` mode (StreamResult not guarded)
-- No test coverage for `--no-tui` code path
+- IBM PPDS profile keyed as "ppds" not "ibm" (discoverability)
+- `config show` reflects file+env but not CLI flags (Typer architectural constraint)
+- system_prompt silently ignored for claude-cli backend (uses CLAUDE.md instead)
+- Backend hot-swap loses session_id for claude-cli (starts fresh session)
 
 ## Constraints
 
@@ -87,6 +93,17 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | WordWrapper as pipeline filter (not CSS) | Textual Log widget hardcodes no_wrap=True; wrapping must happen before write() | ✓ Good |
 | Deferred space pattern in WordWrapper | Prevents trailing whitespace on wrapped lines | ✓ Good |
 | Per-destination wrapping | TUI and printer get wrapped output; transcript and audio get unwrapped | ✓ Good |
+| Three-layer config merge: defaults < TOML < env < CLI | Standard precedence chain, each layer overrides previous | ✓ Good |
+| Pre-formatted string template for config file | tomli-w cannot write TOML comments; handwritten template preserves docs | ✓ Good |
+| Data-driven printer profiles via frozen dataclass | All printer behavior encoded as data, not conditional code | ✓ Good |
+| USB printer class 7 filter before VID:PID matching | Prevents false matches against non-printer USB devices | ✓ Good |
+| ProfilePrinterDriver as standalone class | Generic profile support; JukiPrinterDriver thin deprecated subclass | ✓ Good |
+| Placeholder API key in AsyncOpenAI constructor | Defers validation to validate() method for consistent error path | ✓ Good |
+| max_retries=0 on AsyncOpenAI | TUI retry loop handles retries consistently across all backends | ✓ Good |
+| Backend hot-swap: create_backend + validate in try/except | Notify on error, keep old backend on failure | ✓ Good |
+| ctrl+comma as settings shortcut | Avoids ctrl+s XOFF freeze, matches VS Code/Sublime convention | ✓ Good |
+| SettingsScreen uses ModalScreen[dict|None] | Callback-based result passing, clean dismiss semantics | ✓ Good |
+| Backspace intentionally ignored in typewriter mode | Append-only for authenticity — typewriters don't have backspace | ✓ Good |
 
 ---
-*Last updated: 2026-02-17 after v1.2 milestone started*
+*Last updated: 2026-02-17 after v1.2 milestone complete*
