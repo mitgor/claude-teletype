@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 12 - Settings TUI (next)
+**Current focus:** Phase 12 - Typewriter Mode
 
 ## Current Position
 
-Phase: 11 of 13 (Multi-LLM Backends) -- COMPLETE
-Plan: 2 of 2 in current phase (done)
-Status: Phase 11 complete
-Last activity: 2026-02-17 — Completed 11-02 Backend Integration (config, CLI, TUI wiring)
+Phase: 12 of 13 (Typewriter Mode)
+Plan: 1 of 2 in current phase (done)
+Status: Executing phase 12
+Last activity: 2026-02-17 — Completed 12-01 TypewriterScreen and Keystroke Audio
 
-Progress: [█████████████████████] 96% (24/~24 plans, 11/13 phases complete)
+Progress: [█████████████████████] 96% (25/~26 plans, 11/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24
+- Total plans completed: 25
 - Average duration: 3.6min
-- Total execution time: 1.47 hours
+- Total execution time: 1.52 hours
 
 **By Phase:**
 
@@ -38,10 +38,11 @@ Progress: [█████████████████████] 96% 
 | 09-configuration-system | 2 | 14min | 7min |
 | 10-printer-profiles | 2 | 13min | 6.5min |
 | 11-multi-llm-backends | 2 | 11min | 5.5min |
+| 12-typewriter-mode | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [5min, 5min, 8min, 4min, 7min]
-- Trend: Steady execution for multi-LLM integration
+- Last 5 plans: [5min, 8min, 4min, 7min, 3min]
+- Trend: Fast execution for typewriter mode integration
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - check_claude_installed() replaced by create_backend + validate() -- single validation path for all backends
 - TUI _kill_process uses backend.proc_holder -- no-op for API backends
 - Model name fallback chain: model_usage -> item.model -> "--" for API backends
+- asyncio.Queue created in on_mount not __init__ to avoid event loop mismatch
+- Backspace intentionally ignored for typewriter authenticity (append-only)
+- Keystroke click is 20ms with deterministic noise seed (rng=42) for reproducible sound
 
 ### Pending Todos
 
@@ -81,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 11-02-PLAN.md (Backend Integration -- phase 11 complete)
+Stopped at: Completed 12-01-PLAN.md (TypewriterScreen and Keystroke Audio)
 Resume file: None
