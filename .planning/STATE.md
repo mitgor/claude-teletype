@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 10 - Printer Profiles
+**Current focus:** Phase 11 - Multi-LLM Backends
 
 ## Current Position
 
-Phase: 10 of 13 (Printer Profiles) -- COMPLETE
-Plan: 2 of 2 in current phase
-Status: Phase 10 complete
-Last activity: 2026-02-17 — Completed 10-02 Profile Integration
+Phase: 11 of 13 (Multi-LLM Backends)
+Plan: 1 of 2 in current phase
+Status: Executing phase 11
+Last activity: 2026-02-17 — Completed 11-01 Backend Abstraction Layer
 
-Progress: [████████████████████] 91% (21/~22 plans, 10/13 phases complete)
+Progress: [████████████████████] 95% (22/~24 plans, 10/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: 3.5min
-- Total execution time: 1.22 hours
+- Total execution time: 1.29 hours
 
 **By Phase:**
 
@@ -37,10 +37,11 @@ Progress: [████████████████████] 91% (21
 | 08-no-tui-bug-fix | 1 | 2min | 2min |
 | 09-configuration-system | 2 | 14min | 7min |
 | 10-printer-profiles | 2 | 13min | 6.5min |
+| 11-multi-llm-backends | 1 | 4min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: [3min, 11min, 5min, 5min, 8min]
-- Trend: Stable ~6min for phase 10 integration work
+- Last 5 plans: [11min, 5min, 5min, 8min, 4min]
+- Trend: Fast execution for backend abstraction layer
 
 ## Accumulated Context
 
@@ -59,6 +60,9 @@ Recent decisions affecting current work:
 - USB printer class 7 filter before VID:PID matching -- prevents false matches against non-printer devices
 - ProfilePrinterDriver as standalone class, JukiPrinterDriver as thin deprecated subclass -- generic profile support with backward compat
 - Profile resolution chain: --printer > --juki (deprecated) > config > auto-detect > generic
+- Placeholder API key in AsyncOpenAI constructor to defer validation to validate() method
+- max_retries=0 on AsyncOpenAI -- TUI retry loop handles retries consistently across all backends
+- SDK error messages match ERROR_PATTERNS substrings for seamless classification
 
 ### Pending Todos
 
@@ -74,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 10-02-PLAN.md (Profile Integration) -- Phase 10 complete
+Stopped at: Completed 11-01-PLAN.md (Backend Abstraction Layer)
 Resume file: None
