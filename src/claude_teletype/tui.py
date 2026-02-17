@@ -53,6 +53,7 @@ class TeletypeApp(App):
         no_audio: bool = False,
         transcript_dir: str | None = None,
         resume_session_id: str | None = None,
+        backend=None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -66,7 +67,7 @@ class TeletypeApp(App):
         self._prev_input_value = ""
         self._session_id: str | None = resume_session_id
         self._turn_count: int = 0
-        self._proc_holder: list = []
+        self._backend = backend
         self._model_name: str = "--"
         self._context_pct: str = "--"
         self._tui_wrapper = None
@@ -137,20 +138,28 @@ class TeletypeApp(App):
                 worker.cancel()
 
     async def _kill_process(self) -> None:
-        """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL."""
-        if not self._proc_holder:
+        """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.
+
+        For Claude CLI backend, uses the backend's proc_holder for subprocess
+        lifecycle management. For API backends, this is a no-op.
+        """
+        if self._backend is not None and hasattr(self._backend, 'proc_holder'):
+            proc_holder = self._backend.proc_holder
+        else:
             return
-        proc = self._proc_holder[0]
+        if not proc_holder:
+            return
+        proc = proc_holder[0]
         if proc.returncode is not None:
-            self._proc_holder.clear()
+            proc_holder.clear()
             return
         proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
-        self._proc_holder.clear()
+        proc_holder.clear()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Print each character to printer as user types."""
@@ -231,7 +240,6 @@ class TeletypeApp(App):
             StreamResult,
             calc_context_pct,
             extract_model_name,
-            stream_claude_response,
         )
         from claude_teletype.errors import ERROR_MESSAGES, classify_error, is_retryable
         from claude_teletype.output import make_output_fn
@@ -270,11 +278,7 @@ class TeletypeApp(App):
                 has_text = False
                 should_retry = False
 
-                async for item in stream_claude_response(
-                    prompt,
-                    session_id=self._session_id,
-                    proc_holder=self._proc_holder,
-                ):
+                async for item in self._backend.stream(prompt):
                     if isinstance(item, StreamResult):
                         if item.is_error:
                             category = classify_error(item.error_message)
@@ -303,9 +307,14 @@ class TeletypeApp(App):
                                 # Non-retryable or max retries exhausted
                                 log.write(f"\n[{ERROR_MESSAGES[category]}]\n")
                         else:
-                            self._session_id = item.session_id
+                            # Update session_id from backend (Claude CLI updates it;
+                            # API backends don't use it)
+                            if hasattr(self._backend, 'session_id'):
+                                self._session_id = self._backend.session_id
 
-                        self._model_name = extract_model_name(item.model_usage) or "--"
+                        self._model_name = (
+                            extract_model_name(item.model_usage) or item.model or "--"
+                        )
                         self._context_pct = calc_context_pct(item.model_usage)
                         self._update_status()
                     else:

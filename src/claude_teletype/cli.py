@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 
 from claude_teletype.backends import BackendError, create_backend
-from claude_teletype.bridge import StreamResult, stream_claude_response
+from claude_teletype.bridge import StreamResult
 from claude_teletype.config import (
     CONFIG_FILE,
     apply_env_overrides,
