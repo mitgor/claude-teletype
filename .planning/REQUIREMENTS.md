@@ -78,11 +78,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FIX-01 | Phase 8 | Pending |
-| CFG-01 | Phase 9 | Pending |
-| CFG-02 | Phase 9 | Pending |
-| CFG-03 | Phase 9 | Pending |
-| CFG-04 | Phase 9 | Pending |
-| CFG-05 | Phase 9 | Pending |
+| CFG-01 | Phase 9 → 14 | Pending |
+| CFG-02 | Phase 9 → 14 | Pending |
+| CFG-03 | Phase 9 → 14 | Pending |
+| CFG-04 | Phase 9 → 14 | Pending |
+| CFG-05 | Phase 9 → 14 | Pending |
 | PRNT-01 | Phase 10 | Pending |
 | PRNT-02 | Phase 10 | Pending |
 | PRNT-03 | Phase 10 | Pending |

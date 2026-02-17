@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 MVP** - Phases 1-4 (shipped 2026-02-15)
 - ✅ **v1.1 Conversation Mode** - Phases 5-7 (shipped 2026-02-17)
-- 🚧 **v1.2 Configuration, Profiles, Multi-LLM, Settings** - Phases 8-13 (in progress)
+- 🚧 **v1.2 Configuration, Profiles, Multi-LLM, Settings** - Phases 8-15 (in progress)
 
 ## Phases
 
@@ -35,6 +35,8 @@
 - [x] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI (completed 2026-02-17)
 - [x] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM (completed 2026-02-17)
 - [x] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio (completed 2026-02-17)
+- [ ] **Phase 14: Verify Configuration System & Update Traceability** - Verify Phase 9 CFG requirements, create VERIFICATION.md, update all requirement checkboxes
+- [ ] **Phase 15: Fix system_prompt Backend Hot-Swap** - Preserve system_prompt when switching backends via settings modal
 
 ## Phase Details
 
@@ -112,10 +114,34 @@
 - [ ] 13-01-PLAN.md — SettingsScreen modal with form widgets and tests
 - [ ] 13-02-PLAN.md — TUI integration (ctrl+s binding, apply callback, CLI tracking kwargs)
 
+### Phase 14: Verify Configuration System & Update Traceability
+**Goal**: Close the 5 orphaned CFG requirements by verifying Phase 9's implementation and updating all milestone traceability
+**Depends on**: Phase 9 (verifies its output)
+**Requirements**: CFG-01, CFG-02, CFG-03, CFG-04, CFG-05
+**Gap Closure:** Closes gaps from audit — Phase 9 executed but never verified (no VERIFICATION.md)
+**Success Criteria** (what must be TRUE):
+  1. All 5 CFG requirements verified as working in the codebase with evidence
+  2. Phase 9 VERIFICATION.md created with pass/fail results
+  3. REQUIREMENTS.md checkboxes updated for all 17 v1.2 requirements (12 satisfied + 5 pending verification)
+**Plans**: 1 plan
+- [ ] 14-01-PLAN.md — Verify Phase 9 CFG-01..05, create VERIFICATION.md, update REQUIREMENTS.md traceability
+
+### Phase 15: Fix system_prompt Backend Hot-Swap
+**Goal**: Preserve system_prompt when switching backends via settings modal so users don't lose their custom prompt
+**Depends on**: Phase 13 (fixes integration issue in settings apply)
+**Requirements**: SET-01, LLM-02 (integration fix)
+**Gap Closure:** Closes integration gap from audit — system_prompt dropped during backend hot-swap
+**Success Criteria** (what must be TRUE):
+  1. system_prompt is preserved when user switches backends via settings modal
+  2. TeletypeApp stores system_prompt as tracking attribute
+  3. Automated test verifies system_prompt survives backend hot-swap
+**Plans**: 1 plan
+- [ ] 15-01-PLAN.md — TDD: Add _system_prompt tracking, pass to create_backend in _apply_settings, test coverage
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
+Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -132,3 +158,5 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 11. Multi-LLM Backends | v1.2 | Complete    | 2026-02-17 | - |
 | 12. Typewriter Mode | v1.2 | Complete    | 2026-02-17 | - |
 | 13. Settings Panel | v1.2 | Complete    | 2026-02-17 | - |
+| 14. Verify Config & Traceability | v1.2 | 0/? | Not started | - |
+| 15. Fix system_prompt Hot-Swap | v1.2 | 0/? | Not started | - |
