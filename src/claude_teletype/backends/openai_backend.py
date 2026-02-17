@@ -29,7 +29,15 @@ class OpenAIBackend(LLMBackend):
         # Defer openai import to avoid hard dependency at module level
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
+        # Track whether the user provided an API key. The OpenAI SDK raises
+        # an error in the constructor if api_key is None and the env var is
+        # not set, so we pass a placeholder and validate later.
+        self._api_key_provided = api_key is not None
+        self._client = AsyncOpenAI(
+            api_key=api_key or "not-set",
+            base_url=base_url,
+            max_retries=0,
+        )
         self._model = model
         self._system_prompt = system_prompt
         self._history: list[dict[str, str]] = []
@@ -40,7 +48,7 @@ class OpenAIBackend(LLMBackend):
         Raises:
             BackendError: If the API key is not configured.
         """
-        if not self._client.api_key:
+        if not self._api_key_provided:
             raise BackendError(
                 "OPENAI_API_KEY environment variable not set. "
                 "Set it with: export OPENAI_API_KEY=your-key"
@@ -139,7 +147,7 @@ class OpenRouterBackend(OpenAIBackend):
         Raises:
             BackendError: If the API key is not configured.
         """
-        if not self._client.api_key:
+        if not self._api_key_provided:
             raise BackendError(
                 "OPENROUTER_API_KEY environment variable not set. "
                 "Set it with: export OPENROUTER_API_KEY=your-key"
