@@ -230,3 +230,29 @@ def test_check_claude_installed_found():
     with patch("claude_teletype.cli.shutil.which", return_value="/usr/local/bin/claude"):
         # Should not raise
         check_claude_installed()
+
+
+async def test_enter_typewriter_mode():
+    """ctrl+t pushes TypewriterScreen onto TeletypeApp."""
+    from claude_teletype.typewriter_screen import TypewriterScreen
+
+    app = TeletypeApp(no_audio=True)
+    async with app.run_test() as pilot:
+        # Verify we start on default screen
+        assert app.screen.__class__.__name__ != "TypewriterScreen"
+
+        # Press ctrl+t to enter typewriter mode
+        await pilot.press("ctrl+t")
+
+        # Verify TypewriterScreen is now active
+        assert isinstance(app.screen, TypewriterScreen)
+
+        # Verify typewriter output widget exists
+        log = app.screen.query_one("#typewriter-output")
+        assert log is not None
+
+        # Press Escape to return to chat
+        await pilot.press("escape")
+
+        # Verify we're back on default screen
+        assert not isinstance(app.screen, TypewriterScreen)
