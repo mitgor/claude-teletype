@@ -85,7 +85,9 @@
   2. User can have a multi-turn conversation with an OpenAI or OpenRouter model with streaming character output
   3. User can select a specific model within a backend via `--model gpt-4o` or config default
   4. User gets a clear, actionable error on startup if the selected backend has no API key or is unreachable
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 11-01-PLAN.md — TDD: Backend ABC, factory, Claude CLI wrapper, OpenAI/OpenRouter streaming backends with tests
+- [ ] 11-02-PLAN.md — Config/CLI/TUI integration: --backend/--model flags, [llm] config section, backend-polymorphic streaming
 
 ### Phase 12: Typewriter Mode
 **Goal**: Users can use the tool as a pure mechanical typewriter -- keystrokes to paper with pacing and sound
@@ -123,6 +125,6 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 8. No-TUI Bug Fix | v1.2 | Complete    | 2026-02-17 | - |
 | 9. Configuration System | v1.2 | 0/? | Not started | - |
 | 10. Printer Profiles | v1.2 | Complete    | 2026-02-17 | - |
-| 11. Multi-LLM Backends | v1.2 | 0/? | Not started | - |
+| 11. Multi-LLM Backends | v1.2 | 0/2 | Planned | - |
 | 12. Typewriter Mode | v1.2 | 0/? | Not started | - |
 | 13. Settings Panel | v1.2 | 0/? | Not started | - |
