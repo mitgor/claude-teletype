@@ -44,6 +44,7 @@ class TeletypeApp(App):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit"),
         Binding("ctrl+t", "enter_typewriter", "Typewriter"),
+        Binding("ctrl+comma", "open_settings", "Settings"),
         Binding("escape", "cancel_stream", "Cancel", show=False),
     ]
 
@@ -55,6 +56,10 @@ class TeletypeApp(App):
         transcript_dir: str | None = None,
         resume_session_id: str | None = None,
         backend=None,
+        backend_name: str = "claude-cli",
+        model_config: str = "",
+        profile_name: str = "generic",
+        all_profiles: dict | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -72,6 +77,10 @@ class TeletypeApp(App):
         self._model_name: str = "--"
         self._context_pct: str = "--"
         self._tui_wrapper = None
+        self._backend_name = backend_name
+        self._model_config = model_config
+        self._profile_name = profile_name
+        self._all_profiles = all_profiles or {}
 
     @property
     def session_id(self) -> str | None:
@@ -147,6 +156,68 @@ class TeletypeApp(App):
             printer=self.printer,
             no_audio=self.no_audio,
         ))
+
+    def action_open_settings(self) -> None:
+        """Open the settings modal to edit runtime configuration."""
+        from claude_teletype.settings_screen import SettingsScreen
+
+        self.push_screen(
+            SettingsScreen(
+                current_delay=self.base_delay_ms,
+                current_no_audio=self.no_audio,
+                current_backend=self._backend_name,
+                current_model=self._model_config,
+                current_profile=self._profile_name,
+                available_profiles=(
+                    sorted(self._all_profiles.keys())
+                    if self._all_profiles
+                    else ["generic"]
+                ),
+            ),
+            callback=self._apply_settings,
+        )
+
+    def _apply_settings(self, result: dict | None) -> None:
+        """Apply changed settings from the SettingsScreen modal.
+
+        Updates delay, audio, backend, and profile based on the result dict.
+        Backend changes create a new validated backend instance.
+        Profile changes mutate the printer driver so the new profile's ESC
+        sequences take effect on the next write.
+        """
+        if result is None:
+            return
+
+        self.base_delay_ms = result["delay"]
+        self.no_audio = result["no_audio"]
+
+        # Backend or model change: create new validated backend
+        if (
+            result["backend"] != self._backend_name
+            or result["model"] != self._model_config
+        ):
+            from claude_teletype.backends import BackendError, create_backend
+
+            try:
+                new_backend = create_backend(
+                    backend=result["backend"],
+                    model=result["model"] or None,
+                )
+                new_backend.validate()
+                self._backend = new_backend
+                self._backend_name = result["backend"]
+                self._model_config = result["model"]
+            except BackendError as e:
+                self.notify(str(e), severity="error")
+
+        # Profile change: mutate printer driver's profile
+        if result["profile"] != self._profile_name:
+            self._profile_name = result["profile"]
+            if self.printer is not None and hasattr(self.printer, "_profile"):
+                new_profile = self._all_profiles.get(result["profile"])
+                if new_profile is not None:
+                    self.printer._profile = new_profile
+                    self.printer._initialized = False
 
     async def _kill_process(self) -> None:
         """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.

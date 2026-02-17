@@ -441,6 +441,10 @@ def main(
             transcript_dir=config.transcript_dir,
             resume_session_id=resume,
             backend=llm_backend,
+            backend_name=config.backend,
+            model_config=config.model,
+            profile_name=resolved_profile.name if resolved_profile else "generic",
+            all_profiles=all_profiles,
         )
         tui_app.run()
 
