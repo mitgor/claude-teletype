@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 14 - Verify Config & Traceability
+**Current focus:** Phase 15 - Fix System Prompt Hot-Swap (complete)
 
 ## Current Position
 
-Phase: 14 of 15 (Verify Config & Traceability)
+Phase: 15 of 15 (Fix System Prompt Hot-Swap)
 Plan: 1 of 1 in current phase (done)
-Status: Phase 14 complete, Phase 15 remaining
-Last activity: 2026-02-17 — Completed 14-01 verify config and update traceability
+Status: All phases complete
+Last activity: 2026-02-17 — Completed 15-01 fix system_prompt backend hot-swap preservation
 
-Progress: [██████████████████████░░] 93% (29/30 plans, 14/15 phases complete)
+Progress: [████████████████████████] 100% (30/30 plans, 15/15 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29
-- Average duration: 3.4min
+- Total plans completed: 30
+- Average duration: 3.3min
 - Total execution time: 1.6 hours
 
 **By Phase:**
@@ -41,10 +41,11 @@ Progress: [██████████████████████░
 | 12-typewriter-mode | 2 | 5min | 2.5min |
 | 13-settings-panel | 2 | 6min | 3min |
 | 14-verify-config-and-traceability | 1 | 4min | 4min |
+| 15-fix-system-prompt-hot-swap | 1 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: [3min, 2min, 3min, 3min, 4min]
-- Trend: Consistent fast execution through gap closure phases
+- Last 5 plans: [2min, 3min, 3min, 4min, 2min]
+- Trend: Consistent fast execution through final gap closure
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Recent decisions affecting current work:
 - Backend hot-swap: create_backend + validate in try/except, notify on error, keep old on failure
 - Profile change mutates printer._profile and resets _initialized for live ESC sequence switching
 - Traceability table enhanced with Verification column linking each requirement to its source VERIFICATION.md
+- _system_prompt stored as str (empty string default), converted to None via `or None` at create_backend call site -- matches cli.py pattern
 
 ### Pending Todos
 
@@ -97,5 +99,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 14-01-PLAN.md (verify config and update traceability -- Phase 15 remaining)
+Stopped at: Completed 15-01-PLAN.md (fix system_prompt backend hot-swap -- all phases complete)
 Resume file: None
