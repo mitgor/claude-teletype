@@ -1,16 +1,16 @@
-# Architecture Research: Multi-Turn Conversation Integration
+# Architecture Research: v1.2 Integration (Config, Printer Profiles, Multi-LLM, Settings UI, Typewriter Mode)
 
-**Domain:** Multi-turn conversation mode for existing Python CLI/TUI wrapping Claude Code CLI
-**Researched:** 2026-02-16
-**Confidence:** HIGH (official Claude Code docs confirm all required CLI flags; existing codebase is well-understood; changes are surgical)
+**Domain:** Configuration system, printer profiles, multi-LLM backends, TUI settings, typewriter mode for existing Python CLI/TUI
+**Researched:** 2026-02-17
+**Confidence:** HIGH (existing codebase fully understood; technologies verified against official docs)
 
 ## Executive Summary
 
-Multi-turn conversation requires three changes to the existing architecture: (1) the bridge must capture session IDs from the NDJSON init message and pass `--resume <session_id>` on subsequent calls, (2) the TUI and CLI must hold session state across prompt submissions, and (3) error handling must surface structured errors from both subprocess failures and NDJSON result messages. The existing fan-out architecture (pacer -> output -> destinations) does NOT need to change. The bridge signature changes from `stream_claude_response(prompt)` to `stream_claude_response(prompt, session_id=None)` returning `(session_id, AsyncIterator[str])`, and callers (TUI and CLI) store the returned session_id for the next call.
+v1.2 adds five features that thread through the existing architecture in different ways. The key insight is that most of these features converge on a single integration point: the startup flow in `cli.py` and the `TeletypeApp.__init__` constructor. A new `config.py` module loads a TOML config file and produces a typed settings dataclass. That dataclass replaces the scattered CLI arguments currently threaded through constructors. Printer profiles replace the hardcoded `JukiPrinterDriver` decorator pattern with a generic `ProfilePrinterDriver` that wraps any inner driver with profile-defined ESC sequences. Multi-LLM backends introduce an `LLMBackend` protocol with two implementations: the existing `ClaudeCodeBackend` (wrapping `bridge.py`) and a new `OpenAIBackend` (using the `openai` SDK with configurable `base_url` for both OpenAI and OpenRouter). The TUI settings page is a `ModalScreen` pushed via keyboard shortcut. Typewriter mode is a flag on `TeletypeApp` that bypasses the LLM entirely.
 
-## Current Architecture (As-Built)
+None of these changes require modifying the core pipeline (pacer.py, output.py, wordwrap.py). The fan-out architecture remains untouched. The changes are concentrated in: (1) a new config layer, (2) a new LLM abstraction layer, (3) printer profile data, (4) TUI screen additions, and (5) wiring changes in cli.py and tui.py.
 
-### System Overview
+## Current Architecture (As-Built, v1.1)
 
 ```
 [User Input]
@@ -18,570 +18,946 @@ Multi-turn conversation requires three changes to the existing architecture: (1)
     v
 [cli.py] ----prompt----> [bridge.py] --spawn--> claude -p "prompt" --output-format stream-json
     |                         |
-    |                    yields str chunks
+    |                    yields str | StreamResult
     |                         |
     v                         v
-[tui.py / _chat_async]  [pacer.py] --char-by-char--> [output.py] --fan-out--> destinations
-                                                          |
-                                          +---------------+---------------+
-                                          |               |               |
-                                     [Log.write]   [printer_write]  [bell/transcript]
+[tui.py]              [pacer.py] --char-by-char--> [output.py] --fan-out--> destinations
+                                                        |
+                                        +---------------+---------------+
+                                        |               |               |
+                                   [WordWrapper    [printer_write   [bell/transcript]
+                                    -> Log.write]   -> WordWrapper
+                                                    -> driver.write]
 ```
 
-### Key Characteristics of Current Design
+### Key Architecture Properties
 
-1. **bridge.py** spawns a NEW `claude -p` subprocess per prompt. No session continuity.
-2. **bridge.py** only extracts `text_delta` from `content_block_delta` events. It ignores the `system` init message (which contains `session_id`), `result` messages, and all error states.
-3. **tui.py** calls `stream_claude_response(prompt)` in a `@work(exclusive=True)` decorated method. Each call is stateless.
-4. **cli.py** `_chat_async()` calls `stream_claude_response(prompt)` once and exits.
-5. The fan-out layer (output.py + pacer.py) is purely a character pipeline -- it has no knowledge of sessions, prompts, or conversation state.
+1. **bridge.py** is the sole LLM interface. It spawns `claude` CLI, parses NDJSON, yields `str | StreamResult`.
+2. **printer.py** has a `PrinterDriver` protocol and a `JukiPrinterDriver` decorator that wraps any driver with Juki-specific ESC codes.
+3. **cli.py** is the wiring layer. It parses CLI args, discovers printers, creates the TUI app with all options threaded through constructor params.
+4. **tui.py** holds runtime state (`_session_id`, `_turn_count`, `_proc_holder`) and wires the streaming pipeline per-turn in `stream_response`.
+5. **output.py** `make_output_fn` is a pure fan-out multiplexer. It has no knowledge of what it fans out to.
+6. **All configuration is via CLI flags.** No config file. No saved preferences.
 
-## Multi-Turn Strategy: `--resume` with Session ID
+## Proposed Architecture (v1.2)
 
-### Why `--resume` (Not `--continue` or Persistent Subprocess)
+### System Overview
 
-Three approaches were evaluated:
-
-| Approach | Mechanism | Verdict |
-|----------|-----------|---------|
-| **A. `--resume <session_id>`** | Each prompt spawns a new `claude -p --resume <id>` subprocess. Claude Code loads full conversation history from its own session storage. | **USE THIS.** Clean, stateless from our perspective. Claude manages context. |
-| **B. `--continue`** | Uses most recent session in current directory. No explicit ID. | Fragile in automation. If another Claude session runs in the same directory, `--continue` picks up the wrong session. Official docs recommend `--resume` over `--continue` for programmatic use. |
-| **C. Persistent subprocess** | Keep one `claude` process alive, pipe prompts via stdin with `--input-format stream-json`. | Tempting but risky: hangs, zombie processes, unclear lifecycle. Claude Code's `--input-format stream-json` is designed for SDK use, not raw stdin piping. Adds complexity with no clear benefit over A. |
-
-**Decision: Approach A.** Use `--resume <session_id>` for all follow-up prompts. The bridge captures the session_id from the first NDJSON `system` init message and passes it to subsequent calls.
-
-### How Claude Code Sessions Work (Verified)
-
-From official documentation at [code.claude.com/docs/en/headless](https://code.claude.com/docs/en/headless):
-
-```bash
-# First request -- no session ID, Claude creates one
-claude -p "Review this codebase" --output-format stream-json --verbose --include-partial-messages
-
-# The NDJSON stream starts with:
-# {"type": "system", "subtype": "init", "session_id": "550e8400-...", ...}
-
-# Subsequent requests -- resume with captured session ID
-claude -p "Now focus on the database queries" --resume "550e8400-..." --output-format stream-json ...
+```
+                          [config.toml]
+                               |
+                               v
+                          [config.py] -----> AppConfig dataclass
+                               |
+                    +----------+----------+
+                    |                     |
+                    v                     v
+               [cli.py]             [tui.py]
+                    |                  |  |
+          +---------+------+           |  +---> [settings.py] (ModalScreen)
+          |                |           |              |
+          v                v           v              v
+    [printer.py]     [backends.py]  [TeletypeApp]  [config.py] (save)
+         |                |              |
+         v                v              v
+  [ProfilePrinterDriver]  [LLMBackend]  [pacer/output/wordwrap] (UNCHANGED)
+         |                |
+         v                v
+  [profiles/*.toml]  [ClaudeCodeBackend | OpenAIBackend]
+                          |                    |
+                          v                    v
+                     [bridge.py]         [openai SDK]
+                     (UNCHANGED)         (AsyncOpenAI)
 ```
 
-Key facts (HIGH confidence, official docs):
-- Session ID appears in the FIRST NDJSON line (`type: "system"`, `subtype: "init"`)
-- `--resume <session_id>` loads full conversation history including tool results
-- Can combine `-p` + `--resume` + `--output-format stream-json` (explicitly documented)
-- Session data is stored by Claude Code in `~/.claude/sessions/`
-- Claude Code handles context window management and auto-truncation internally
+### New Modules
 
-## Recommended Architecture Changes
+| Module | Purpose | Size (est.) | Dependencies |
+|--------|---------|-------------|--------------|
+| **config.py** | Load/save TOML config, AppConfig dataclass, defaults, validation | ~120 lines | tomllib (stdlib), tomli_w |
+| **backends.py** | LLMBackend protocol, ClaudeCodeBackend, OpenAIBackend | ~200 lines | openai SDK, bridge.py |
+| **settings.py** | TUI settings ModalScreen with tabbed panes | ~180 lines | textual, config.py |
+| **profiles/** | Directory of TOML printer profile files | ~20 lines each | N/A (data files) |
 
-### Component: bridge.py (MODIFY)
+### Modified Modules
 
-The bridge needs three changes:
+| Module | What Changes | Lines (est.) |
+|--------|-------------|--------------|
+| **cli.py** | Load config at startup, pass AppConfig to TUI, add `--config` flag | ~30 modified |
+| **tui.py** | Accept AppConfig, wire LLMBackend instead of bridge directly, add settings binding | ~40 modified |
+| **printer.py** | Add `ProfilePrinterDriver` (replaces JukiPrinterDriver pattern), load profile from TOML | ~60 added |
 
-**Change 1: Parse the system init message to extract session_id.**
+### Unchanged Modules
 
-Currently `parse_text_delta` only looks for `stream_event` with `content_block_delta`. Add a new parser function:
+| Module | Why |
+|--------|-----|
+| **bridge.py** | Wrapped by ClaudeCodeBackend, not modified directly |
+| **pacer.py** | Character-level pacing. No knowledge of config or backends. |
+| **output.py** | Fan-out multiplexer. Character-level. No change. |
+| **wordwrap.py** | Stream word wrapper. Character-level. No change. |
+| **audio.py** | Bell sound. No change. |
+| **transcript.py** | File writer. No change. |
+| **errors.py** | Error classification. Extended by backends.py, not modified. |
+| **teletype.py** | Raw keyboard mode. Enhanced by typewriter mode in TUI, but teletype.py itself unchanged. |
+
+## Component Design: config.py
+
+### Config File Location
+
+Use platform-appropriate XDG-style path:
 
 ```python
-def parse_session_id(line: bytes) -> str | None:
-    """Extract session_id from the system init NDJSON line."""
-    if not line or not line.strip():
-        return None
-    try:
-        msg = json.loads(line.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if msg.get("type") == "system" and msg.get("subtype") == "init":
-        return msg.get("session_id")
-    return None
+import os
+from pathlib import Path
+
+def config_dir() -> Path:
+    """~/.config/claude-teletype/ on macOS and Linux."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return Path(xdg) / "claude-teletype"
+    return Path.home() / ".config" / "claude-teletype"
+
+def config_path() -> Path:
+    return config_dir() / "config.toml"
 ```
 
-**Change 2: Parse the result message for error detection.**
+### AppConfig Dataclass
 
 ```python
-def parse_result(line: bytes) -> dict | None:
-    """Extract result message fields (is_error, result, cost)."""
-    if not line or not line.strip():
-        return None
-    try:
-        msg = json.loads(line.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if msg.get("type") == "result":
-        return {
-            "is_error": msg.get("is_error", False),
-            "result": msg.get("result", ""),
-            "cost_usd": msg.get("total_cost_usd"),
-            "subtype": msg.get("subtype", ""),
-        }
-    return None
-```
+from dataclasses import dataclass, field
 
-**Change 3: Modify `stream_claude_response` signature.**
-
-Current:
-```python
-async def stream_claude_response(prompt: str) -> AsyncIterator[str]:
-```
-
-Proposed:
-```python
 @dataclass
-class StreamResult:
-    session_id: str | None
-    is_error: bool
-    error_message: str | None
-    cost_usd: float | None
+class AppConfig:
+    # LLM settings
+    llm_backend: str = "claude-code"     # "claude-code" | "openai" | "openrouter"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o"
+    openrouter_api_key: str | None = None
+    openrouter_model: str = "anthropic/claude-sonnet-4"
 
-async def stream_claude_response(
-    prompt: str,
-    session_id: str | None = None,
-) -> AsyncIterator[str | StreamResult]:
+    # Pacing
+    base_delay_ms: float = 75.0
+
+    # Audio
+    no_audio: bool = False
+
+    # Printer
+    printer_profile: str | None = None   # e.g., "juki-6100", "epson-lx300", "generic"
+    printer_device: str | None = None    # /dev/usb/lp0 override
+    paper_columns: int = 80              # A4 at 10 CPI
+
+    # Transcript
+    transcript_dir: str | None = None
+
+    # Typewriter mode
+    typewriter_mode: bool = False
 ```
 
-The function yields `str` chunks for text deltas as before, and yields a single `StreamResult` as the final item. The caller can capture the session_id from the StreamResult for the next call.
+### Why TOML (Not JSON, YAML, or INI)
 
-**Alternative (simpler):** Return a tuple `(session_id, AsyncIterator[str])` where session_id is populated after the first line is read. But async generators cannot "return" values alongside yielding. The cleanest pattern is:
+| Format | Verdict |
+|--------|---------|
+| **TOML** | **USE THIS.** Human-readable, comments allowed, stdlib `tomllib` for reading (Python 3.12+ required anyway), `tomli_w` for writing. Already used for `pyproject.toml`. Familiar to Python developers. |
+| JSON | No comments. Trailing commas break parsing. Not human-friendly for config. |
+| YAML | Implicit typing creates gotchas (e.g., `no` becomes `False`). Extra dependency. |
+| INI | No nested structures. No typed values. Too limited. |
 
-```python
-async def stream_claude_response(
-    prompt: str,
-    session_id: str | None = None,
-) -> AsyncIterator[str | StreamResult]:
-    """Yield text chunks, then a final StreamResult with session metadata."""
-    args = ["claude", "-p", prompt, "--output-format", "stream-json",
-            "--verbose", "--include-partial-messages",
-            "--dangerously-skip-permissions",
-            "--allowedTools", "WebSearch", "--allowedTools", "WebFetch"]
+### Config File Format
 
-    if session_id is not None:
-        args.extend(["--resume", session_id])
+```toml
+# ~/.config/claude-teletype/config.toml
 
-    proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+[llm]
+backend = "claude-code"    # "claude-code", "openai", "openrouter"
+# openai_api_key = "sk-..."
+# openai_model = "gpt-4o"
+# openrouter_api_key = "sk-or-..."
+# openrouter_model = "anthropic/claude-sonnet-4"
 
-    captured_session_id = None
-    result_info = None
+[pacing]
+base_delay_ms = 75.0
 
-    try:
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                break
+[audio]
+enabled = true
 
-            # Try session ID extraction (first message only)
-            if captured_session_id is None:
-                sid = parse_session_id(line)
-                if sid is not None:
-                    captured_session_id = sid
-                    continue
+[printer]
+profile = "juki-6100"     # see profiles/ directory
+# device = "/dev/usb/lp0"
+paper_columns = 80
 
-            # Try result extraction (last message)
-            res = parse_result(line)
-            if res is not None:
-                result_info = res
-                continue
-
-            # Normal text delta
-            text = parse_text_delta(line)
-            if text is not None:
-                yield text
-
-        await proc.wait()
-
-        yield StreamResult(
-            session_id=captured_session_id,
-            is_error=result_info["is_error"] if result_info else (proc.returncode != 0),
-            error_message=result_info["result"] if result_info and result_info["is_error"] else None,
-            cost_usd=result_info["cost_usd"] if result_info else None,
-        )
-    except BaseException:
-        proc.terminate()
-        await proc.wait()
-        raise
+[transcript]
+# dir = "./transcripts"
 ```
 
-### Component: tui.py (MODIFY)
-
-The TUI needs to hold session state across prompt submissions.
-
-**Change 1: Add session_id instance variable.**
+### Load/Save Pattern
 
 ```python
-class TeletypeApp(App):
-    def __init__(self, ...):
+import tomllib
+import tomli_w
+
+def load_config() -> AppConfig:
+    """Load config from TOML file, falling back to defaults."""
+    path = config_path()
+    if not path.exists():
+        return AppConfig()
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+    # Map nested TOML sections to flat dataclass fields
+    return AppConfig(
+        llm_backend=data.get("llm", {}).get("backend", "claude-code"),
+        openai_api_key=data.get("llm", {}).get("openai_api_key"),
+        # ... etc
+    )
+
+def save_config(config: AppConfig) -> None:
+    """Save config to TOML file."""
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "llm": {"backend": config.llm_backend},
+        "pacing": {"base_delay_ms": config.base_delay_ms},
+        # ... etc
+    }
+    with open(path, "wb") as f:
+        tomli_w.dump(data, f)
+```
+
+### CLI Override Pattern
+
+CLI flags override config file values. Config file overrides hardcoded defaults:
+
+```
+Priority: CLI flags > config.toml > hardcoded defaults
+```
+
+In `cli.py`:
+```python
+config = load_config()
+if delay != 75.0:  # User explicitly passed --delay
+    config.base_delay_ms = delay
+if device is not None:
+    config.printer_device = device
+```
+
+## Component Design: backends.py (Multi-LLM)
+
+### LLMBackend Protocol
+
+```python
+from collections.abc import AsyncIterator
+from typing import Protocol
+
+class LLMBackend(Protocol):
+    """Interface for all LLM streaming backends."""
+
+    async def stream(
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        proc_holder: list | None = None,
+    ) -> AsyncIterator[str | StreamResult]:
+        """Yield text chunks, then a final StreamResult."""
         ...
-        self._session_id: str | None = None  # NEW: persists across prompts
 ```
 
-**Change 2: Update stream_response to pass and capture session_id.**
+This protocol matches the existing `stream_claude_response` signature exactly. The `ClaudeCodeBackend` is a thin wrapper.
+
+### ClaudeCodeBackend
 
 ```python
-@work(exclusive=True)
-async def stream_response(self, prompt: str) -> None:
-    ...
-    async for item in stream_claude_response(prompt, session_id=self._session_id):
-        if isinstance(item, StreamResult):
-            self._session_id = item.session_id  # Capture for next prompt
-            if item.is_error:
-                log.write(f"\n[Error: {item.error_message}]\n")
-        else:
-            await pace_characters(item, base_delay_ms=self.base_delay_ms, output_fn=output_fn)
-    ...
+from claude_teletype.bridge import StreamResult, stream_claude_response
+
+class ClaudeCodeBackend:
+    """Wraps existing bridge.py stream_claude_response."""
+
+    async def stream(
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        proc_holder: list | None = None,
+    ) -> AsyncIterator[str | StreamResult]:
+        async for item in stream_claude_response(prompt, session_id, proc_holder):
+            yield item
 ```
 
-**No change needed to:** `on_input_submitted`, `on_mount`, `on_unmount`, fan-out destinations, or any printer/audio/transcript logic. The session state lives only in the TUI app instance and is passed through the bridge.
+Zero overhead. Bridge.py stays unchanged. The backend is just a protocol adapter.
 
-### Component: cli.py (MODIFY -- for --no-tui multi-turn only)
-
-Currently `_chat_async()` handles a single prompt. For multi-turn in non-TUI mode, add a REPL loop. This is a lower priority than TUI multi-turn since the TUI is the primary interface.
+### OpenAIBackend
 
 ```python
-async def _chat_loop_async(base_delay_ms, printer, no_audio, transcript_dir):
-    """Interactive multi-turn REPL for --no-tui mode."""
-    session_id = None
-    while True:
+from openai import AsyncOpenAI
+
+class OpenAIBackend:
+    """Direct OpenAI API streaming via openai SDK."""
+
+    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None):
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._model = model
+        self._messages: list[dict] = []  # Conversation history (we manage it)
+
+    async def stream(
+        self,
+        prompt: str,
+        session_id: str | None = None,   # Ignored for OpenAI
+        proc_holder: list | None = None,  # Ignored for OpenAI
+    ) -> AsyncIterator[str | StreamResult]:
+        self._messages.append({"role": "user", "content": prompt})
+
         try:
-            prompt = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-        if not prompt:
-            continue
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=self._messages,
+                stream=True,
+            )
 
-        async for item in stream_claude_response(prompt, session_id=session_id):
-            if isinstance(item, StreamResult):
-                session_id = item.session_id
-                if item.is_error:
-                    console.print(f"[bold red]Error: {item.error_message}")
-            else:
-                await pace_characters(item, ...)
-        print()
+            full_response = []
+            async for chunk in response:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    full_response.append(delta.content)
+                    yield delta.content
+
+            # Store assistant response for conversation history
+            self._messages.append({"role": "assistant", "content": "".join(full_response)})
+
+            yield StreamResult(
+                session_id=None,  # OpenAI has no session concept
+                is_error=False,
+                model=self._model,
+            )
+
+        except Exception as exc:
+            yield StreamResult(
+                session_id=None,
+                is_error=True,
+                error_message=str(exc),
+            )
 ```
 
-### Components NOT Modified
+### OpenRouter via OpenAI SDK
 
-| Component | Why No Change |
-|-----------|---------------|
-| **pacer.py** | Receives text chunks, has no knowledge of sessions. No change. |
-| **output.py** | Fan-out to destinations. Character-level. No change. |
-| **audio.py** | Receives characters, plays bell on newline. No change. |
-| **transcript.py** | Receives characters, writes to file. No change. |
-| **printer.py** | All printer drivers and discovery. No change. |
-| **teletype.py** | Raw keyboard-to-printer mode. No change. |
-
-This is the key architectural strength: the fan-out pipeline is completely decoupled from conversation state.
-
-## New Component: Word Wrap
-
-### Problem
-
-The current TUI uses `Log` widget which does NOT support word wrapping. Long lines extend beyond the visible area. For a typewriter aesthetic, text must wrap at word boundaries.
-
-### Options Evaluated
-
-| Option | Approach | Verdict |
-|--------|----------|---------|
-| **RichLog with wrap=True** | Replace `Log` with `RichLog(wrap=True)` | RichLog's `write()` expects complete renderables, not character-by-character. Would need to buffer lines and write them whole. Breaks the character-by-character pacing model. |
-| **Manual word wrap in output pipeline** | Add a wrap function between pacer and Log.write | Best option. Wrap happens at the character level, fits existing architecture. Log widget continues receiving pre-wrapped text. |
-| **CSS text-wrap** | Apply `text-wrap: wrap` CSS to Log widget | Textual's Log widget does not respect text-wrap CSS (it is a virtual widget that manages its own line rendering). |
-
-**Decision: Manual word wrap in the output pipeline.** Add a `WordWrapper` that sits between the pacer and the Log destination. It tracks column position and inserts `\n` at word boundaries when approaching the terminal width.
-
-### Word Wrap Architecture
+OpenRouter is OpenAI-API-compatible. Use the same `OpenAIBackend` with a custom `base_url`:
 
 ```python
-class WordWrapper:
-    """Tracks column position and wraps at word boundaries."""
+def make_backend(config: AppConfig) -> LLMBackend:
+    """Factory: create the appropriate LLM backend from config."""
+    if config.llm_backend == "claude-code":
+        return ClaudeCodeBackend()
+    elif config.llm_backend == "openai":
+        return OpenAIBackend(
+            api_key=config.openai_api_key,
+            model=config.openai_model,
+        )
+    elif config.llm_backend == "openrouter":
+        return OpenAIBackend(
+            api_key=config.openrouter_api_key,
+            model=config.openrouter_model,
+            base_url="https://openrouter.ai/api/v1",
+        )
+```
 
-    def __init__(self, width: int, inner: Callable[[str], None]):
-        self._width = width
+This is confirmed to work because OpenRouter explicitly documents OpenAI SDK compatibility with `base_url="https://openrouter.ai/api/v1"` (HIGH confidence, official OpenRouter docs).
+
+### Key Difference: Session Management
+
+| Backend | Session Model | Who Manages History |
+|---------|---------------|---------------------|
+| **Claude Code** | `--resume <session_id>`, Claude manages history in `~/.claude/sessions/` | Claude Code CLI |
+| **OpenAI / OpenRouter** | No sessions. Conversation history sent in every request. | Our `OpenAIBackend._messages` list |
+
+This means:
+- `ClaudeCodeBackend` is stateless (passes session_id to CLI, Claude manages context).
+- `OpenAIBackend` is stateful (holds `_messages` list in memory, grows each turn).
+- `StreamResult.session_id` is `None` for OpenAI backends (no resume capability).
+- Context window management for OpenAI backends is deferred (future: implement truncation when messages exceed model's context window).
+
+### proc_holder Consideration
+
+The `proc_holder` pattern exists so the TUI can kill the Claude Code subprocess on cancel. For `OpenAIBackend`, there is no subprocess -- cancellation is handled by the Textual worker's `cancel()` which raises `asyncio.CancelledError` in the async generator. The `httpx` client used by the `openai` SDK handles cancellation gracefully when the task is cancelled.
+
+## Component Design: Printer Profiles
+
+### Profile as TOML Data Files
+
+Replace the hardcoded `JukiPrinterDriver` class with a data-driven `ProfilePrinterDriver` that loads ESC sequences from TOML profiles.
+
+Profile location: `~/.config/claude-teletype/profiles/` and bundled defaults in the package.
+
+### Profile Format
+
+```toml
+# profiles/juki-6100.toml
+[profile]
+name = "Juki 6100 Daisywheel"
+type = "daisywheel"
+pins = 0  # Not applicable for daisywheel
+
+[init]
+# Sent once at startup. Hex-encoded escape sequences.
+reset = "1b1a49"              # ESC SUB I - full reset
+line_spacing = "1b1e09"       # ESC RS 9 - 1/6" line spacing
+fixed_pitch = "1b51"          # ESC Q - disable proportional spacing
+sequence = ["reset", "line_spacing", "fixed_pitch"]
+
+[newline]
+# How bare \n is handled
+cr_lf = true                  # Convert \n to \r\n
+reinit_after_newline = ["line_spacing", "fixed_pitch"]  # Re-send after each newline (CUPS job boundary)
+
+[close]
+form_feed = true              # Send FF on close
+
+[paper]
+columns = 80                  # Printable width at default pitch
+```
+
+```toml
+# profiles/epson-lx300.toml
+[profile]
+name = "Epson LX-300+ (9-pin ESC/P)"
+type = "dot-matrix"
+pins = 9
+
+[init]
+reset = "1b40"                # ESC @ - initialize printer
+line_spacing = "1b32"         # ESC 2 - 1/6" line spacing
+draft_mode = "1b78 00"        # ESC x 0 - draft quality
+pitch_10cpi = "1b50"          # ESC P - 10 CPI pica
+sequence = ["reset", "line_spacing", "draft_mode", "pitch_10cpi"]
+
+[newline]
+cr_lf = false                 # ESC/P printers handle LF correctly
+
+[close]
+form_feed = true
+
+[paper]
+columns = 80
+```
+
+```toml
+# profiles/generic.toml
+[profile]
+name = "Generic Printer"
+type = "generic"
+
+[init]
+sequence = []                 # No init codes
+
+[newline]
+cr_lf = false
+
+[close]
+form_feed = false
+
+[paper]
+columns = 80
+```
+
+### ProfilePrinterDriver
+
+```python
+class ProfilePrinterDriver:
+    """Data-driven printer driver that applies ESC sequences from a TOML profile.
+
+    Replaces JukiPrinterDriver. Wraps any inner PrinterDriver.
+    """
+
+    def __init__(self, inner: PrinterDriver, profile: PrinterProfile) -> None:
         self._inner = inner
-        self._column = 0
-        self._word_buf: list[str] = []
+        self._profile = profile
+        self._initialized = False
+
+    def _send_raw(self, hex_codes: list[str]) -> None:
+        """Send raw bytes from hex-encoded strings."""
+        for hex_str in hex_codes:
+            data = bytes.fromhex(hex_str.replace(" ", ""))
+            for b in data:
+                self._inner.write(chr(b))
+
+    def _ensure_init(self) -> None:
+        if not self._initialized:
+            self._initialized = True
+            init_codes = [self._profile.init_codes[name]
+                         for name in self._profile.init_sequence
+                         if name in self._profile.init_codes]
+            self._send_raw(init_codes)
+
+    @property
+    def is_connected(self) -> bool:
+        return self._inner.is_connected
 
     def write(self, char: str) -> None:
-        if char == "\n":
-            self._flush_word()
-            self._inner("\n")
-            self._column = 0
-        elif char == " ":
-            self._flush_word()
-            if self._column < self._width:
-                self._inner(" ")
-                self._column += 1
-        else:
-            self._word_buf.append(char)
-            # If word alone exceeds width, force break
-            if len(self._word_buf) >= self._width:
-                self._flush_word()
-
-    def _flush_word(self) -> None:
-        word_len = len(self._word_buf)
-        if word_len == 0:
+        if not self._inner.is_connected:
             return
-        # Would this word overflow the line?
-        if self._column + word_len > self._width and self._column > 0:
-            self._inner("\n")
-            self._column = 0
-        for ch in self._word_buf:
-            self._inner(ch)
-        self._column += word_len
-        self._word_buf.clear()
+        self._ensure_init()
+        if char == "\n":
+            if self._profile.cr_lf:
+                self._inner.write("\r")
+            self._inner.write("\n")
+            if self._profile.reinit_after_newline:
+                reinit_codes = [self._profile.init_codes[name]
+                               for name in self._profile.reinit_after_newline
+                               if name in self._profile.init_codes]
+                self._send_raw(reinit_codes)
+        else:
+            self._inner.write(char)
+
+    def close(self) -> None:
+        if self._initialized and self._inner.is_connected and self._profile.form_feed_on_close:
+            self._inner.write("\f")
+        self._inner.close()
 ```
 
-The WordWrapper is inserted as a destination wrapper in the TUI's `stream_response`:
+### PrinterProfile Dataclass
 
 ```python
-# In tui.py stream_response:
-log_write = WordWrapper(width=self.size.width, inner=log.write).write
-destinations = [log_write]  # Wrapped log.write replaces raw log.write
+@dataclass
+class PrinterProfile:
+    name: str
+    printer_type: str                        # "daisywheel", "dot-matrix", "thermal", "generic"
+    init_codes: dict[str, str] = field(default_factory=dict)   # name -> hex string
+    init_sequence: list[str] = field(default_factory=list)     # ordered list of init code names
+    cr_lf: bool = False
+    reinit_after_newline: list[str] = field(default_factory=list)
+    form_feed_on_close: bool = False
+    columns: int = 80
 ```
 
-For the printer, word wrapping already exists in `make_printer_output` (wraps at `A4_COLUMNS = 80`). No change needed there.
+### Migration from JukiPrinterDriver
 
-## New Component: Error Handling
-
-### Error Sources
-
-| Source | How It Manifests | Current Handling | Needed |
-|--------|------------------|------------------|--------|
-| Claude Code not installed | `FileNotFoundError` from `create_subprocess_exec` | Crash | Catch, show "Claude Code not found" |
-| Claude Code not authenticated | Non-zero exit code, stderr message | Silent failure (no output) | Parse stderr, show auth error |
-| NDJSON result with `is_error: true` | Result message in stream | Ignored | Parse and surface |
-| Network error during response | Subprocess exits mid-stream | Stream ends, no error shown | Detect incomplete stream |
-| Invalid session ID on `--resume` | Non-zero exit code | Crash or silent | Catch, fall back to new session |
-| Process timeout | Subprocess hangs | Never resolves | Add optional timeout |
-
-### Error Handling Architecture
-
-Errors should be surfaced through the `StreamResult` dataclass that the bridge already yields as the final item. The callers (TUI and CLI) check `StreamResult.is_error` and display appropriately.
-
-For subprocess launch failures (FileNotFoundError, PermissionError), wrap the `create_subprocess_exec` call:
+The existing `JukiPrinterDriver` becomes the `juki-6100.toml` profile. The `--juki` flag in cli.py becomes `--profile juki-6100`. For backward compatibility:
 
 ```python
-try:
-    proc = await asyncio.create_subprocess_exec(...)
-except FileNotFoundError:
-    yield StreamResult(
-        session_id=None,
-        is_error=True,
-        error_message="Claude Code CLI not found. Install from https://code.claude.com",
-        cost_usd=None,
-    )
-    return
+if juki:
+    config.printer_profile = "juki-6100"  # Legacy flag maps to profile
 ```
 
-For stderr capture on non-zero exit:
+### Profile Discovery
 
 ```python
-await proc.wait()
-if proc.returncode != 0 and result_info is None:
-    stderr_output = await proc.stderr.read()
-    error_msg = stderr_output.decode("utf-8", errors="replace").strip()
-    yield StreamResult(
-        session_id=captured_session_id,
-        is_error=True,
-        error_message=error_msg or f"Claude exited with code {proc.returncode}",
-        cost_usd=None,
-    )
-    return
+def discover_profiles() -> list[str]:
+    """List available printer profiles (bundled + user-defined)."""
+    bundled = Path(__file__).parent / "profiles"
+    user = config_dir() / "profiles"
+    profiles = []
+    for d in [bundled, user]:
+        if d.exists():
+            for f in sorted(d.glob("*.toml")):
+                profiles.append(f.stem)
+    return profiles
 ```
 
-## Updated Data Flow: Multi-Turn
+Bundled profiles ship in `src/claude_teletype/profiles/`. Users can add custom profiles in `~/.config/claude-teletype/profiles/`.
 
-### First Prompt (No Session)
+## Component Design: TUI Settings (settings.py)
+
+### ModalScreen with TabbedContent
+
+```python
+from textual.app import ComposeResult
+from textual.screen import ModalScreen
+from textual.widgets import Button, Label, Select, Static, Switch, TabbedContent, TabPane
+
+class SettingsScreen(ModalScreen[AppConfig | None]):
+    """Settings modal with tabs for LLM, Printer, and Pacing."""
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, config: AppConfig) -> None:
+        super().__init__()
+        self._config = config
+
+    def compose(self) -> ComposeResult:
+        with TabbedContent():
+            with TabPane("LLM", id="llm-tab"):
+                yield Label("Backend")
+                yield Select(
+                    [("Claude Code CLI", "claude-code"),
+                     ("OpenAI", "openai"),
+                     ("OpenRouter", "openrouter")],
+                    value=self._config.llm_backend,
+                    id="backend-select",
+                )
+                # ... model selection, API key inputs
+            with TabPane("Printer", id="printer-tab"):
+                yield Label("Printer Profile")
+                yield Select(
+                    [(p, p) for p in discover_profiles()],
+                    value=self._config.printer_profile or "generic",
+                    id="profile-select",
+                )
+                # ... paper columns
+            with TabPane("Pacing", id="pacing-tab"):
+                yield Label("Base Delay (ms)")
+                # ... delay slider or input
+                yield Label("Audio")
+                yield Switch(value=not self._config.no_audio, id="audio-switch")
+        yield Button("Save", variant="primary", id="save-btn")
+        yield Button("Cancel", id="cancel-btn")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "save-btn":
+            # Read widget values into config
+            updated = self._build_config_from_widgets()
+            self.dismiss(updated)
+        elif event.button.id == "cancel-btn":
+            self.dismiss(None)
+```
+
+### TUI Integration
+
+In `tui.py`, add a binding and handler:
+
+```python
+BINDINGS = [
+    Binding("ctrl+d", "quit", "Quit"),
+    Binding("escape", "cancel_stream", "Cancel", show=False),
+    Binding("ctrl+comma", "settings", "Settings"),  # ctrl+, is common for settings
+]
+
+def action_settings(self) -> None:
+    """Open settings modal."""
+    self.push_screen(SettingsScreen(self._config), callback=self._apply_settings)
+
+def _apply_settings(self, result: AppConfig | None) -> None:
+    """Apply settings returned from modal."""
+    if result is not None:
+        self._config = result
+        save_config(result)
+        # Rebuild backend if LLM changed
+        self._backend = make_backend(result)
+        # Update pacing
+        self.base_delay_ms = result.base_delay_ms
+```
+
+### Settings Screen Data Flow
+
+```
+[User presses Ctrl+,]
+    |
+    v
+[TeletypeApp.action_settings()]
+    |-- push_screen(SettingsScreen(self._config))
+    |
+    v
+[SettingsScreen renders with current config values]
+    |
+    v
+[User changes settings, clicks Save]
+    |
+    v
+[SettingsScreen.dismiss(updated_config)]
+    |
+    v
+[TeletypeApp._apply_settings(updated_config)]
+    |-- save_config(updated_config)    -> writes TOML
+    |-- self._backend = make_backend() -> swaps LLM backend
+    |-- self.base_delay_ms = ...       -> updates pacing
+```
+
+## Component Design: Typewriter Mode
+
+### What It Is
+
+A mode where the TUI accepts keyboard input and sends it directly to the printer/screen with pacing and sound -- no LLM involved. It recreates a pure typewriter experience.
+
+### How It Differs from teletype.py
+
+| Feature | `teletype.py` (existing) | Typewriter Mode (new) |
+|---------|-------------------------|-----------------------|
+| Interface | Raw terminal, no TUI | Full TUI with Log widget |
+| Audio | No | Yes (bell on newline) |
+| Pacing | Instant | Character pacing with delays |
+| Word wrap | No | Yes (via WordWrapper) |
+| Requires printer | Yes (exits if none) | No (works in simulator) |
+
+### Integration into TUI
+
+Typewriter mode is activated via `--typewriter` CLI flag or toggled in TUI settings. When active:
+
+1. `on_input_submitted` does NOT call `stream_response` (no LLM).
+2. Instead, it routes the typed text through the pacing/output pipeline directly.
+3. User types in the Input widget, presses Enter, and the text appears in the Log with typewriter pacing and goes to the printer.
+
+```python
+# In tui.py:
+async def on_input_submitted(self, event: Input.Submitted) -> None:
+    prompt = event.value.strip()
+    if not prompt:
+        return
+
+    event.input.clear()
+    self._prev_input_value = ""
+
+    if self._config.typewriter_mode:
+        self._type_to_output(prompt)
+    else:
+        # ... existing LLM flow
+        self.stream_response(prompt)
+
+@work(exclusive=True)
+async def _type_to_output(self, text: str) -> None:
+    """Typewriter mode: pace user text to all destinations."""
+    # Build output pipeline (same as stream_response but no LLM)
+    log = self.query_one("#output", Log)
+    # ... wire destinations ...
+    await pace_characters(text + "\n", base_delay_ms=self.base_delay_ms, output_fn=output_fn)
+```
+
+## Updated Data Flow: v1.2
+
+### Startup Flow
+
+```
+[User runs: claude-teletype]
+    |
+    v
+[cli.py: chat()]
+    |-- load_config() -> AppConfig from ~/.config/claude-teletype/config.toml
+    |-- Apply CLI flag overrides (--delay, --device, --profile, etc.)
+    |-- check_claude_installed() (ONLY if backend is claude-code)
+    |-- discover_printer(config)
+    |-- If profile specified: wrap driver in ProfilePrinterDriver
+    |-- make_backend(config) -> LLMBackend
+    |
+    v
+[TeletypeApp(config=config, backend=backend, printer=driver)]
+    |-- Stores config, backend, printer
+    |-- on_mount: initialize transcript, printer_write
+```
+
+### Streaming Turn (LLM Mode)
 
 ```
 [User types prompt, presses Enter]
     |
     v
-[tui.py] on_input_submitted(prompt)
-    |-- self._session_id is None
+[tui.py: on_input_submitted(prompt)]
+    |-- typewriter_mode? NO -> stream_response(prompt)
     |
     v
-[bridge.py] stream_claude_response(prompt, session_id=None)
-    |-- spawns: claude -p "prompt" --output-format stream-json ...
-    |-- NDJSON line 1: {"type":"system","subtype":"init","session_id":"abc-123",...}
-    |-- captures session_id = "abc-123"
-    |-- NDJSON lines: stream_event/content_block_delta -> yield text chunks
-    |-- NDJSON last: {"type":"result","is_error":false,...}
-    |-- yield StreamResult(session_id="abc-123", is_error=False, ...)
+[tui.py: stream_response(prompt)]
+    |-- async for item in self._backend.stream(prompt, session_id, proc_holder):
+    |       if isinstance(item, StreamResult): update session/status
+    |       else: await pace_characters(item, ..., output_fn)
     |
     v
-[tui.py] stream_response
-    |-- for each str chunk: pace_characters -> output_fn -> [log, printer, bell, transcript]
-    |-- for StreamResult: self._session_id = "abc-123"
+[pacer.py] -> [output.py fan-out] -> [WordWrapper->Log, printer_write, bell, transcript]
 ```
 
-### Second Prompt (With Session)
+### Streaming Turn (Typewriter Mode)
 
 ```
-[User types follow-up, presses Enter]
+[User types text, presses Enter]
     |
     v
-[tui.py] on_input_submitted(prompt)
-    |-- self._session_id is "abc-123"
+[tui.py: on_input_submitted(text)]
+    |-- typewriter_mode? YES -> _type_to_output(text)
     |
     v
-[bridge.py] stream_claude_response(prompt, session_id="abc-123")
-    |-- spawns: claude -p "prompt" --resume "abc-123" --output-format stream-json ...
-    |-- Claude Code loads full conversation history internally
-    |-- Response has full context of previous turns
-    |-- yield StreamResult(session_id="abc-123", ...)
+[tui.py: _type_to_output(text)]
+    |-- await pace_characters(text + "\n", ..., output_fn)
     |
     v
-[tui.py] stream_response
-    |-- same fan-out as before, session_id unchanged (or updated if Claude returns new one)
+[pacer.py] -> [output.py fan-out] -> [WordWrapper->Log, printer_write, bell, transcript]
 ```
 
-### Error Flow
+Note: the pipeline from pacer onwards is IDENTICAL in both modes. The only difference is the source of text (LLM vs user keyboard).
+
+### Settings Change Flow
 
 ```
-[bridge.py] stream_claude_response(prompt, session_id="invalid-id")
-    |-- spawns: claude -p "prompt" --resume "invalid-id" ...
-    |-- Claude exits with non-zero code
-    |-- stderr: "Session not found"
-    |-- yield StreamResult(session_id=None, is_error=True, error_message="Session not found")
+[User presses Ctrl+, in TUI]
     |
     v
-[tui.py] stream_response
-    |-- detects is_error=True
-    |-- log.write("[Error: Session not found]")
-    |-- self._session_id = None  (reset to start fresh next time)
+[SettingsScreen modal opens]
+    |-- Shows current config values in form widgets
+    |-- User edits values
+    |-- Clicks Save
+    |
+    v
+[TeletypeApp._apply_settings(new_config)]
+    |-- save_config(new_config) -> write TOML to disk
+    |-- self._backend = make_backend(new_config) -> swap backend
+    |-- self.base_delay_ms = new_config.base_delay_ms
+    |-- NOTE: printer profile change requires app restart (profile wraps driver at startup)
 ```
 
 ## Component Boundary Summary
 
-### Modified Components
+### Integration Points
 
-| Component | What Changes | Lines of Change (est.) |
-|-----------|-------------|----------------------|
-| **bridge.py** | Add `parse_session_id()`, `parse_result()`, `StreamResult` dataclass. Modify `stream_claude_response()` signature to accept `session_id` and yield `StreamResult`. Add `--resume` flag injection. Add subprocess error handling. | ~60 lines added, ~15 lines modified |
-| **tui.py** | Add `self._session_id` state. Update `stream_response` to pass session_id, capture from StreamResult, handle errors. | ~15 lines modified |
-| **cli.py** | Update `_chat_async()` to handle StreamResult. Optionally add `_chat_loop_async()` for multi-turn REPL in --no-tui mode. | ~20-40 lines |
+| New Feature | Touches | Integration Point |
+|-------------|---------|-------------------|
+| **Config** | cli.py, tui.py | Replaces scattered CLI args with single AppConfig |
+| **Printer Profiles** | printer.py, cli.py | ProfilePrinterDriver wraps any driver at startup |
+| **Multi-LLM** | tui.py (stream_response) | LLMBackend.stream() replaces direct bridge call |
+| **Settings UI** | tui.py | ModalScreen pushed on Ctrl+,, returns updated AppConfig |
+| **Typewriter Mode** | tui.py (on_input_submitted) | Conditional: bypass LLM, route text directly to output pipeline |
 
-### New Components
+### Dependency Graph Between New Features
 
-| Component | Purpose | Size (est.) |
-|-----------|---------|-------------|
-| **wrap.py** (or inline in tui.py) | WordWrapper class for TUI output word wrapping | ~40 lines |
-
-### Unchanged Components
-
-| Component | Why |
-|-----------|-----|
-| pacer.py | Character-level pacing. No session awareness needed. |
-| output.py | Fan-out multiplexer. No session awareness needed. |
-| audio.py | Bell sound on newlines. No session awareness needed. |
-| transcript.py | File writer. No session awareness needed. |
-| printer.py | All printer drivers and discovery. No session awareness needed. |
-| teletype.py | Raw keyboard mode. Completely independent. |
+```
+config.py (FOUNDATION - build first)
+    |
+    +---> printer profiles (depends on config for profile path)
+    |
+    +---> backends.py (depends on config for API keys, model selection)
+    |
+    +---> tui.py wiring (depends on config, backends, profiles)
+              |
+              +---> settings.py (depends on config, profile discovery, backend factory)
+              |
+              +---> typewriter mode (depends on config flag, no other new deps)
+```
 
 ## Patterns to Follow
 
-### Pattern 1: Session State Lives at the Caller Level
+### Pattern 1: Config as Single Source of Truth
 
-**What:** Session ID is stored by the caller (TUI app or CLI loop), not by the bridge. The bridge is stateless -- it receives session_id as a parameter and returns it in the result.
+**What:** All runtime settings flow through a single `AppConfig` dataclass. CLI flags, config file, and settings UI all produce/modify an AppConfig.
 
-**Why:** The bridge spawns a new subprocess per call. There is no persistent state to hold. The TUI app instance lives for the duration of the session, making it the natural owner of session state.
+**Why:** Eliminates the current pattern of threading 6+ constructor parameters through cli.py -> TeletypeApp. Makes adding new settings trivial (add field to dataclass, add to TOML schema, add to settings UI).
 
 **Example:**
 ```python
-# Good: Caller holds state
-class TeletypeApp(App):
-    _session_id: str | None = None
+# Before (v1.1): scattered params
+TeletypeApp(base_delay_ms=delay, printer=printer, no_audio=no_audio,
+            transcript_dir=transcript_dir, resume_session_id=resume)
 
-    async def stream_response(self, prompt):
-        async for item in stream_claude_response(prompt, session_id=self._session_id):
-            if isinstance(item, StreamResult):
-                self._session_id = item.session_id
-
-# Bad: Bridge holds state (stateful module-level variable)
-_global_session_id = None  # Don't do this
+# After (v1.2): single config
+TeletypeApp(config=config, backend=backend, printer=driver,
+            resume_session_id=resume)
 ```
 
-### Pattern 2: Union Yield Type for Metadata-in-Stream
+### Pattern 2: Backend Protocol with Factory
 
-**What:** The async generator yields `str | StreamResult` -- text chunks during streaming, metadata at the end. The caller uses `isinstance()` to distinguish.
+**What:** `LLMBackend` protocol defines the streaming interface. A `make_backend(config)` factory creates the right implementation. TUI code only knows about the protocol.
 
-**Why:** Avoids complex return types from async generators (which can only return via `StopAsyncIteration`). Keeps the streaming interface simple. The StreamResult is always the last item, so callers can handle it in a straightforward if/else.
+**Why:** Swapping backends at runtime (from settings UI) becomes trivial. Testing is easier (mock backend). Adding new backends later (Gemini, local models) requires no TUI changes.
 
-### Pattern 3: Graceful Degradation on Session Errors
+**Example:**
+```python
+# TUI only knows the protocol
+self._backend: LLMBackend = make_backend(config)
+async for item in self._backend.stream(prompt, session_id, proc_holder):
+    ...
+```
 
-**What:** If `--resume` fails (invalid session, session expired), reset session_id to None and inform the user. Do not crash. The next prompt starts a fresh session.
+### Pattern 3: Decorator Pattern for Printer Profiles
 
-**Why:** Session storage is managed by Claude Code, not by us. Sessions can expire, be deleted, or become invalid. The user should not have to restart the app.
+**What:** `ProfilePrinterDriver` wraps any inner `PrinterDriver` and applies ESC sequences from a data file. Same pattern as existing `JukiPrinterDriver` but data-driven.
+
+**Why:** Adding a new printer requires only a TOML file, not code. The Juki-specific logic currently hardcoded in Python becomes just another profile file.
+
+### Pattern 4: Modal Screen for Settings
+
+**What:** Settings is a `ModalScreen` pushed onto the Textual screen stack. It receives current config, returns updated config (or None on cancel).
+
+**Why:** Clean separation. Settings screen does not directly mutate app state. The callback pattern (`dismiss(result)`) lets the app decide what to apply. Textual's `ModalScreen` blocks interaction with the main screen automatically.
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Managing Conversation History Ourselves
+### Anti-Pattern 1: Global Mutable Config
 
-**What:** Building a list of `{"role": "user"/"assistant", "content": "..."}` messages and passing them to Claude somehow.
+**What:** Storing config in a module-level global that any module can read/modify.
 
-**Why bad:** Claude Code already manages conversation history via its session persistence. Duplicating this logic means maintaining context window limits, truncation strategy, and message formatting -- all of which Claude Code handles internally.
+**Why bad:** Invisible dependencies. Testing nightmare. Race conditions if settings UI saves while streaming is active.
 
-**Instead:** Use `--resume <session_id>`. Let Claude Code manage the conversation.
+**Instead:** Pass AppConfig explicitly. TUI holds the authoritative copy. Config file is the persistence layer.
 
-### Anti-Pattern 2: Persistent Subprocess with stdin Piping
+### Anti-Pattern 2: Rewriting bridge.py for Multi-LLM
 
-**What:** Keeping one `claude` subprocess alive and writing prompts to its stdin.
+**What:** Modifying `bridge.py` to conditionally call OpenAI or Claude Code depending on config.
 
-**Why bad:** No clean shutdown semantics. Zombie process risk. Error recovery requires killing and restarting the process. The `--input-format stream-json` stdin mode is designed for the Agent SDK, not for manual piping. Risk of hangs (documented in [GitHub issue #3187](https://github.com/anthropics/claude-code/issues/3187)).
+**Why bad:** bridge.py is the Claude Code subprocess bridge. It has one job. Mixing in OpenAI HTTP calls violates single responsibility and makes testing harder.
 
-**Instead:** Spawn a new subprocess per prompt with `--resume`. Clean lifecycle per request.
+**Instead:** Create a separate `backends.py` with the `LLMBackend` protocol. `ClaudeCodeBackend` wraps bridge.py. `OpenAIBackend` is independent.
 
-### Anti-Pattern 3: Storing Session ID in a File
+### Anti-Pattern 3: Client-Side Context Management for Claude Code
 
-**What:** Writing session_id to a file so it persists across app restarts.
+**What:** Keeping a messages list for Claude Code like we do for OpenAI, to "unify" the interfaces.
 
-**Why bad:** Unnecessary complexity. Claude Code already stores sessions in `~/.claude/sessions/`. If the user wants to resume a previous conversation, they can use the `--resume` flag themselves, or we can add a `--resume` CLI flag later that passes through to Claude. The app's session_id only needs to live in memory for the current run.
+**Why bad:** Claude Code already manages conversation history via `--resume`. Duplicating it wastes tokens and risks inconsistency. Claude Code has auto-compact; our manual truncation would be worse.
 
-**Instead:** Store session_id as an instance variable. Fresh session on app restart.
+**Instead:** Let each backend manage conversation state its own way. Claude Code uses `session_id`. OpenAI uses `_messages` list.
 
-## Build Order for Multi-Turn Integration
+### Anti-Pattern 4: Embedding ESC Sequences in Python Code
+
+**What:** Hardcoding printer escape sequences as class constants (like the current `JukiPrinterDriver.RESET`, `LINE_SPACING`, `FIXED_PITCH`).
+
+**Why bad:** Adding a new printer requires modifying Python source, writing tests for the new class, and a code review. Configuration data should be data, not code.
+
+**Instead:** TOML profile files with hex-encoded escape sequences. New printer = new TOML file.
+
+### Anti-Pattern 5: Hot-Swapping Printer Profiles
+
+**What:** Allowing the settings UI to change the printer profile while the app is running and immediately applying it.
+
+**Why bad:** The `ProfilePrinterDriver` sends init sequences at first write. Sending a different printer's init codes to an already-initialized printer can leave it in an inconsistent state. Some ESC sequences are irreversible without a full reset.
+
+**Instead:** Printer profile changes require app restart. The settings UI should save the new profile to config and display "Restart to apply printer changes."
+
+## Recommended Build Order
 
 The dependency chain dictates this order:
 
 ```
-Step 1: bridge.py — StreamResult + parse_session_id + parse_result + --resume flag
-    |   (Foundation. Can test in isolation with mock subprocess.)
-    |   (All existing tests continue to pass -- new functionality is additive.)
-    |
-Step 2: tui.py — Session state + StreamResult handling + error display
-    |   (Depends on Step 1. The TUI is the primary interface.)
-    |
-Step 3: cli.py — StreamResult handling in _chat_async + optional REPL loop
-    |   (Depends on Step 1. Lower priority than TUI.)
-    |
-Step 4: wrap.py — WordWrapper for TUI output
-    |   (Independent of Steps 1-3. Can be built in parallel.)
-    |   (Only depends on knowing terminal width from TUI.)
-    |
-Step 5: Error handling polish
-    |   (Depends on Steps 1-3. Adds edge case handling.)
-    |   (FileNotFoundError, timeout, stderr parsing, session recovery.)
+Phase A: Configuration System (FOUNDATION)
+    config.py + config.toml schema + CLI wiring
+    WHY FIRST: Every other feature depends on config for settings storage.
+
+Phase B: Printer Profiles
+    ProfilePrinterDriver + PrinterProfile dataclass + TOML profiles
+    WHY SECOND: Self-contained. Only depends on config for profile path discovery.
+    Validates the TOML profile loading pattern before using it elsewhere.
+    Immediately useful: replaces hardcoded Juki code with data.
+
+Phase C: Multi-LLM Backends
+    LLMBackend protocol + ClaudeCodeBackend + OpenAIBackend + factory
+    WHY THIRD: Depends on config for API keys. Independent of printer profiles.
+    OpenAI streaming is a well-understood pattern (official SDK).
+    Biggest value-add for users who want to use different models.
+
+Phase D: TUI Settings + Typewriter Mode + Bug Fixes
+    SettingsScreen + typewriter mode + --no-tui StreamResult fix
+    WHY LAST: Depends on config (to display/edit), backends (to list options),
+    and profiles (to list printers). Settings UI is the "glue" that exposes
+    all previous features to the user. Typewriter mode is simple wiring.
+    Bug fixes are low-dependency cleanup.
 ```
 
-**Rationale:**
-- Step 1 is the foundation. The bridge change is the smallest, most testable unit. All existing tests pass because the new `session_id` parameter defaults to `None` (backward compatible).
-- Step 2 is the highest-value integration. Multi-turn in the TUI is the primary use case.
-- Step 3 can be deferred if not needed immediately. The `--no-tui` mode is secondary.
-- Step 4 (word wrap) is independent and can be done in parallel with Steps 2-3.
-- Step 5 is polish that benefits from all paths being wired up.
+**Rationale for this ordering:**
+- Config is the foundation everything builds on. Without it, backends and profiles have nowhere to store settings.
+- Printer profiles are the smallest new subsystem. Good for validating the TOML-as-data pattern.
+- Multi-LLM is the highest-value feature but has the most external dependencies (openai SDK). Build it after config is proven.
+- Settings UI is the integration layer. It needs everything else to exist first.
+- Typewriter mode is trivially simple once the TUI wiring exists. Bundle it with the final phase.
 
 ## Sources
 
-- [Claude Code CLI Reference](https://code.claude.com/docs/en/cli-reference) -- HIGH confidence. Official docs confirming `--resume`, `--continue`, `--session-id`, `-p` flag combinations.
-- [Run Claude Code Programmatically (Headless)](https://code.claude.com/docs/en/headless) -- HIGH confidence. Official docs showing `claude -c -p "query"` and `session_id` capture pattern.
-- [Agent SDK Session Management](https://platform.claude.com/docs/en/agent-sdk/sessions) -- HIGH confidence. Official docs for session ID lifecycle, forking, and resumption.
-- [Agent SDK Streaming Output](https://platform.claude.com/docs/en/agent-sdk/streaming-output) -- HIGH confidence. Official StreamEvent reference with session_id field and event type documentation.
-- [Textual Log Widget](https://textual.textualize.io/widgets/log/) -- HIGH confidence. Official docs confirming `write()` method for character-by-character output, no native word wrap.
-- [Textual RichLog Widget](https://textual.textualize.io/widgets/rich_log/) -- HIGH confidence. Official docs confirming `wrap=True` parameter but renderable-level writes (not character-level).
-- [Textual text-wrap CSS](https://textual.textualize.io/styles/text_wrap/) -- HIGH confidence. Official docs for CSS text-wrap property.
-- [Claude Code GitHub Issue #3187](https://github.com/anthropics/claude-code/issues/3187) -- MEDIUM confidence. Documents stdin stream-json hangs.
-- [Claude Code GitHub Issue #25629](https://github.com/anthropics/claude-code/issues/25629) -- MEDIUM confidence. Documents stream-json hanging after result event.
-- [Claude Flow Stream Chaining Wiki](https://github.com/ruvnet/claude-flow/wiki/Stream-Chaining) -- MEDIUM confidence. Community-documented NDJSON message structure.
+- [Python tomllib documentation](https://docs.python.org/3/library/tomllib.html) -- HIGH confidence. Stdlib TOML parser, read-only, Python 3.11+.
+- [tomli-w on PyPI](https://pypi.org/project/tomli-w/) -- HIGH confidence. TOML writer companion to tomllib.
+- [OpenAI Python SDK (GitHub)](https://github.com/openai/openai-python) -- HIGH confidence. Official SDK with AsyncOpenAI, stream=True, httpx backend.
+- [OpenRouter Quickstart Guide](https://openrouter.ai/docs/quickstart) -- HIGH confidence. Official docs showing `base_url="https://openrouter.ai/api/v1"` with OpenAI SDK.
+- [OpenRouter Streaming Docs](https://openrouter.ai/docs/api/reference/streaming) -- HIGH confidence. SSE streaming format, `data: [DONE]` sentinel.
+- [OpenRouter OpenAI SDK Integration](https://openrouter.ai/docs/guides/community/openai-sdk) -- HIGH confidence. Official guide for using OpenAI Python SDK with OpenRouter.
+- [Textual Screens Guide](https://textual.textualize.io/guide/screens/) -- HIGH confidence. ModalScreen, push_screen, dismiss, callback pattern.
+- [Textual TabbedContent Widget](https://textual.textualize.io/widgets/tabbed_content/) -- HIGH confidence. TabPane composition, programmatic switching.
+- [Textual Select Widget](https://textual.textualize.io/widgets/select/) -- HIGH confidence. Dropdown selection for settings.
+- [Textual Switch Widget](https://textual.textualize.io/widgets/switch/) -- HIGH confidence. Boolean toggle for audio enable/disable.
+- [Epson ESC/P2 and FX Commands Reference](https://support2.epson.net/manuals/english/page/epl_n4000plus/ref_g/APCOM_3.HTM) -- HIGH confidence. Official Epson reference for ESC/P2 commands.
+- [IBM PPDS and Epson ESC/P Control Codes](https://www.ibm.com/support/pages/list-ibm-ppds-and-epson-escp-control-codes-and-escape-sequences) -- HIGH confidence. Official IBM reference.
+- [Juki 6100 Operation Manual (Archive.org)](https://archive.org/stream/bitsavers_jukiJuki61p83_7056599/Juki_6100_Operation_Manual_Sep83_djvu.txt) -- MEDIUM confidence. Scanned original manual from 1983.
+- [python-escp (GitHub)](https://github.com/yackx/python-escp) -- MEDIUM confidence. Third-party ESC/P library, GPL-3.0, limited testing scope.
+- [python-escpos (GitHub)](https://github.com/python-escpos/python-escpos) -- MEDIUM confidence. ESC/POS (thermal receipt), not ESC/P (dot matrix). Referenced for contrast.
+- [Epson ESC/P Reference Manual (PDF)](https://files.support.epson.com/pdf/general/escp2ref.pdf) -- HIGH confidence. Official Epson ESC/P2 reference manual from 1997.
+- [pydantic-settings Configuration Files](https://deepwiki.com/pydantic/pydantic-settings/3.2-configuration-files) -- MEDIUM confidence. Alternative to manual TOML parsing, considered but rejected (too heavy for this use case).
 
 ---
-*Architecture research for: Claude Teletype multi-turn conversation integration*
-*Researched: 2026-02-16*
+*Architecture research for: Claude Teletype v1.2 integration (config, printer profiles, multi-LLM, settings UI, typewriter mode)*
+*Researched: 2026-02-17*
