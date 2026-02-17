@@ -138,6 +138,8 @@
 **Plans**: 1 plan
 - [ ] 15-01-PLAN.md — TDD: Add _system_prompt tracking, pass to create_backend in _apply_settings, test coverage
 
+
+
 ## Progress
 
 **Execution Order:**
