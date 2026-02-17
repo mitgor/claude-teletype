@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 9 - Configuration System
+**Current focus:** Phase 10 - Printer Profiles
 
 ## Current Position
 
-Phase: 9 of 13 (Configuration System)
+Phase: 10 of 13 (Printer Profiles)
 Plan: 1 of 2 in current phase
-Status: Plan 01 complete
-Last activity: 2026-02-17 — Completed 09-01 Configuration Module
+Status: Plan 10-01 complete
+Last activity: 2026-02-17 — Completed 10-01 PrinterProfile Dataclass and Registry
 
-Progress: [█████████████████░░░] 77% (17/~22 plans, 8/13 phases complete)
+Progress: [███████████████████░] 86% (19/~22 plans, 9/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 19
 - Average duration: 3min
-- Total execution time: 0.78 hours
+- Total execution time: 1.05 hours
 
 **By Phase:**
 
@@ -35,11 +35,12 @@ Progress: [█████████████████░░░] 77% (17
 | 06-error-handling-and-recovery | 2 | 5min | 2.5min |
 | 07-word-wrap-for-tui-and-printer | 2 | 6min | 3min |
 | 08-no-tui-bug-fix | 1 | 2min | 2min |
-| 09-configuration-system | 1 | 3min | 3min |
+| 09-configuration-system | 2 | 14min | 7min |
+| 10-printer-profiles | 1 | 5min | 5min |
 
 **Recent Trend:**
-- Last 5 plans: [2min, 2min, 4min, 2min, 3min]
-- Trend: Stable (average ~2.6min per plan)
+- Last 5 plans: [4min, 2min, 3min, 11min, 5min]
+- Trend: Normalized after 09-02 spike
 
 ## Accumulated Context
 
@@ -54,6 +55,8 @@ Recent decisions affecting current work:
 - Minimal StreamResult handling in headless mode -- only display errors, silently consume success metadata
 - Three-layer config merge: defaults < TOML file < env vars < CLI flags
 - Pre-formatted string template for config file (tomli-w cannot write TOML comments)
+- Data-driven printer profiles via frozen dataclass -- all printer behavior encoded as data, not conditional code
+- USB printer class 7 filter before VID:PID matching -- prevents false matches against non-printer devices
 
 ### Pending Todos
 
@@ -69,5 +72,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 09-01-PLAN.md (Configuration Module)
+Stopped at: Completed 10-01-PLAN.md (PrinterProfile Dataclass and Registry)
 Resume file: None
