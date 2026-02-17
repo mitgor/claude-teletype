@@ -34,7 +34,7 @@
 - [x] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection (completed 2026-02-17)
 - [x] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI (completed 2026-02-17)
 - [x] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM (completed 2026-02-17)
-- [ ] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio
+- [x] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio (completed 2026-02-17)
 
 ## Phase Details
 
@@ -131,4 +131,4 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 10. Printer Profiles | v1.2 | Complete    | 2026-02-17 | - |
 | 11. Multi-LLM Backends | v1.2 | Complete    | 2026-02-17 | - |
 | 12. Typewriter Mode | v1.2 | Complete    | 2026-02-17 | - |
-| 13. Settings Panel | v1.2 | 0/? | Not started | - |
+| 13. Settings Panel | v1.2 | Complete    | 2026-02-17 | - |
