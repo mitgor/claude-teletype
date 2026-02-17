@@ -9,38 +9,38 @@ Requirements for v1.2 milestone. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CFG-01**: User can persist settings in a TOML config file at the platform-standard location
-- [ ] **CFG-02**: User gets a config file with documented defaults on first run or via `--init-config`
-- [ ] **CFG-03**: User can override any config value with a CLI flag for one session
-- [ ] **CFG-04**: User can run `claude-teletype config show` to see effective merged configuration
-- [ ] **CFG-05**: User can override config values via `CLAUDE_TELETYPE_*` environment variables
+- [x] **CFG-01**: User can persist settings in a TOML config file at the platform-standard location
+- [x] **CFG-02**: User gets a config file with documented defaults on first run or via `--init-config`
+- [x] **CFG-03**: User can override any config value with a CLI flag for one session
+- [x] **CFG-04**: User can run `claude-teletype config show` to see effective merged configuration
+- [x] **CFG-05**: User can override config values via `CLAUDE_TELETYPE_*` environment variables
 
 ### Printer Profiles
 
-- [ ] **PRNT-01**: User can select a named printer profile via `--printer <name>` or config default
-- [ ] **PRNT-02**: User gets built-in profiles for Juki, Epson ESC/P, IBM PPDS, HP PCL, and generic printers
-- [ ] **PRNT-03**: User can define custom printer profiles with arbitrary ESC sequences in config file
-- [ ] **PRNT-04**: Printer profile auto-selects when a USB device matches a profile's vendor:product ID
+- [x] **PRNT-01**: User can select a named printer profile via `--printer <name>` or config default
+- [x] **PRNT-02**: User gets built-in profiles for Juki, Epson ESC/P, IBM PPDS, HP PCL, and generic printers
+- [x] **PRNT-03**: User can define custom printer profiles with arbitrary ESC sequences in config file
+- [x] **PRNT-04**: Printer profile auto-selects when a USB device matches a profile's vendor:product ID
 
 ### Multi-LLM
 
-- [ ] **LLM-01**: User can switch between LLM backends (Claude Code CLI, OpenAI, OpenRouter) via config or CLI flag
-- [ ] **LLM-02**: User can chat with OpenAI or OpenRouter models via direct API using the `openai` library
-- [ ] **LLM-03**: User can select a specific model within a backend via `--model` flag or config default
-- [ ] **LLM-04**: User gets a clear error message on startup if the selected backend is unreachable or misconfigured
+- [x] **LLM-01**: User can switch between LLM backends (Claude Code CLI, OpenAI, OpenRouter) via config or CLI flag
+- [x] **LLM-02**: User can chat with OpenAI or OpenRouter models via direct API using the `openai` library
+- [x] **LLM-03**: User can select a specific model within a backend via `--model` flag or config default
+- [x] **LLM-04**: User gets a clear error message on startup if the selected backend is unreachable or misconfigured
 
 ### Settings UI
 
-- [ ] **SET-01**: User can open a settings modal in the TUI via keyboard shortcut to change printer, LLM, delay, and audio
+- [x] **SET-01**: User can open a settings modal in the TUI via keyboard shortcut to change printer, LLM, delay, and audio
 
 ### Typewriter Mode
 
-- [ ] **TYPE-01**: User can enter typewriter mode where keystrokes go directly to screen with pacing and sound, no LLM
-- [ ] **TYPE-03**: User's typewriter keystrokes are sent to the connected printer simultaneously
+- [x] **TYPE-01**: User can enter typewriter mode where keystrokes go directly to screen with pacing and sound, no LLM
+- [x] **TYPE-03**: User's typewriter keystrokes are sent to the connected printer simultaneously
 
 ### Bug Fix
 
-- [ ] **FIX-01**: `--no-tui` mode handles StreamResult without crashing and has test coverage
+- [x] **FIX-01**: `--no-tui` mode handles StreamResult without crashing and has test coverage
 
 ## Future Requirements
 
@@ -75,25 +75,25 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements. Updated during roadmap creation.
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| FIX-01 | Phase 8 | Pending |
-| CFG-01 | Phase 9 → 14 | Pending |
-| CFG-02 | Phase 9 → 14 | Pending |
-| CFG-03 | Phase 9 → 14 | Pending |
-| CFG-04 | Phase 9 → 14 | Pending |
-| CFG-05 | Phase 9 → 14 | Pending |
-| PRNT-01 | Phase 10 | Pending |
-| PRNT-02 | Phase 10 | Pending |
-| PRNT-03 | Phase 10 | Pending |
-| PRNT-04 | Phase 10 | Pending |
-| LLM-01 | Phase 11 | Pending |
-| LLM-02 | Phase 11 | Pending |
-| LLM-03 | Phase 11 | Pending |
-| LLM-04 | Phase 11 | Pending |
-| TYPE-01 | Phase 12 | Pending |
-| TYPE-03 | Phase 12 | Pending |
-| SET-01 | Phase 13 | Pending |
+| Requirement | Phase | Status | Verification |
+|-------------|-------|--------|--------------|
+| FIX-01 | Phase 8 | Satisfied | 08-VERIFICATION.md |
+| CFG-01 | Phase 9 → 14 | Satisfied | 09-VERIFICATION.md |
+| CFG-02 | Phase 9 → 14 | Satisfied | 09-VERIFICATION.md |
+| CFG-03 | Phase 9 → 14 | Satisfied | 09-VERIFICATION.md |
+| CFG-04 | Phase 9 → 14 | Satisfied | 09-VERIFICATION.md |
+| CFG-05 | Phase 9 → 14 | Satisfied | 09-VERIFICATION.md |
+| PRNT-01 | Phase 10 | Satisfied | 10-VERIFICATION.md |
+| PRNT-02 | Phase 10 | Satisfied | 10-VERIFICATION.md |
+| PRNT-03 | Phase 10 | Satisfied | 10-VERIFICATION.md |
+| PRNT-04 | Phase 10 | Satisfied | 10-VERIFICATION.md |
+| LLM-01 | Phase 11 | Satisfied | 11-VERIFICATION.md |
+| LLM-02 | Phase 11 | Satisfied | 11-VERIFICATION.md |
+| LLM-03 | Phase 11 | Satisfied | 11-VERIFICATION.md |
+| LLM-04 | Phase 11 | Satisfied | 11-VERIFICATION.md |
+| TYPE-01 | Phase 12 | Satisfied | 12-VERIFICATION.md |
+| TYPE-03 | Phase 12 | Satisfied | 12-VERIFICATION.md |
+| SET-01 | Phase 13 | Satisfied | 13-VERIFICATION.md |
 
 **Coverage:**
 - v1.2 requirements: 17 total
@@ -102,4 +102,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-17*
-*Last updated: 2026-02-17 after roadmap creation*
+*Last updated: 2026-02-17 after Phase 14 verification (all 17 v1.2 requirements satisfied)*

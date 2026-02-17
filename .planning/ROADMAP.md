@@ -30,7 +30,7 @@
 ### 🚧 v1.2 Configuration, Profiles, Multi-LLM, Settings (In Progress)
 
 - [x] **Phase 8: No-TUI Bug Fix** - Fix --no-tui crash and add test coverage for headless mode (completed 2026-02-17)
-- [ ] **Phase 9: Configuration System** - Persistent TOML config with CLI overrides and env var support
+- [x] **Phase 9: Configuration System** - Persistent TOML config with CLI overrides and env var support (completed 2026-02-17)
 - [x] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection (completed 2026-02-17)
 - [x] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI (completed 2026-02-17)
 - [x] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM (completed 2026-02-17)
@@ -62,8 +62,8 @@
   4. User can run `claude-teletype config show` and see the effective merged configuration (file + env + flags)
   5. User can set `CLAUDE_TELETYPE_*` environment variables that override config file values
 **Plans**: 2 plans
-- [ ] 09-01-PLAN.md — TDD: Config module (TeletypeConfig dataclass, TOML load/save, env overrides, CLI merge)
-- [ ] 09-02-PLAN.md — CLI restructure with config subcommands and three-layer config integration
+- [x] 09-01-PLAN.md — TDD: Config module (TeletypeConfig dataclass, TOML load/save, env overrides, CLI merge)
+- [x] 09-02-PLAN.md — CLI restructure with config subcommands and three-layer config integration
 
 ### Phase 10: Printer Profiles
 **Goal**: Users can target different printer hardware without manually configuring control codes
@@ -153,10 +153,10 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
 | 6. Error Handling | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 7. Word Wrap | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 8. No-TUI Bug Fix | v1.2 | Complete    | 2026-02-17 | - |
-| 9. Configuration System | v1.2 | 0/? | Not started | - |
+| 9. Configuration System | v1.2 | 2/2 | Complete | 2026-02-17 |
 | 10. Printer Profiles | v1.2 | Complete    | 2026-02-17 | - |
 | 11. Multi-LLM Backends | v1.2 | Complete    | 2026-02-17 | - |
 | 12. Typewriter Mode | v1.2 | Complete    | 2026-02-17 | - |
 | 13. Settings Panel | v1.2 | Complete    | 2026-02-17 | - |
-| 14. Verify Config & Traceability | v1.2 | 0/? | Not started | - |
+| 14. Verify Config & Traceability | v1.2 | 0/1 | In progress | - |
 | 15. Fix system_prompt Hot-Swap | v1.2 | 0/? | Not started | - |
