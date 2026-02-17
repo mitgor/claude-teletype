@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 11 - Multi-LLM Backends
+**Current focus:** Phase 12 - Settings TUI (next)
 
 ## Current Position
 
-Phase: 11 of 13 (Multi-LLM Backends)
-Plan: 1 of 2 in current phase
-Status: Executing phase 11
-Last activity: 2026-02-17 — Completed 11-01 Backend Abstraction Layer
+Phase: 11 of 13 (Multi-LLM Backends) -- COMPLETE
+Plan: 2 of 2 in current phase (done)
+Status: Phase 11 complete
+Last activity: 2026-02-17 — Completed 11-02 Backend Integration (config, CLI, TUI wiring)
 
-Progress: [████████████████████] 95% (22/~24 plans, 10/13 phases complete)
+Progress: [█████████████████████] 96% (24/~24 plans, 11/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
-- Average duration: 3.5min
-- Total execution time: 1.29 hours
+- Total plans completed: 24
+- Average duration: 3.6min
+- Total execution time: 1.47 hours
 
 **By Phase:**
 
@@ -37,11 +37,11 @@ Progress: [████████████████████] 95% (22
 | 08-no-tui-bug-fix | 1 | 2min | 2min |
 | 09-configuration-system | 2 | 14min | 7min |
 | 10-printer-profiles | 2 | 13min | 6.5min |
-| 11-multi-llm-backends | 1 | 4min | 4min |
+| 11-multi-llm-backends | 2 | 11min | 5.5min |
 
 **Recent Trend:**
-- Last 5 plans: [11min, 5min, 5min, 8min, 4min]
-- Trend: Fast execution for backend abstraction layer
+- Last 5 plans: [5min, 5min, 8min, 4min, 7min]
+- Trend: Steady execution for multi-LLM integration
 
 ## Accumulated Context
 
@@ -63,6 +63,9 @@ Recent decisions affecting current work:
 - Placeholder API key in AsyncOpenAI constructor to defer validation to validate() method
 - max_retries=0 on AsyncOpenAI -- TUI retry loop handles retries consistently across all backends
 - SDK error messages match ERROR_PATTERNS substrings for seamless classification
+- check_claude_installed() replaced by create_backend + validate() -- single validation path for all backends
+- TUI _kill_process uses backend.proc_holder -- no-op for API backends
+- Model name fallback chain: model_usage -> item.model -> "--" for API backends
 
 ### Pending Todos
 
@@ -78,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 11-01-PLAN.md (Backend Abstraction Layer)
+Stopped at: Completed 11-02-PLAN.md (Backend Integration -- phase 11 complete)
 Resume file: None
