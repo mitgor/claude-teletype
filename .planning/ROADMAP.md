@@ -31,7 +31,7 @@
 
 - [x] **Phase 8: No-TUI Bug Fix** - Fix --no-tui crash and add test coverage for headless mode (completed 2026-02-17)
 - [ ] **Phase 9: Configuration System** - Persistent TOML config with CLI overrides and env var support
-- [ ] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection
+- [x] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection (completed 2026-02-17)
 - [ ] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI
 - [ ] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM
 - [ ] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio
@@ -122,7 +122,7 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 7. Word Wrap | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 8. No-TUI Bug Fix | v1.2 | Complete    | 2026-02-17 | - |
 | 9. Configuration System | v1.2 | 0/? | Not started | - |
-| 10. Printer Profiles | v1.2 | 0/? | Not started | - |
+| 10. Printer Profiles | v1.2 | Complete    | 2026-02-17 | - |
 | 11. Multi-LLM Backends | v1.2 | 0/? | Not started | - |
 | 12. Typewriter Mode | v1.2 | 0/? | Not started | - |
 | 13. Settings Panel | v1.2 | 0/? | Not started | - |
