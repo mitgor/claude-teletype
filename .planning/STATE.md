@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 
 ## Current Position
 
-Phase: 10 of 13 (Printer Profiles)
-Plan: 1 of 2 in current phase
-Status: Plan 10-01 complete
-Last activity: 2026-02-17 — Completed 10-01 PrinterProfile Dataclass and Registry
+Phase: 10 of 13 (Printer Profiles) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase 10 complete
+Last activity: 2026-02-17 — Completed 10-02 Profile Integration
 
-Progress: [███████████████████░] 86% (19/~22 plans, 9/13 phases complete)
+Progress: [████████████████████] 91% (21/~22 plans, 10/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
-- Average duration: 3min
-- Total execution time: 1.05 hours
+- Total plans completed: 21
+- Average duration: 3.5min
+- Total execution time: 1.22 hours
 
 **By Phase:**
 
@@ -36,11 +36,11 @@ Progress: [███████████████████░] 86% (19
 | 07-word-wrap-for-tui-and-printer | 2 | 6min | 3min |
 | 08-no-tui-bug-fix | 1 | 2min | 2min |
 | 09-configuration-system | 2 | 14min | 7min |
-| 10-printer-profiles | 1 | 5min | 5min |
+| 10-printer-profiles | 2 | 13min | 6.5min |
 
 **Recent Trend:**
-- Last 5 plans: [4min, 2min, 3min, 11min, 5min]
-- Trend: Normalized after 09-02 spike
+- Last 5 plans: [3min, 11min, 5min, 5min, 8min]
+- Trend: Stable ~6min for phase 10 integration work
 
 ## Accumulated Context
 
@@ -57,6 +57,8 @@ Recent decisions affecting current work:
 - Pre-formatted string template for config file (tomli-w cannot write TOML comments)
 - Data-driven printer profiles via frozen dataclass -- all printer behavior encoded as data, not conditional code
 - USB printer class 7 filter before VID:PID matching -- prevents false matches against non-printer devices
+- ProfilePrinterDriver as standalone class, JukiPrinterDriver as thin deprecated subclass -- generic profile support with backward compat
+- Profile resolution chain: --printer > --juki (deprecated) > config > auto-detect > generic
 
 ### Pending Todos
 
@@ -72,5 +74,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 10-01-PLAN.md (PrinterProfile Dataclass and Registry)
+Stopped at: Completed 10-02-PLAN.md (Profile Integration) -- Phase 10 complete
 Resume file: None
