@@ -1,11 +1,13 @@
 """Tests for the Textual split-screen TUI application."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 import typer
 from textual.widgets import Footer, Header, Input, Log, Static
 
 from claude_teletype.cli import check_claude_installed
+from claude_teletype.settings_screen import SettingsScreen
 from claude_teletype.tui import TeletypeApp
 
 
@@ -256,3 +258,40 @@ async def test_enter_typewriter_mode():
 
         # Verify we're back on default screen
         assert not isinstance(app.screen, TypewriterScreen)
+
+
+@pytest.mark.asyncio
+async def test_open_settings_via_shortcut():
+    """ctrl+comma pushes SettingsScreen onto TeletypeApp."""
+    mock_backend = MagicMock()
+    mock_backend.validate = MagicMock()
+
+    app = TeletypeApp(
+        no_audio=True,
+        base_delay_ms=0,
+        backend=mock_backend,
+        backend_name="claude-cli",
+        model_config="",
+        profile_name="generic",
+        all_profiles={"generic": MagicMock()},
+    )
+    async with app.run_test(size=(80, 50)) as pilot:
+        # Verify we start on default screen
+        assert not isinstance(app.screen, SettingsScreen)
+
+        # Press ctrl+comma to open settings
+        await pilot.press("ctrl+comma")
+        await pilot.pause()
+
+        # Verify SettingsScreen is now active
+        assert isinstance(app.screen, SettingsScreen)
+
+        # Verify a specific widget is present
+        app.screen.query_one("#delay-input")
+
+        # Press Escape to close settings
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Verify we're back on default screen
+        assert not isinstance(app.screen, SettingsScreen)
