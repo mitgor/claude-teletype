@@ -46,7 +46,8 @@
   1. User can run `claude-teletype --no-tui` and complete a full conversation without crash
   2. StreamResult metadata is handled gracefully in the non-TUI code path
   3. Automated tests cover the --no-tui conversation flow including StreamResult handling
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 08-01-PLAN.md — TDD: Fix _chat_async StreamResult crash and add test coverage
 
 ### Phase 9: Configuration System
 **Goal**: Users can persist and override their preferences without editing CLI flags every run
@@ -115,7 +116,7 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 5. Multi-Turn Foundation | v1.1 | 3/3 | ✓ Complete | 2026-02-16 |
 | 6. Error Handling | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 7. Word Wrap | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
-| 8. No-TUI Bug Fix | v1.2 | 0/? | Not started | - |
+| 8. No-TUI Bug Fix | v1.2 | 0/1 | Planned | - |
 | 9. Configuration System | v1.2 | 0/? | Not started | - |
 | 10. Printer Profiles | v1.2 | 0/? | Not started | - |
 | 11. Multi-LLM Backends | v1.2 | 0/? | Not started | - |
