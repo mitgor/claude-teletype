@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from claude_teletype.printer import JukiPrinterDriver
+from claude_teletype.profiles import get_profile
 from claude_teletype.teletype import run_teletype
 
 
@@ -71,14 +71,15 @@ def test_juki_sends_init_codes(mock_sys, mock_tty, mock_termios):
     mock_sys.stdin.fileno.return_value = 0
     mock_sys.stdin.read.return_value = "\x03"
     mock_sys.stderr = MagicMock()
+    juki_profile = get_profile("juki")
 
-    run_teletype(driver, juki=True)
+    run_teletype(driver, profile=juki_profile)
 
     raw = _written_bytes(driver)
     expected_init = (
-        JukiPrinterDriver.RESET
-        + JukiPrinterDriver.LINE_SPACING
-        + JukiPrinterDriver.FIXED_PITCH
+        juki_profile.init_sequence
+        + juki_profile.line_spacing
+        + juki_profile.char_pitch
     )
     assert raw.startswith(expected_init)
 
@@ -92,14 +93,15 @@ def test_juki_enter_sends_cr_lf(mock_sys, mock_tty, mock_termios):
     mock_sys.stdin.fileno.return_value = 0
     mock_sys.stdin.read.side_effect = ["\r", "\x03"]
     mock_sys.stderr = MagicMock()
+    juki_profile = get_profile("juki")
 
-    run_teletype(driver, juki=True)
+    run_teletype(driver, profile=juki_profile)
 
     raw = _written_bytes(driver)
     init_len = len(
-        JukiPrinterDriver.RESET
-        + JukiPrinterDriver.LINE_SPACING
-        + JukiPrinterDriver.FIXED_PITCH
+        juki_profile.init_sequence
+        + juki_profile.line_spacing
+        + juki_profile.char_pitch
     )
     after_init = raw[init_len:]
     assert after_init == b"\r\n\f"
@@ -114,14 +116,15 @@ def test_juki_newline_input_sends_cr_lf(mock_sys, mock_tty, mock_termios):
     mock_sys.stdin.fileno.return_value = 0
     mock_sys.stdin.read.side_effect = ["\n", "\x03"]
     mock_sys.stderr = MagicMock()
+    juki_profile = get_profile("juki")
 
-    run_teletype(driver, juki=True)
+    run_teletype(driver, profile=juki_profile)
 
     raw = _written_bytes(driver)
     init_len = len(
-        JukiPrinterDriver.RESET
-        + JukiPrinterDriver.LINE_SPACING
-        + JukiPrinterDriver.FIXED_PITCH
+        juki_profile.init_sequence
+        + juki_profile.line_spacing
+        + juki_profile.char_pitch
     )
     after_init = raw[init_len:]
     assert after_init == b"\r\n\f"
@@ -371,8 +374,8 @@ def test_cli_teletype_device_fallback(mock_verbose, mock_sys, mock_tty, mock_ter
 
 @patch("claude_teletype.teletype.run_teletype")
 @patch("claude_teletype.printer.discover_usb_device_verbose")
-def test_cli_teletype_passes_juki_false(mock_verbose, mock_run_teletype):
-    """--teletype without --juki passes juki=False."""
+def test_cli_teletype_passes_no_profile(mock_verbose, mock_run_teletype):
+    """--teletype without --printer passes profile=None."""
     from claude_teletype.cli import app
     from claude_teletype.printer import UsbPrinterDriver
 
@@ -384,13 +387,13 @@ def test_cli_teletype_passes_juki_false(mock_verbose, mock_run_teletype):
     runner = CliRunner()
     runner.invoke(app, ["--teletype"])
 
-    mock_run_teletype.assert_called_once_with(mock_driver, juki=False)
+    mock_run_teletype.assert_called_once_with(mock_driver, profile=None)
 
 
 @patch("claude_teletype.teletype.run_teletype")
 @patch("claude_teletype.printer.discover_usb_device_verbose")
-def test_cli_teletype_passes_juki_true(mock_verbose, mock_run_teletype):
-    """--teletype --juki passes juki=True."""
+def test_cli_teletype_passes_juki_profile(mock_verbose, mock_run_teletype):
+    """--teletype --juki passes profile=juki_profile."""
     from claude_teletype.cli import app
     from claude_teletype.printer import UsbPrinterDriver
 
@@ -402,4 +405,6 @@ def test_cli_teletype_passes_juki_true(mock_verbose, mock_run_teletype):
     runner = CliRunner()
     runner.invoke(app, ["--teletype", "--juki"])
 
-    mock_run_teletype.assert_called_once_with(mock_driver, juki=True)
+    mock_run_teletype.assert_called_once()
+    call_kwargs = mock_run_teletype.call_args[1]
+    assert call_kwargs["profile"].name == "juki"

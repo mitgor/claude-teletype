@@ -177,6 +177,7 @@ def show() -> None:
     typer.echo(f"no_tui = {config.no_tui}")
     typer.echo(f"transcript_dir = {config.transcript_dir}")
     typer.echo(f"device = {config.device}")
+    typer.echo(f"printer_profile = {config.printer_profile}")
     typer.echo(f"juki = {config.juki}")
 
 
@@ -227,10 +228,16 @@ def main(
         "--resume",
         help="Resume a previous session by ID",
     ),
+    printer: str = typer.Option(
+        None,
+        "--printer",
+        "-p",
+        help="Printer profile name (e.g., juki, escp, pcl)",
+    ),
     juki: bool = typer.Option(
         False,
         "--juki",
-        help="Enable Juki 6100 impact printer mode",
+        help="[deprecated] Use --printer juki instead",
     ),
     teletype: bool = typer.Option(
         False,
@@ -267,7 +274,54 @@ def main(
     # Boolean flags: CLI flag wins if True, otherwise config value wins
     effective_no_audio = no_audio or config.no_audio
     effective_no_tui = no_tui or config.no_tui
-    effective_juki = juki or config.juki
+
+    # Profile resolution: --printer flag > --juki flag > config.printer_profile > config.juki > auto-detect > generic
+    from claude_teletype.profiles import (
+        PrinterProfile,
+        auto_detect_profile,
+        get_profile,
+        load_custom_profiles,
+    )
+
+    # Load custom profiles from config
+    custom_profiles_dict = load_custom_profiles(
+        {"printer": {"profiles": config.custom_profiles}}
+    ) if config.custom_profiles else {}
+
+    # Merge built-in + custom for lookup
+    from claude_teletype.profiles import BUILTIN_PROFILES
+
+    all_profiles = dict(BUILTIN_PROFILES)
+    all_profiles.update(custom_profiles_dict)
+
+    resolved_profile: PrinterProfile | None = None
+    if printer is not None:
+        # --printer flag set explicitly
+        key = printer.lower().strip()
+        if key not in all_profiles:
+            available = ", ".join(sorted(all_profiles))
+            typer.echo(f"Error: unknown printer profile {printer!r}. Available: {available}", err=True)
+            raise typer.Exit(1)
+        resolved_profile = all_profiles[key]
+    elif juki:
+        # --juki flag (deprecated)
+        typer.echo("Warning: --juki is deprecated, use --printer juki", err=True)
+        resolved_profile = get_profile("juki")
+    elif config.printer_profile != "generic":
+        # Config file [printer] profile = "..."
+        key = config.printer_profile.lower().strip()
+        if key in all_profiles:
+            resolved_profile = all_profiles[key]
+    elif config.juki:
+        # Old config juki = true backward compat
+        resolved_profile = get_profile("juki")
+    else:
+        # Try USB auto-detection
+        detected = auto_detect_profile(extra_profiles=custom_profiles_dict or None)
+        if detected is not None:
+            resolved_profile = detected
+
+    # resolved_profile is None means generic (no wrapping)
 
     check_claude_installed()
 
@@ -287,7 +341,7 @@ def main(
         usb_driver, diagnostics = discover_usb_device_verbose()
 
         if usb_driver is not None:
-            run_teletype(usb_driver, juki=effective_juki)
+            run_teletype(usb_driver, profile=resolved_profile)
             return
 
         # Discovery failed — show diagnostics
@@ -322,7 +376,7 @@ def main(
         # --device fallback
         if config.device:
             console.print(f"[yellow]Falling back to device file: {config.device}")
-            run_teletype(FilePrinterDriver(config.device), juki=effective_juki)
+            run_teletype(FilePrinterDriver(config.device), profile=resolved_profile)
             return
 
         console.print("[bold red]No USB printer available for teletype mode.")
@@ -331,7 +385,7 @@ def main(
     # Discover printer (lazy import to avoid loading printer module when unused)
     from claude_teletype.printer import discover_printer
 
-    printer = discover_printer(device_override=config.device, juki=effective_juki)
+    printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
 
     if effective_no_tui:
         if not prompt:
@@ -341,7 +395,7 @@ def main(
             _chat_async(
                 prompt,
                 config.delay,
-                printer=printer,
+                printer=printer_driver,
                 no_audio=effective_no_audio,
                 transcript_dir=config.transcript_dir,
             )
@@ -351,7 +405,7 @@ def main(
 
         tui_app = TeletypeApp(
             base_delay_ms=config.delay,
-            printer=printer,
+            printer=printer_driver,
             no_audio=effective_no_audio,
             transcript_dir=config.transcript_dir,
             resume_session_id=resume,
