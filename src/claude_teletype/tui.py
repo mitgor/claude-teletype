@@ -58,6 +58,7 @@ class TeletypeApp(App):
         backend=None,
         backend_name: str = "claude-cli",
         model_config: str = "",
+        system_prompt: str = "",
         profile_name: str = "generic",
         all_profiles: dict | None = None,
         **kwargs,
@@ -79,6 +80,7 @@ class TeletypeApp(App):
         self._tui_wrapper = None
         self._backend_name = backend_name
         self._model_config = model_config
+        self._system_prompt = system_prompt
         self._profile_name = profile_name
         self._all_profiles = all_profiles or {}
 
@@ -202,6 +204,7 @@ class TeletypeApp(App):
                 new_backend = create_backend(
                     backend=result["backend"],
                     model=result["model"] or None,
+                    system_prompt=self._system_prompt or None,
                 )
                 new_backend.validate()
                 self._backend = new_backend

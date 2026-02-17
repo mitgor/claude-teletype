@@ -443,6 +443,7 @@ def main(
             backend=llm_backend,
             backend_name=config.backend,
             model_config=config.model,
+            system_prompt=config.system_prompt,
             profile_name=resolved_profile.name if resolved_profile else "generic",
             all_profiles=all_profiles,
         )

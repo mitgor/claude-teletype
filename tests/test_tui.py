@@ -274,7 +274,7 @@ def test_system_prompt_preserved_on_backend_swap():
     )
 
     mock_create = MagicMock(return_value=mock_backend)
-    with patch("claude_teletype.tui.create_backend", mock_create):
+    with patch("claude_teletype.backends.create_backend", mock_create):
         app._apply_settings({
             "delay": 75.0,
             "no_audio": False,
