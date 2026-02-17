@@ -8,7 +8,6 @@ import os
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import get_args, get_origin
 
 from platformdirs import user_config_path
 
@@ -63,32 +62,6 @@ class TeletypeConfig:
     juki: bool = False
 
 
-def _is_bool_field(field_type: type) -> bool:
-    """Check if a dataclass field type is bool (including Union types)."""
-    if field_type is bool:
-        return True
-    return False
-
-
-def _is_float_field(field_type: type) -> bool:
-    """Check if a dataclass field type is float (including Union types)."""
-    if field_type is float:
-        return True
-    return False
-
-
-def _is_str_field(field_type: type) -> bool:
-    """Check if a dataclass field type is str or str | None."""
-    if field_type is str:
-        return True
-    # Handle Union types like str | None
-    origin = get_origin(field_type)
-    if origin is type(str | None):  # types.UnionType
-        args = get_args(field_type)
-        return str in args
-    return False
-
-
 def load_config(config_path: Path | None = None) -> TeletypeConfig:
     """Load config from TOML file, returning defaults if file missing."""
     path = config_path or CONFIG_FILE
@@ -117,9 +90,9 @@ def apply_env_overrides(config: TeletypeConfig) -> TeletypeConfig:
         env_val = os.environ.get(env_key)
         if env_val is None:
             continue
-        if _is_bool_field(f.type):
+        if f.type is bool:
             setattr(config, f.name, env_val.lower() in ("1", "true", "yes"))
-        elif _is_float_field(f.type):
+        elif f.type is float:
             setattr(config, f.name, float(env_val))
         else:
             setattr(config, f.name, env_val)
