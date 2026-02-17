@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26.0",
     "tomli-w>=1.2.0",
     "platformdirs>=4.9.1",
+    "openai>=2.21.0",
 ]
 
 [project.optional-dependencies]
