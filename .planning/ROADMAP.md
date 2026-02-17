@@ -72,7 +72,9 @@
   2. Built-in profiles for Juki, Epson ESC/P, IBM PPDS, HP PCL, and generic printers send correct init/reset sequences
   3. User can define a custom printer profile with arbitrary ESC sequences in their config file
   4. When a known USB device is plugged in, its matching profile is auto-selected without user intervention
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 10-01-PLAN.md — TDD: PrinterProfile dataclass, built-in profile registry, custom TOML loading, USB auto-detection
+- [ ] 10-02-PLAN.md — ProfilePrinterDriver integration, --printer CLI flag, config extension, teletype profile support
 
 ### Phase 11: Multi-LLM Backends
 **Goal**: Users can choose their preferred LLM provider instead of being locked to Claude Code CLI
