@@ -36,17 +36,22 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-(No active requirements — define with `/gsd:new-milestone`)
+**v1.2 — Configuration, Printer Profiles, Multi-LLM, Settings UI**
+
+- Configuration system with persistent settings file (delays, sound, default printer, API keys)
+- Printer profiles with per-printer control codes and paper handling (Juki 9100, Epson/IBM dot matrix, HP/Epson inkjet)
+- Multi-LLM backends: keep Claude Code CLI as default, add OpenAI and OpenRouter via direct API
+- TUI settings page accessible via keyboard shortcut (printer, LLM, paper options)
+- Simple typewriter mode: no LLM, keystrokes go straight to printer/screen with pacing and sound
+- Fix `--no-tui` mode crash (StreamResult guard) and add test coverage
 
 ### Out of Scope
 
-- Direct Anthropic API integration — wraps Claude Code CLI, not the API
 - GUI interface — this is a terminal-only tool
 - Network/remote printer support — local USB-LPT only (network printers buffer pages, destroying character streaming)
 - Formatting/rich text — plain text only, as a typewriter would produce
 - Markdown rendering in TUI — typewriter aesthetic is plain text
-- Client-side conversation history — Claude Code manages sessions internally
-- Client-side context truncation — Claude Code's auto-compact handles this
+- Client-side context truncation — Claude Code's auto-compact handles this (for Claude backend)
 
 ## Context
 
@@ -64,7 +69,7 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 - **Language**: Python — user's choice
 - **Hardware**: Must handle missing printer gracefully (simulation mode)
-- **Dependency**: Claude Code CLI must be installed and configured
+- **Dependency**: At least one LLM backend configured (Claude Code CLI, OpenAI API key, or OpenRouter API key)
 - **Platform**: macOS primary, Linux compatibility is a bonus
 
 ## Key Decisions
@@ -84,4 +89,4 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | Per-destination wrapping | TUI and printer get wrapped output; transcript and audio get unwrapped | ✓ Good |
 
 ---
-*Last updated: 2026-02-17 after v1.1 milestone complete*
+*Last updated: 2026-02-17 after v1.2 milestone started*

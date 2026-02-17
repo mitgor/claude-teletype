@@ -5,15 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** v1.1 milestone complete. Ready for next milestone.
+**Current focus:** v1.2 — Configuration, Printer Profiles, Multi-LLM, Settings UI
 
 ## Current Position
 
-Milestone: v1.1 Conversation Mode -- SHIPPED 2026-02-17
-Status: All phases complete. Milestone archived.
-Last activity: 2026-02-17 -- Archived v1.1 milestone
-
-Progress: v1.0 ✓ | v1.1 ✓ | Next: /gsd:new-milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-17 — Milestone v1.2 started
 
 ## Performance Metrics
 
