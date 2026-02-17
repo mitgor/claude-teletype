@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 12 - Typewriter Mode
+**Current focus:** Phase 13 - Settings Panel
 
 ## Current Position
 
-Phase: 12 of 13 (Typewriter Mode)
-Plan: 2 of 2 in current phase (done)
-Status: Phase 12 complete
-Last activity: 2026-02-17 — Completed 12-02 TUI Integration (ctrl+t binding)
+Phase: 13 of 13 (Settings Panel)
+Plan: 1 of 2 in current phase (done)
+Status: Executing phase 13
+Last activity: 2026-02-17 — Completed 13-01 SettingsScreen modal
 
-Progress: [██████████████████████] 100% (26/~26 plans, 12/13 phases complete)
+Progress: [██████████████████████] 96% (27/~28 plans, 12/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
-- Average duration: 3.5min
-- Total execution time: 1.55 hours
+- Total plans completed: 27
+- Average duration: 3.4min
+- Total execution time: 1.6 hours
 
 **By Phase:**
 
@@ -39,10 +39,11 @@ Progress: [██████████████████████] 1
 | 10-printer-profiles | 2 | 13min | 6.5min |
 | 11-multi-llm-backends | 2 | 11min | 5.5min |
 | 12-typewriter-mode | 2 | 5min | 2.5min |
+| 13-settings-panel | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [8min, 4min, 7min, 3min, 2min]
-- Trend: Consistently fast execution for typewriter mode
+- Last 5 plans: [4min, 7min, 3min, 2min, 3min]
+- Trend: Fast execution continues for settings panel UI
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work:
 - Keystroke click is 20ms with deterministic noise seed (rng=42) for reproducible sound
 - ctrl+t placed between ctrl+d and escape in BINDINGS for logical ordering and Footer visibility
 - Lazy import of TypewriterScreen in action method consistent with codebase pattern
+- Switch ON = audio enabled, stored as not no_audio (boolean inversion in SettingsScreen)
+- SettingsScreen uses ModalScreen[dict|None] with callback-based result passing
+- run_test(size=(80,50)) for modal tests -- default terminal too small for form dialogs
 
 ### Pending Todos
 
@@ -87,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 12-02-PLAN.md (TUI Integration - ctrl+t binding)
+Stopped at: Completed 13-01-PLAN.md (SettingsScreen modal with form widgets)
 Resume file: None
