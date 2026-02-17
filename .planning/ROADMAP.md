@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 MVP** - Phases 1-4 (shipped 2026-02-15)
 - ✅ **v1.1 Conversation Mode** - Phases 5-7 (shipped 2026-02-17)
+- 🚧 **v1.2 Configuration, Profiles, Multi-LLM, Settings** - Phases 8-13 (in progress)
 
 ## Phases
 
@@ -26,7 +27,84 @@
 
 </details>
 
+### 🚧 v1.2 Configuration, Profiles, Multi-LLM, Settings (In Progress)
+
+- [ ] **Phase 8: No-TUI Bug Fix** - Fix --no-tui crash and add test coverage for headless mode
+- [ ] **Phase 9: Configuration System** - Persistent TOML config with CLI overrides and env var support
+- [ ] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection
+- [ ] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI
+- [ ] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM
+- [ ] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio
+
+## Phase Details
+
+### Phase 8: No-TUI Bug Fix
+**Goal**: Headless mode works reliably so users without a terminal can pipe output
+**Depends on**: Nothing (standalone fix on existing code)
+**Requirements**: FIX-01
+**Success Criteria** (what must be TRUE):
+  1. User can run `claude-teletype --no-tui` and complete a full conversation without crash
+  2. StreamResult metadata is handled gracefully in the non-TUI code path
+  3. Automated tests cover the --no-tui conversation flow including StreamResult handling
+**Plans**: TBD
+
+### Phase 9: Configuration System
+**Goal**: Users can persist and override their preferences without editing CLI flags every run
+**Depends on**: Phase 8
+**Requirements**: CFG-01, CFG-02, CFG-03, CFG-04, CFG-05
+**Success Criteria** (what must be TRUE):
+  1. User can create a config file via `--init-config` and find it at the platform-standard location
+  2. User can set preferences (delays, sound, default printer) in the TOML file and they take effect on next run
+  3. User can override any config value with a CLI flag for a single session without modifying the file
+  4. User can run `claude-teletype config show` and see the effective merged configuration (file + env + flags)
+  5. User can set `CLAUDE_TELETYPE_*` environment variables that override config file values
+**Plans**: TBD
+
+### Phase 10: Printer Profiles
+**Goal**: Users can target different printer hardware without manually configuring control codes
+**Depends on**: Phase 9 (profiles stored in and selected via config)
+**Requirements**: PRNT-01, PRNT-02, PRNT-03, PRNT-04
+**Success Criteria** (what must be TRUE):
+  1. User can select a named printer profile via `--printer juki` or set a default in config
+  2. Built-in profiles for Juki, Epson ESC/P, IBM PPDS, HP PCL, and generic printers send correct init/reset sequences
+  3. User can define a custom printer profile with arbitrary ESC sequences in their config file
+  4. When a known USB device is plugged in, its matching profile is auto-selected without user intervention
+**Plans**: TBD
+
+### Phase 11: Multi-LLM Backends
+**Goal**: Users can choose their preferred LLM provider instead of being locked to Claude Code CLI
+**Depends on**: Phase 9 (API key references and backend selection stored in config)
+**Requirements**: LLM-01, LLM-02, LLM-03, LLM-04
+**Success Criteria** (what must be TRUE):
+  1. User can switch between Claude Code CLI, OpenAI, and OpenRouter backends via config or `--backend` flag
+  2. User can have a multi-turn conversation with an OpenAI or OpenRouter model with streaming character output
+  3. User can select a specific model within a backend via `--model gpt-4o` or config default
+  4. User gets a clear, actionable error on startup if the selected backend has no API key or is unreachable
+**Plans**: TBD
+
+### Phase 12: Typewriter Mode
+**Goal**: Users can use the tool as a pure mechanical typewriter -- keystrokes to paper with pacing and sound
+**Depends on**: Phase 10 (printer profile needed for output destination)
+**Requirements**: TYPE-01, TYPE-03
+**Success Criteria** (what must be TRUE):
+  1. User can enter typewriter mode (no LLM) and see their keystrokes appear on screen with typewriter pacing and sound
+  2. User's keystrokes are simultaneously sent to the connected printer with correct control codes from the active profile
+**Plans**: TBD
+
+### Phase 13: Settings Panel
+**Goal**: Users can adjust runtime settings without leaving the TUI or editing files
+**Depends on**: Phase 11 (needs all configurable features to exist)
+**Requirements**: SET-01
+**Success Criteria** (what must be TRUE):
+  1. User can open a settings modal via keyboard shortcut while in the TUI
+  2. User can change printer profile, LLM backend/model, character delay, and audio toggle from the modal
+  3. Changed settings take effect immediately in the current session without restart
+**Plans**: TBD
+
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -37,3 +115,9 @@
 | 5. Multi-Turn Foundation | v1.1 | 3/3 | ✓ Complete | 2026-02-16 |
 | 6. Error Handling | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 7. Word Wrap | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
+| 8. No-TUI Bug Fix | v1.2 | 0/? | Not started | - |
+| 9. Configuration System | v1.2 | 0/? | Not started | - |
+| 10. Printer Profiles | v1.2 | 0/? | Not started | - |
+| 11. Multi-LLM Backends | v1.2 | 0/? | Not started | - |
+| 12. Typewriter Mode | v1.2 | 0/? | Not started | - |
+| 13. Settings Panel | v1.2 | 0/? | Not started | - |

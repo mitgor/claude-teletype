@@ -77,29 +77,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CFG-01 | — | Pending |
-| CFG-02 | — | Pending |
-| CFG-03 | — | Pending |
-| CFG-04 | — | Pending |
-| CFG-05 | — | Pending |
-| PRNT-01 | — | Pending |
-| PRNT-02 | — | Pending |
-| PRNT-03 | — | Pending |
-| PRNT-04 | — | Pending |
-| LLM-01 | — | Pending |
-| LLM-02 | — | Pending |
-| LLM-03 | — | Pending |
-| LLM-04 | — | Pending |
-| SET-01 | — | Pending |
-| TYPE-01 | — | Pending |
-| TYPE-03 | — | Pending |
-| FIX-01 | — | Pending |
+| FIX-01 | Phase 8 | Pending |
+| CFG-01 | Phase 9 | Pending |
+| CFG-02 | Phase 9 | Pending |
+| CFG-03 | Phase 9 | Pending |
+| CFG-04 | Phase 9 | Pending |
+| CFG-05 | Phase 9 | Pending |
+| PRNT-01 | Phase 10 | Pending |
+| PRNT-02 | Phase 10 | Pending |
+| PRNT-03 | Phase 10 | Pending |
+| PRNT-04 | Phase 10 | Pending |
+| LLM-01 | Phase 11 | Pending |
+| LLM-02 | Phase 11 | Pending |
+| LLM-03 | Phase 11 | Pending |
+| LLM-04 | Phase 11 | Pending |
+| TYPE-01 | Phase 12 | Pending |
+| TYPE-03 | Phase 12 | Pending |
+| SET-01 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-17*
-*Last updated: 2026-02-17 after initial definition*
+*Last updated: 2026-02-17 after roadmap creation*
