@@ -20,6 +20,7 @@ from claude_teletype.printer import (
     make_printer_output,
     select_printer,
 )
+from claude_teletype.profiles import PrinterProfile, get_profile
 
 # ---------------------------------------------------------------------------
 # NullPrinterDriver tests
@@ -539,6 +540,181 @@ def test_juki_write_noop_when_disconnected():
 
     juki.write("A")
     inner.write.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# ProfilePrinterDriver tests
+# ---------------------------------------------------------------------------
+
+
+class TestProfilePrinterDriver:
+    """Tests for the generic profile-driven printer wrapper."""
+
+    def test_init_sequence_sent_on_first_write(self):
+        """First write sends profile init_sequence + line_spacing + char_pitch."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            init_sequence=b"\x1b@",
+            line_spacing=b"\x1b\x32",
+            char_pitch=b"\x1bP",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("A")
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        raw = bytes(ord(ch) for ch in calls)
+        expected_init = b"\x1b@\x1b\x32\x1bP"
+        assert raw.startswith(expected_init)
+        assert raw[-1:] == b"A"
+
+    def test_no_double_init(self):
+        """Init sequence only sent once, not on subsequent writes."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="test", init_sequence=b"\x1b@")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("A")
+        first_count = inner.write.call_count
+
+        ppd.write("B")
+        assert inner.write.call_count == first_count + 1
+
+    def test_crlf_newline_when_true(self):
+        """When profile.crlf=True, newline sends CR before LF."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="test", crlf=True)
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.write("\n")
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        assert calls == ["\r", "\n"]
+
+    def test_lf_only_when_crlf_false(self):
+        """When profile.crlf=False, newline sends LF only."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="test", crlf=False)
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.write("\n")
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        assert calls == ["\n"]
+
+    def test_reinit_on_newline_sends_reinit_sequence(self):
+        """When reinit_on_newline=True, reinit_sequence sent after newline."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            crlf=True,
+            reinit_on_newline=True,
+            reinit_sequence=b"\x1b\x32\x1bP",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.write("\n")
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        raw = bytes(ord(ch) for ch in calls)
+        expected = b"\r\n\x1b\x32\x1bP"
+        assert raw == expected
+
+    def test_close_sends_formfeed_and_reset(self):
+        """close() sends formfeed + reset_sequence when profile says so."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            formfeed_on_close=True,
+            reset_sequence=b"\x1b@",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.close()
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        raw = bytes(ord(ch) for ch in calls)
+        assert b"\f" in raw
+        assert raw.endswith(b"\x1b@")
+        inner.close.assert_called_once()
+
+    def test_close_no_formfeed_when_disabled(self):
+        """close() skips formfeed when formfeed_on_close=False."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="test", formfeed_on_close=False)
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.close()
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        assert "\f" not in calls
+        inner.close.assert_called_once()
+
+    def test_generic_profile_no_esc_sequences(self):
+        """Generic profile sends no ESC sequences at all."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = get_profile("generic")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("A")
+        ppd.write("B")
+
+        calls = [c.args[0] for c in inner.write.call_args_list]
+        assert calls == ["A", "B"]
+
+    def test_is_connected_delegates_to_inner(self):
+        """is_connected property delegates to inner driver."""
+        inner = MagicMock()
+        inner.is_connected = False
+        profile = PrinterProfile(name="test")
+        ppd = ProfilePrinterDriver(inner, profile)
+        assert ppd.is_connected is False
+
+        inner.is_connected = True
+        assert ppd.is_connected is True
+
+    def test_write_noop_when_disconnected(self):
+        """write() does nothing when inner is disconnected."""
+        inner = MagicMock()
+        inner.is_connected = False
+        profile = PrinterProfile(name="test")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("A")
+        inner.write.assert_not_called()
+
+    def test_discover_printer_with_profile(self, tmp_path):
+        """discover_printer(profile=...) wraps with ProfilePrinterDriver."""
+        dev = tmp_path / "dev"
+        dev.touch()
+        juki = get_profile("juki")
+        driver = discover_printer(device_override=str(dev), profile=juki)
+        assert isinstance(driver, ProfilePrinterDriver)
+        assert driver._profile.name == "juki"
+        driver._inner.close()
+
+    def test_discover_printer_generic_no_wrap(self, tmp_path):
+        """discover_printer(profile=generic) does not wrap (generic has no ESC codes)."""
+        dev = tmp_path / "dev"
+        dev.touch()
+        generic = get_profile("generic")
+        driver = discover_printer(device_override=str(dev), profile=generic)
+        assert isinstance(driver, FilePrinterDriver)
+        driver.close()
 
 
 # ---------------------------------------------------------------------------

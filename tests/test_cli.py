@@ -208,6 +208,7 @@ class TestConfigShow:
         assert "no_tui = False" in result.output
         assert "transcript_dir = transcripts" in result.output
         assert "device = None" in result.output
+        assert "printer_profile = generic" in result.output
         assert "juki = False" in result.output
         assert "File loaded: False" in result.output
 
@@ -346,6 +347,89 @@ class TestPromptBackwardCompat:
 
         assert result.exit_code == 0
         mock_tui_cls.assert_called_once()
+
+
+class TestPrinterFlag:
+    """Tests for --printer flag and --juki deprecation."""
+
+    def test_printer_flag_sets_profile(self):
+        """--printer juki resolves to juki profile."""
+        with patch("claude_teletype.cli.check_claude_installed"), patch(
+            "claude_teletype.cli.asyncio.run"
+        ) as mock_run, patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printer.discover_printer", return_value=None
+        ) as mock_discover:
+            from claude_teletype.config import TeletypeConfig
+
+            mock_cfg = TeletypeConfig()
+            mock_env.return_value = mock_cfg
+            mock_merge.return_value = mock_cfg
+
+            result = runner.invoke(app, ["--no-tui", "--printer", "juki", "hello"])
+
+        assert result.exit_code == 0
+        mock_discover.assert_called_once()
+        call_kwargs = mock_discover.call_args[1]
+        assert call_kwargs["profile"].name == "juki"
+
+    def test_juki_flag_emits_deprecation_warning(self):
+        """--juki emits deprecation warning."""
+        with patch("claude_teletype.cli.check_claude_installed"), patch(
+            "claude_teletype.cli.asyncio.run"
+        ), patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printer.discover_printer", return_value=None
+        ):
+            from claude_teletype.config import TeletypeConfig
+
+            mock_cfg = TeletypeConfig()
+            mock_env.return_value = mock_cfg
+            mock_merge.return_value = mock_cfg
+
+            result = runner.invoke(app, ["--no-tui", "--juki", "hello"])
+
+        assert result.exit_code == 0
+        assert "deprecated" in result.output.lower()
+
+    def test_unknown_printer_name_exits_with_error(self):
+        """--printer nonexistent exits with error."""
+        with patch("claude_teletype.cli.load_config") as mock_load, patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge:
+            from claude_teletype.config import TeletypeConfig
+
+            mock_cfg = TeletypeConfig()
+            mock_load.return_value = mock_cfg
+            mock_env.return_value = mock_cfg
+            mock_merge.return_value = mock_cfg
+
+            result = runner.invoke(app, ["--no-tui", "--printer", "nonexistent", "hello"])
+
+        assert result.exit_code != 0
+
+    def test_config_show_displays_printer_profile(self, tmp_path):
+        """config show displays printer_profile."""
+        fake_config = tmp_path / "nonexistent.toml"
+        with patch("claude_teletype.cli.CONFIG_FILE", fake_config), patch(
+            "claude_teletype.config.CONFIG_FILE", fake_config
+        ):
+            result = runner.invoke(app, ["config", "show"])
+
+        assert result.exit_code == 0
+        assert "printer_profile = generic" in result.output
 
 
 class TestConfigMerge:

@@ -186,6 +186,61 @@ class TestWriteDefaultConfig:
 # --- Test 10: CONFIG_FILE uses platformdirs ---
 
 
+# --- Test 10: CONFIG_FILE uses platformdirs ---
+
+
+class TestPrinterProfileConfig:
+    """Tests for printer_profile field in TeletypeConfig."""
+
+    def test_printer_profile_default_is_generic(self):
+        """TeletypeConfig.printer_profile defaults to 'generic'."""
+        assert TeletypeConfig().printer_profile == "generic"
+
+    def test_load_config_reads_printer_profile(self, tmp_path):
+        """load_config reads printer_profile from TOML [printer] section."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[printer]\nprofile = "juki"\n', encoding="utf-8"
+        )
+        result = load_config(config_file)
+        assert result.printer_profile == "juki"
+
+    def test_load_config_extracts_custom_profiles(self, tmp_path):
+        """load_config extracts custom_profiles from [printer.profiles.*] tables."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[printer]\nprofile = "my-printer"\n\n'
+            '[printer.profiles.my-printer]\n'
+            'description = "My custom printer"\n'
+            'init = "1b40"\n'
+            'crlf = true\n',
+            encoding="utf-8",
+        )
+        result = load_config(config_file)
+        assert "my-printer" in result.custom_profiles
+        assert result.custom_profiles["my-printer"]["init"] == "1b40"
+        assert result.custom_profiles["my-printer"]["crlf"] is True
+
+    def test_env_override_printer_profile(self, monkeypatch):
+        """CLAUDE_TELETYPE_PRINTER_PROFILE env var overrides config."""
+        monkeypatch.setenv("CLAUDE_TELETYPE_PRINTER_PROFILE", "escp")
+        result = apply_env_overrides(TeletypeConfig())
+        assert result.printer_profile == "escp"
+
+    def test_custom_profiles_default_empty(self):
+        """TeletypeConfig.custom_profiles defaults to empty dict."""
+        assert TeletypeConfig().custom_profiles == {}
+
+    def test_load_config_no_profiles_section(self, tmp_path):
+        """load_config without [printer.profiles] section returns empty custom_profiles."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[printer]\nprofile = "juki"\n', encoding="utf-8"
+        )
+        result = load_config(config_file)
+        assert result.custom_profiles == {}
+
+
 class TestConfigFilePath:
     def test_path_contains_app_name(self):
         assert "claude-teletype" in str(CONFIG_FILE)
