@@ -15,7 +15,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from claude_teletype.bridge import stream_claude_response
+from claude_teletype.bridge import StreamResult, stream_claude_response
 from claude_teletype.pacer import pace_characters
 
 app = typer.Typer()
@@ -94,13 +94,20 @@ async def _chat_async(
                 printer_write(ch)
 
         with console.status("[bold cyan]Thinking...", spinner="dots") as status:
-            async for text_chunk in stream_claude_response(prompt):
+            async for item in stream_claude_response(prompt):
+                if isinstance(item, StreamResult):
+                    if item.is_error:
+                        if first_token:
+                            status.stop()
+                        console.print(
+                            f"\n[bold red]Error: {item.error_message}"
+                        )
+                    break  # StreamResult is always the final yield
                 if first_token:
                     status.stop()
                     first_token = False
-
                 await pace_characters(
-                    text_chunk,
+                    item,
                     base_delay_ms=base_delay_ms,
                     output_fn=output_fn,
                 )
