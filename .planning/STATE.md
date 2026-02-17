@@ -2,19 +2,18 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-16)
+See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 7 - Word Wrap for TUI and Printer (COMPLETE)
+**Current focus:** v1.1 milestone complete. Ready for next milestone.
 
 ## Current Position
 
-Phase: 7 of 7 (Word Wrap for TUI and Printer) -- COMPLETE
-Plan: 2 of 2 in current phase (COMPLETE)
-Status: All plans complete. Phase 7 done. Milestone v1.0 complete.
-Last activity: 2026-02-17 -- Completed 07-02 TUI and Printer WordWrapper integration
+Milestone: v1.1 Conversation Mode -- SHIPPED 2026-02-17
+Status: All phases complete. Milestone archived.
+Last activity: 2026-02-17 -- Archived v1.1 milestone
 
-Progress: [██████████████] 100% (7 of 7 phases complete, 2 of 2 plans in phase 7)
+Progress: v1.0 ✓ | v1.1 ✓ | Next: /gsd:new-milestone
 
 ## Performance Metrics
 
