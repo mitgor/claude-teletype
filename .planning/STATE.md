@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 ## Current Position
 
 Phase: 13 of 13 (Settings Panel)
-Plan: 1 of 2 in current phase (done)
-Status: Executing phase 13
-Last activity: 2026-02-17 — Completed 13-01 SettingsScreen modal
+Plan: 2 of 2 in current phase (done)
+Status: All phases complete
+Last activity: 2026-02-17 — Completed 13-02 TUI integration
 
-Progress: [██████████████████████] 96% (27/~28 plans, 12/13 phases complete)
+Progress: [████████████████████████] 100% (28/28 plans, 13/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 27
+- Total plans completed: 28
 - Average duration: 3.4min
 - Total execution time: 1.6 hours
 
@@ -39,11 +39,11 @@ Progress: [██████████████████████] 9
 | 10-printer-profiles | 2 | 13min | 6.5min |
 | 11-multi-llm-backends | 2 | 11min | 5.5min |
 | 12-typewriter-mode | 2 | 5min | 2.5min |
-| 13-settings-panel | 1 | 3min | 3min |
+| 13-settings-panel | 2 | 6min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [4min, 7min, 3min, 2min, 3min]
-- Trend: Fast execution continues for settings panel UI
+- Last 5 plans: [7min, 3min, 2min, 3min, 3min]
+- Trend: Consistent fast execution through final phase
 
 ## Accumulated Context
 
@@ -76,6 +76,10 @@ Recent decisions affecting current work:
 - Switch ON = audio enabled, stored as not no_audio (boolean inversion in SettingsScreen)
 - SettingsScreen uses ModalScreen[dict|None] with callback-based result passing
 - run_test(size=(80,50)) for modal tests -- default terminal too small for form dialogs
+- ctrl+comma as settings shortcut -- avoids ctrl+s XOFF freeze, matches VS Code/Sublime/Discord convention
+- Lazy import of SettingsScreen in action method consistent with codebase pattern
+- Backend hot-swap: create_backend + validate in try/except, notify on error, keep old on failure
+- Profile change mutates printer._profile and resets _initialized for live ESC sequence switching
 
 ### Pending Todos
 
@@ -91,5 +95,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 13-01-PLAN.md (SettingsScreen modal with form widgets)
+Stopped at: Completed 13-02-PLAN.md (TUI integration -- all phases complete)
 Resume file: None
