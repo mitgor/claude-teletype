@@ -96,7 +96,9 @@
 **Success Criteria** (what must be TRUE):
   1. User can enter typewriter mode (no LLM) and see their keystrokes appear on screen with typewriter pacing and sound
   2. User's keystrokes are simultaneously sent to the connected printer with correct control codes from the active profile
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 12-01-PLAN.md — TypewriterScreen + keystroke audio (on_key capture, pacing queue, multiplexed output)
+- [ ] 12-02-PLAN.md — TUI integration (ctrl+t binding, push_screen wiring, integration test)
 
 ### Phase 13: Settings Panel
 **Goal**: Users can adjust runtime settings without leaving the TUI or editing files
