@@ -53,6 +53,22 @@ profile = "generic"
 # char_pitch = ""        # hex-encoded pitch command
 # crlf = false           # true for CR+LF newlines
 # formfeed_on_close = true
+
+[llm]
+# LLM backend: "claude-cli", "openai", "openrouter"
+backend = "claude-cli"
+
+# Model name (empty = backend default: gpt-4o for openai, openai/gpt-4o for openrouter)
+# Claude Code CLI manages its own model selection.
+model = ""
+
+# System prompt for OpenAI/OpenRouter backends
+# Claude Code CLI manages its own system prompt.
+system_prompt = ""
+
+# API keys are read from environment variables (NEVER store in config):
+#   OpenAI:     OPENAI_API_KEY
+#   OpenRouter:  OPENROUTER_API_KEY
 """
 
 
@@ -73,6 +89,11 @@ class TeletypeConfig:
     device: str | None = None
     juki: bool = False  # Deprecated: use printer_profile instead
     printer_profile: str = "generic"
+
+    # [llm]
+    backend: str = "claude-cli"  # "claude-cli", "openai", "openrouter"
+    model: str = ""  # Empty = use backend's default
+    system_prompt: str = ""  # For OpenAI/OpenRouter only
 
     # Non-TOML field: stores raw custom profile dicts from [printer.profiles.*]
     custom_profiles: dict = field(default_factory=dict, repr=False)

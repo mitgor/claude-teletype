@@ -15,6 +15,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from claude_teletype.backends import BackendError, create_backend
 from claude_teletype.bridge import StreamResult, stream_claude_response
 from claude_teletype.config import (
     CONFIG_FILE,
@@ -84,6 +85,7 @@ async def _chat_async(
     printer=None,
     no_audio: bool = False,
     transcript_dir: str | None = None,
+    backend=None,
 ) -> None:
     """Send prompt to Claude Code and display response with typewriter pacing.
 
@@ -96,6 +98,7 @@ async def _chat_async(
         printer: Optional PrinterDriver instance for hardware output.
         no_audio: If True, disable bell sound on line breaks.
         transcript_dir: Directory for transcript files (default: ./transcripts).
+        backend: LLM backend to use for streaming.
     """
     from claude_teletype.output import make_output_fn
 
@@ -131,7 +134,7 @@ async def _chat_async(
                 printer_write(ch)
 
         with console.status("[bold cyan]Thinking...", spinner="dots") as status:
-            async for item in stream_claude_response(prompt):
+            async for item in backend.stream(prompt):
                 if isinstance(item, StreamResult):
                     if item.is_error:
                         if first_token:
@@ -179,6 +182,9 @@ def show() -> None:
     typer.echo(f"device = {config.device}")
     typer.echo(f"printer_profile = {config.printer_profile}")
     typer.echo(f"juki = {config.juki}")
+    typer.echo(f"backend = {config.backend}")
+    typer.echo(f"model = {config.model}")
+    typer.echo(f"system_prompt = {config.system_prompt!r}")
 
 
 @config_app.command("init")
@@ -239,6 +245,18 @@ def main(
         "--juki",
         help="[deprecated] Use --printer juki instead",
     ),
+    backend: str = typer.Option(
+        None,
+        "--backend",
+        "-b",
+        help="LLM backend: claude-cli, openai, openrouter",
+    ),
+    model: str = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model name (e.g., gpt-4o, anthropic/claude-3.5-sonnet)",
+    ),
     teletype: bool = typer.Option(
         False,
         "--teletype",
@@ -268,7 +286,8 @@ def main(
     config = load_config()
     config = apply_env_overrides(config)
     config = merge_cli_flags(
-        config, delay=delay, device=device, transcript_dir=transcript_dir
+        config, delay=delay, device=device, transcript_dir=transcript_dir,
+        backend=backend, model=model,
     )
 
     # Boolean flags: CLI flag wins if True, otherwise config value wins
@@ -323,7 +342,18 @@ def main(
 
     # resolved_profile is None means generic (no wrapping)
 
-    check_claude_installed()
+    # Create and validate backend
+    try:
+        llm_backend = create_backend(
+            backend=config.backend,
+            model=config.model or None,
+            system_prompt=config.system_prompt or None,
+            session_id=resume,
+        )
+        llm_backend.validate()
+    except BackendError as e:
+        console.print(f"[bold red]{e}")
+        raise typer.Exit(1)
 
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():
@@ -398,6 +428,7 @@ def main(
                 printer=printer_driver,
                 no_audio=effective_no_audio,
                 transcript_dir=config.transcript_dir,
+                backend=llm_backend,
             )
         )
     else:
@@ -409,6 +440,7 @@ def main(
             no_audio=effective_no_audio,
             transcript_dir=config.transcript_dir,
             resume_session_id=resume,
+            backend=llm_backend,
         )
         tui_app.run()
 

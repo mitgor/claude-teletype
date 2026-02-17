@@ -5,37 +5,26 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from claude_teletype.bridge import StreamResult
 from claude_teletype.cli import _chat_async, app
-
-# Reuse NDJSON fixture constants from test_bridge.py
-from tests.test_bridge import (
-    RESULT_MESSAGE_ERROR,
-    RESULT_MESSAGE_FULL,
-    SYSTEM_INIT,
-    TEXT_DELTA_HELLO,
-)
 
 runner = CliRunner()
 
 
-def _make_mock_stream(ndjson_lines: list[bytes]):
-    """Build a mock subprocess that yields the given NDJSON lines.
+def _make_mock_backend(items):
+    """Create a mock LLM backend that yields the given items from stream()."""
+    mock_backend = MagicMock()
 
-    Returns a mock_proc suitable for patching create_subprocess_exec.
-    """
-    mock_stdout = MagicMock()
-    line_iter = iter(ndjson_lines)
-    mock_stdout.readline = AsyncMock(side_effect=lambda: next(line_iter))
+    async def mock_stream(prompt):
+        for item in items:
+            yield item
 
-    mock_proc = MagicMock()
-    mock_proc.stdout = mock_stdout
-    mock_proc.wait = AsyncMock(return_value=0)
-    mock_proc.terminate = MagicMock()
-    return mock_proc
+    mock_backend.stream = mock_stream
+    return mock_backend
 
 
 class TestChatAsyncStreamResult:
-    """Tests for _chat_async handling of StreamResult from stream_claude_response."""
+    """Tests for _chat_async handling of StreamResult from backend.stream()."""
 
     @pytest.mark.asyncio
     async def test_chat_async_streams_text_and_handles_stream_result(
@@ -45,18 +34,12 @@ class TestChatAsyncStreamResult:
 
         Verifies: no crash, pace_characters called with "Hello" (not StreamResult).
         """
-        mock_proc = _make_mock_stream([
-            SYSTEM_INIT + b"\n",
-            TEXT_DELTA_HELLO + b"\n",
-            RESULT_MESSAGE_FULL + b"\n",
-            b"",  # EOF
+        mock_backend = _make_mock_backend([
+            "Hello",
+            StreamResult(session_id="test-session"),
         ])
 
         with patch(
-            "claude_teletype.bridge.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ), patch(
             "claude_teletype.cli.pace_characters",
             new_callable=AsyncMock,
         ) as mock_pace, patch(
@@ -78,6 +61,7 @@ class TestChatAsyncStreamResult:
                 base_delay_ms=0,
                 no_audio=True,
                 transcript_dir=str(tmp_path),
+                backend=mock_backend,
             )
 
         # pace_characters should have been called with "Hello", not StreamResult
@@ -96,16 +80,11 @@ class TestChatAsyncStreamResult:
 
         Verifies: console.print called with error message, no call to pace_characters.
         """
-        mock_proc = _make_mock_stream([
-            RESULT_MESSAGE_ERROR + b"\n",
-            b"",  # EOF
+        mock_backend = _make_mock_backend([
+            StreamResult(is_error=True, error_message="Something went wrong"),
         ])
 
         with patch(
-            "claude_teletype.bridge.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ), patch(
             "claude_teletype.cli.pace_characters",
             new_callable=AsyncMock,
         ) as mock_pace, patch(
@@ -126,6 +105,7 @@ class TestChatAsyncStreamResult:
                 base_delay_ms=0,
                 no_audio=True,
                 transcript_dir=str(tmp_path),
+                backend=mock_backend,
             )
 
         # pace_characters should NOT have been called (only error StreamResult)
@@ -146,18 +126,11 @@ class TestChatAsyncStreamResult:
 
         Verifies: no crash, "No response received" message shown.
         """
-        # Only a success StreamResult, no text chunks
-        mock_proc = _make_mock_stream([
-            SYSTEM_INIT + b"\n",
-            RESULT_MESSAGE_FULL + b"\n",
-            b"",  # EOF
+        mock_backend = _make_mock_backend([
+            StreamResult(session_id="test-session"),
         ])
 
         with patch(
-            "claude_teletype.bridge.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=mock_proc,
-        ), patch(
             "claude_teletype.cli.pace_characters",
             new_callable=AsyncMock,
         ) as mock_pace, patch(
@@ -178,6 +151,7 @@ class TestChatAsyncStreamResult:
                 base_delay_ms=0,
                 no_audio=True,
                 transcript_dir=str(tmp_path),
+                backend=mock_backend,
             )
 
         # No text was streamed, so pace_characters should not be called
@@ -286,12 +260,21 @@ class TestInitConfigFlag:
         assert "already exists" in result.output
 
 
+def _mock_create_backend(*args, **kwargs):
+    """Return a mock backend with no-op validate() for CLI tests."""
+    mock_be = MagicMock()
+    mock_be.validate = MagicMock()
+    return mock_be
+
+
 class TestPromptBackwardCompat:
     """Tests for backward compatibility: prompt as positional argument."""
 
     def test_prompt_still_works(self):
         """claude-teletype --no-tui 'hello' still reaches the chat logic."""
-        with patch("claude_teletype.cli.check_claude_installed"), patch(
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
             "claude_teletype.cli.load_config"
@@ -319,7 +302,9 @@ class TestPromptBackwardCompat:
 
     def test_no_args_reaches_tui(self):
         """claude-teletype with no args and a tty reaches TUI path (mocked)."""
-        with patch("claude_teletype.cli.check_claude_installed"), patch(
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.load_config"
         ), patch(
             "claude_teletype.cli.apply_env_overrides"
@@ -354,7 +339,9 @@ class TestPrinterFlag:
 
     def test_printer_flag_sets_profile(self):
         """--printer juki resolves to juki profile."""
-        with patch("claude_teletype.cli.check_claude_installed"), patch(
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
             "claude_teletype.cli.load_config"
@@ -380,7 +367,9 @@ class TestPrinterFlag:
 
     def test_juki_flag_emits_deprecation_warning(self):
         """--juki emits deprecation warning."""
-        with patch("claude_teletype.cli.check_claude_installed"), patch(
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ), patch(
             "claude_teletype.cli.load_config"
@@ -442,7 +431,9 @@ class TestConfigMerge:
 
         with patch("claude_teletype.cli.CONFIG_FILE", config_file), patch(
             "claude_teletype.config.CONFIG_FILE", config_file
-        ), patch("claude_teletype.cli.check_claude_installed"), patch(
+        ), patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
             "claude_teletype.printer.discover_printer", return_value=None
@@ -461,7 +452,9 @@ class TestConfigMerge:
 
         with patch("claude_teletype.cli.CONFIG_FILE", config_file), patch(
             "claude_teletype.config.CONFIG_FILE", config_file
-        ), patch("claude_teletype.cli.check_claude_installed"), patch(
+        ), patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
             "claude_teletype.printer.discover_printer", return_value=None
@@ -480,7 +473,9 @@ class TestConfigMerge:
 
         with patch("claude_teletype.cli.CONFIG_FILE", config_file), patch(
             "claude_teletype.config.CONFIG_FILE", config_file
-        ), patch("claude_teletype.cli.check_claude_installed"), patch(
+        ), patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
             "claude_teletype.printer.discover_printer", return_value=None
