@@ -29,7 +29,7 @@
 
 ### 🚧 v1.2 Configuration, Profiles, Multi-LLM, Settings (In Progress)
 
-- [ ] **Phase 8: No-TUI Bug Fix** - Fix --no-tui crash and add test coverage for headless mode
+- [x] **Phase 8: No-TUI Bug Fix** - Fix --no-tui crash and add test coverage for headless mode (completed 2026-02-17)
 - [ ] **Phase 9: Configuration System** - Persistent TOML config with CLI overrides and env var support
 - [ ] **Phase 10: Printer Profiles** - Named printer profiles with per-device control codes and auto-detection
 - [ ] **Phase 11: Multi-LLM Backends** - OpenAI and OpenRouter support via openai SDK alongside Claude Code CLI
@@ -116,7 +116,7 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13
 | 5. Multi-Turn Foundation | v1.1 | 3/3 | ✓ Complete | 2026-02-16 |
 | 6. Error Handling | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
 | 7. Word Wrap | v1.1 | 2/2 | ✓ Complete | 2026-02-17 |
-| 8. No-TUI Bug Fix | v1.2 | 0/1 | Planned | - |
+| 8. No-TUI Bug Fix | v1.2 | Complete    | 2026-02-17 | - |
 | 9. Configuration System | v1.2 | 0/? | Not started | - |
 | 10. Printer Profiles | v1.2 | 0/? | Not started | - |
 | 11. Multi-LLM Backends | v1.2 | 0/? | Not started | - |
