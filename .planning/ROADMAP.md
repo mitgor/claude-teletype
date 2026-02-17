@@ -36,7 +36,7 @@
 - [x] **Phase 12: Typewriter Mode** - Direct-to-printer typing with pacing and sound, no LLM (completed 2026-02-17)
 - [x] **Phase 13: Settings Panel** - TUI modal for runtime configuration of printer, LLM, delay, and audio (completed 2026-02-17)
 - [x] **Phase 14: Verify Configuration System & Update Traceability** - Verify Phase 9 CFG requirements, create VERIFICATION.md, update all requirement checkboxes (completed 2026-02-17)
-- [ ] **Phase 15: Fix system_prompt Backend Hot-Swap** - Preserve system_prompt when switching backends via settings modal
+- [x] **Phase 15: Fix system_prompt Backend Hot-Swap** - Preserve system_prompt when switching backends via settings modal (completed 2026-02-17)
 
 ## Phase Details
 
@@ -161,4 +161,4 @@ Phases execute in numeric order: 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 15
 | 12. Typewriter Mode | v1.2 | Complete    | 2026-02-17 | - |
 | 13. Settings Panel | v1.2 | Complete    | 2026-02-17 | - |
 | 14. Verify Config & Traceability | v1.2 | Complete    | 2026-02-17 | - |
-| 15. Fix system_prompt Hot-Swap | v1.2 | 0/? | Not started | - |
+| 15. Fix system_prompt Hot-Swap | v1.2 | Complete    | 2026-02-17 | - |
