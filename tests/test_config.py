@@ -4,10 +4,7 @@ Covers TeletypeConfig dataclass defaults, TOML loading, env var overrides,
 CLI flag merging, and default config file generation.
 """
 
-import os
 import tomllib
-
-import pytest
 
 from claude_teletype.config import (
     CONFIG_FILE,
@@ -17,7 +14,6 @@ from claude_teletype.config import (
     merge_cli_flags,
     write_default_config,
 )
-
 
 # --- Test 1: TeletypeConfig defaults ---
 
