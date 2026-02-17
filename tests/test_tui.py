@@ -260,6 +260,37 @@ async def test_enter_typewriter_mode():
         assert not isinstance(app.screen, TypewriterScreen)
 
 
+def test_system_prompt_preserved_on_backend_swap():
+    """system_prompt survives backend/model hot-swap via settings modal."""
+    mock_backend = MagicMock()
+    mock_backend.validate = MagicMock()
+
+    app = TeletypeApp(
+        base_delay_ms=0,
+        backend=MagicMock(),
+        backend_name="openai",
+        model_config="gpt-4o",
+        system_prompt="You are a helpful assistant.",
+    )
+
+    mock_create = MagicMock(return_value=mock_backend)
+    with patch("claude_teletype.tui.create_backend", mock_create):
+        app._apply_settings({
+            "delay": 75.0,
+            "no_audio": False,
+            "backend": "openrouter",
+            "model": "openai/gpt-4o",
+            "profile": "generic",
+        })
+
+    mock_create.assert_called_once_with(
+        backend="openrouter",
+        model="openai/gpt-4o",
+        system_prompt="You are a helpful assistant.",
+    )
+    assert app._system_prompt == "You are a helpful assistant."
+
+
 @pytest.mark.asyncio
 async def test_open_settings_via_shortcut():
     """ctrl+comma pushes SettingsScreen onto TeletypeApp."""
