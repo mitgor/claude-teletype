@@ -1,11 +1,15 @@
 """Printer driver backends, auto-discovery, and resilient output wrapper."""
 
+from __future__ import annotations
+
 import re
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+from claude_teletype.profiles import PrinterProfile, get_profile
 
 
 @runtime_checkable
@@ -130,31 +134,34 @@ class UsbPrinterDriver:
             self._dev = None
 
 
-class JukiPrinterDriver:
-    """Juki 6100 daisywheel impact printer driver.
+class ProfilePrinterDriver:
+    """Profile-driven printer wrapper.
 
     Wraps an inner PrinterDriver, prepending ESC initialization codes on first
-    write and converting bare \\n to \\r\\n (impact printers need explicit CR).
+    write and handling newline strategy (CR+LF vs LF-only) based on the
+    profile's configuration.
     """
 
-    # Juki 6100 ESC sequences
-    RESET = b"\x1b\x1aI"  # ESC SUB I — full reset
-    LINE_SPACING = b"\x1b\x1e\x09"  # ESC RS 9 — 1/6" line spacing
-    FIXED_PITCH = b"\x1bQ"  # ESC Q — disable proportional spacing
-
-    def __init__(self, inner: PrinterDriver) -> None:
+    def __init__(self, inner: PrinterDriver, profile: PrinterProfile) -> None:
         self._inner = inner
+        self._profile = profile
         self._initialized = False
 
     def _send_raw(self, data: bytes) -> None:
-        """Send raw bytes through the inner driver."""
+        """Send raw bytes through the inner driver, byte by byte."""
         for b in data:
             self._inner.write(chr(b))
 
     def _ensure_init(self) -> None:
         if not self._initialized:
             self._initialized = True
-            self._send_raw(self.RESET + self.LINE_SPACING + self.FIXED_PITCH)
+            init_data = (
+                self._profile.init_sequence
+                + self._profile.line_spacing
+                + self._profile.char_pitch
+            )
+            if init_data:
+                self._send_raw(init_data)
 
     @property
     def is_connected(self) -> bool:
@@ -165,17 +172,37 @@ class JukiPrinterDriver:
             return
         self._ensure_init()
         if char == "\n":
-            self._inner.write("\r")
+            if self._profile.crlf:
+                self._inner.write("\r")
             self._inner.write("\n")
-            # Re-send settings after newline so each CUPS job starts correctly
-            self._send_raw(self.LINE_SPACING + self.FIXED_PITCH)
+            if self._profile.reinit_on_newline and self._profile.reinit_sequence:
+                self._send_raw(self._profile.reinit_sequence)
         else:
             self._inner.write(char)
 
     def close(self) -> None:
         if self._initialized and self._inner.is_connected:
-            self._inner.write("\f")
+            if self._profile.formfeed_on_close:
+                self._inner.write("\f")
+            if self._profile.reset_sequence:
+                self._send_raw(self._profile.reset_sequence)
         self._inner.close()
+
+
+class JukiPrinterDriver(ProfilePrinterDriver):
+    """Juki 6100 daisywheel impact printer driver.
+
+    Deprecated: use ProfilePrinterDriver with get_profile("juki").
+    Kept as backward-compatible alias.
+    """
+
+    # Juki 6100 ESC sequences (kept for backward compat in tests)
+    RESET = b"\x1b\x1aI"  # ESC SUB I — full reset
+    LINE_SPACING = b"\x1b\x1e\x09"  # ESC RS 9 — 1/6" line spacing
+    FIXED_PITCH = b"\x1bQ"  # ESC Q — disable proportional spacing
+
+    def __init__(self, inner: PrinterDriver) -> None:
+        super().__init__(inner, get_profile("juki"))
 
 
 def select_printer(printers: list[dict[str, str]]) -> str | None:
@@ -408,25 +435,34 @@ def discover_cups_printers() -> list[dict[str, str]]:
 
 
 def discover_printer(
-    device_override: str | None = None, juki: bool = False
+    device_override: str | None = None,
+    juki: bool = False,
+    profile: PrinterProfile | None = None,
 ) -> PrinterDriver:
     """Select the best available printer backend.
 
     Priority:
     1. User-specified --device path -> FilePrinterDriver
-    2. Direct USB via pyusb (when juki=True) -> UsbPrinterDriver
+    2. Direct USB via pyusb (when profile has ESC codes) -> UsbPrinterDriver
     3. CUPS USB printer discovery (interactive selection) -> CupsPrinterDriver
     4. Linux /dev/usb/lp* probe -> FilePrinterDriver
     5. Fallback -> NullPrinterDriver
 
-    When juki=True, wraps the selected driver in JukiPrinterDriver.
+    When a non-generic profile is provided, wraps the selected driver in
+    ProfilePrinterDriver. The juki parameter is deprecated; use
+    profile=get_profile("juki") instead.
     """
+    # Backward compat: juki=True without explicit profile
+    if juki and profile is None:
+        profile = get_profile("juki")
+
     driver: PrinterDriver | None = None
+    use_profile = profile is not None and profile.name != "generic"
 
     if device_override:
         driver = FilePrinterDriver(device_override)
     else:
-        if juki:
+        if use_profile:
             usb_driver = discover_usb_device()
             if usb_driver is not None:
                 driver = usb_driver
@@ -437,7 +473,7 @@ def discover_printer(
             selected = select_printer(cups_printers)
             if selected:
                 driver = CupsPrinterDriver(selected)
-                if juki:
+                if use_profile:
                     print(f"CUPS: {selected}", file=sys.stderr)
             elif sys.platform == "linux":
                 for dev in ["/dev/usb/lp0", "/dev/usb/lp1"]:
@@ -448,8 +484,8 @@ def discover_printer(
     if driver is None:
         driver = NullPrinterDriver()
 
-    if juki and not isinstance(driver, NullPrinterDriver):
-        driver = JukiPrinterDriver(driver)
+    if use_profile and not isinstance(driver, NullPrinterDriver):
+        driver = ProfilePrinterDriver(driver, profile)
 
     return driver
 
@@ -457,10 +493,12 @@ def discover_printer(
 A4_COLUMNS = 80  # A4 printable width at 10 CPI (pica)
 
 
-def make_printer_output(driver: PrinterDriver) -> Callable[[str], None]:
+def make_printer_output(
+    driver: PrinterDriver, columns: int = A4_COLUMNS
+) -> Callable[[str], None]:
     """Create an output_fn that writes to a printer with word-wrap and graceful degradation.
 
-    Uses WordWrapper at A4_COLUMNS (80) width for word-boundary wrapping.
+    Uses WordWrapper at the given column width for word-boundary wrapping.
     On IOError/OSError, stops writing permanently (PRNT-03).
     """
     from claude_teletype.wordwrap import WordWrapper
@@ -476,7 +514,7 @@ def make_printer_output(driver: PrinterDriver) -> Callable[[str], None]:
         except OSError:
             disconnected = True
 
-    wrapper = WordWrapper(A4_COLUMNS, safe_write)
+    wrapper = WordWrapper(columns, safe_write)
 
     def printer_write(char: str) -> None:
         if disconnected:

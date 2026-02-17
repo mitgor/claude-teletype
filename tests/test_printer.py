@@ -10,6 +10,7 @@ from claude_teletype.printer import (
     FilePrinterDriver,
     JukiPrinterDriver,
     NullPrinterDriver,
+    ProfilePrinterDriver,
     UsbPrinterDriver,
     discover_cups_printers,
     discover_macos_usb_printers,
@@ -546,11 +547,11 @@ def test_juki_write_noop_when_disconnected():
 
 
 def test_discover_juki_wraps_file_driver(tmp_path: Path):
-    """discover_printer(device_override=..., juki=True) wraps in JukiPrinterDriver."""
+    """discover_printer(device_override=..., juki=True) wraps in ProfilePrinterDriver."""
     dev = tmp_path / "dev"
     dev.touch()
     driver = discover_printer(device_override=str(dev), juki=True)
-    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, FilePrinterDriver)
     driver._inner.close()
 
@@ -558,14 +559,14 @@ def test_discover_juki_wraps_file_driver(tmp_path: Path):
 @patch("claude_teletype.printer.discover_usb_device")
 @patch("claude_teletype.printer.subprocess.run")
 def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=True) with CUPS printer wraps in JukiPrinterDriver."""
+    """discover_printer(juki=True) with CUPS printer wraps in ProfilePrinterDriver."""
     mock_usb.return_value = None
     mock_run.return_value = MagicMock(
         stdout="device for MyPrinter: usb://Vendor/Model?serial=123\n",
         returncode=0,
     )
     driver = discover_printer(juki=True)
-    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, CupsPrinterDriver)
 
 
@@ -746,7 +747,7 @@ def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: Magi
     """discover_printer(juki=True) tries USB first; if found, skips CUPS."""
     mock_usb.return_value = UsbPrinterDriver(MagicMock(), MagicMock())
     driver = discover_printer(juki=True)
-    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, UsbPrinterDriver)
     mock_run.assert_not_called()  # CUPS not tried
 
@@ -761,7 +762,7 @@ def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_
         returncode=0,
     )
     driver = discover_printer(juki=True)
-    assert isinstance(driver, JukiPrinterDriver)
+    assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, CupsPrinterDriver)
 
 
