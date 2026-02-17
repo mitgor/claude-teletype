@@ -108,7 +108,9 @@
   1. User can open a settings modal via keyboard shortcut while in the TUI
   2. User can change printer profile, LLM backend/model, character delay, and audio toggle from the modal
   3. Changed settings take effect immediately in the current session without restart
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 13-01-PLAN.md — SettingsScreen modal with form widgets and tests
+- [ ] 13-02-PLAN.md — TUI integration (ctrl+s binding, apply callback, CLI tracking kwargs)
 
 ## Progress
 
