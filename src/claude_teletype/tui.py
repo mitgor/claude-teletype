@@ -43,6 +43,7 @@ class TeletypeApp(App):
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit"),
+        Binding("ctrl+t", "enter_typewriter", "Typewriter"),
         Binding("escape", "cancel_stream", "Cancel", show=False),
     ]
 
@@ -136,6 +137,16 @@ class TeletypeApp(App):
         for worker in self.workers:
             if not worker.is_finished:
                 worker.cancel()
+
+    def action_enter_typewriter(self) -> None:
+        """Switch to typewriter mode (no LLM, direct keyboard to screen+printer)."""
+        from claude_teletype.typewriter_screen import TypewriterScreen
+
+        self.push_screen(TypewriterScreen(
+            base_delay_ms=self.base_delay_ms,
+            printer=self.printer,
+            no_audio=self.no_audio,
+        ))
 
     async def _kill_process(self) -> None:
         """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.
