@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 8 - No-TUI Bug Fix
+**Current focus:** Phase 9 - Configuration System
 
 ## Current Position
 
-Phase: 8 of 13 (No-TUI Bug Fix)
-Plan: 1 of 1 in current phase
-Status: Phase complete
-Last activity: 2026-02-17 — Completed 08-01 No-TUI Bug Fix
+Phase: 9 of 13 (Configuration System)
+Plan: 1 of 2 in current phase
+Status: Plan 01 complete
+Last activity: 2026-02-17 — Completed 09-01 Configuration Module
 
-Progress: [████████████████░░░░] 73% (16/~22 plans, 8/13 phases complete)
+Progress: [█████████████████░░░] 77% (17/~22 plans, 8/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: 3min
-- Total execution time: 0.73 hours
+- Total execution time: 0.78 hours
 
 **By Phase:**
 
@@ -35,9 +35,10 @@ Progress: [████████████████░░░░] 73% (16
 | 06-error-handling-and-recovery | 2 | 5min | 2.5min |
 | 07-word-wrap-for-tui-and-printer | 2 | 6min | 3min |
 | 08-no-tui-bug-fix | 1 | 2min | 2min |
+| 09-configuration-system | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: [3min, 2min, 2min, 4min, 2min]
+- Last 5 plans: [2min, 2min, 4min, 2min, 3min]
 - Trend: Stable (average ~2.6min per plan)
 
 ## Accumulated Context
@@ -51,6 +52,8 @@ Recent decisions affecting current work:
 - Per-destination wrapping -- TUI and printer get wrapped output; transcript and audio get unwrapped
 - StreamResult as final yield from async generator -- clean metadata propagation
 - Minimal StreamResult handling in headless mode -- only display errors, silently consume success metadata
+- Three-layer config merge: defaults < TOML file < env vars < CLI flags
+- Pre-formatted string template for config file (tomli-w cannot write TOML comments)
 
 ### Pending Todos
 
@@ -66,5 +69,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 08-01-PLAN.md (No-TUI Bug Fix)
+Stopped at: Completed 09-01-PLAN.md (Configuration Module)
 Resume file: None
