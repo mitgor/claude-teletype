@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-17)
 ## Current Position
 
 Phase: 12 of 13 (Typewriter Mode)
-Plan: 1 of 2 in current phase (done)
-Status: Executing phase 12
-Last activity: 2026-02-17 — Completed 12-01 TypewriterScreen and Keystroke Audio
+Plan: 2 of 2 in current phase (done)
+Status: Phase 12 complete
+Last activity: 2026-02-17 — Completed 12-02 TUI Integration (ctrl+t binding)
 
-Progress: [█████████████████████] 96% (25/~26 plans, 11/13 phases complete)
+Progress: [██████████████████████] 100% (26/~26 plans, 12/13 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
-- Average duration: 3.6min
-- Total execution time: 1.52 hours
+- Total plans completed: 26
+- Average duration: 3.5min
+- Total execution time: 1.55 hours
 
 **By Phase:**
 
@@ -38,11 +38,11 @@ Progress: [█████████████████████] 96% 
 | 09-configuration-system | 2 | 14min | 7min |
 | 10-printer-profiles | 2 | 13min | 6.5min |
 | 11-multi-llm-backends | 2 | 11min | 5.5min |
-| 12-typewriter-mode | 1 | 3min | 3min |
+| 12-typewriter-mode | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: [5min, 8min, 4min, 7min, 3min]
-- Trend: Fast execution for typewriter mode integration
+- Last 5 plans: [8min, 4min, 7min, 3min, 2min]
+- Trend: Consistently fast execution for typewriter mode
 
 ## Accumulated Context
 
@@ -70,6 +70,8 @@ Recent decisions affecting current work:
 - asyncio.Queue created in on_mount not __init__ to avoid event loop mismatch
 - Backspace intentionally ignored for typewriter authenticity (append-only)
 - Keystroke click is 20ms with deterministic noise seed (rng=42) for reproducible sound
+- ctrl+t placed between ctrl+d and escape in BINDINGS for logical ordering and Footer visibility
+- Lazy import of TypewriterScreen in action method consistent with codebase pattern
 
 ### Pending Todos
 
@@ -85,5 +87,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 12-01-PLAN.md (TypewriterScreen and Keystroke Audio)
+Stopped at: Completed 12-02-PLAN.md (TUI Integration - ctrl+t binding)
 Resume file: None
