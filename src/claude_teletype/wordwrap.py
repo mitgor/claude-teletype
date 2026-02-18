@@ -100,3 +100,11 @@ class WordWrapper:
         is emitted.
         """
         self._flush_word()
+
+    def reset_column(self) -> None:
+        """Reset the column counter to zero.
+
+        Use after control characters (CR, FF) that move the print
+        head back to column 0 outside the normal feed() flow.
+        """
+        self._column = 0

@@ -213,14 +213,13 @@ class TeletypeApp(App):
             except BackendError as e:
                 self.notify(str(e), severity="error")
 
-        # Profile change: mutate printer driver's profile
+        # Profile change: swap printer driver's profile
         if result["profile"] != self._profile_name:
             self._profile_name = result["profile"]
-            if self.printer is not None and hasattr(self.printer, "_profile"):
+            if self.printer is not None and hasattr(self.printer, "swap_profile"):
                 new_profile = self._all_profiles.get(result["profile"])
                 if new_profile is not None:
-                    self.printer._profile = new_profile
-                    self.printer._initialized = False
+                    self.printer.swap_profile(new_profile)
 
     async def _kill_process(self) -> None:
         """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.

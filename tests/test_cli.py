@@ -364,6 +364,9 @@ class TestPrinterFlag:
         mock_discover.assert_called_once()
         call_kwargs = mock_discover.call_args[1]
         assert call_kwargs["profile"].name == "juki"
+        # Close the coroutine to avoid RuntimeWarning
+        if mock_run.called:
+            mock_run.call_args[0][0].close()
 
     def test_juki_flag_emits_deprecation_warning(self):
         """--juki emits deprecation warning."""
@@ -371,7 +374,7 @@ class TestPrinterFlag:
             "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
         ), patch(
             "claude_teletype.cli.asyncio.run"
-        ), patch(
+        ) as mock_run, patch(
             "claude_teletype.cli.load_config"
         ), patch(
             "claude_teletype.cli.apply_env_overrides"
@@ -390,6 +393,9 @@ class TestPrinterFlag:
 
         assert result.exit_code == 0
         assert "deprecated" in result.output.lower()
+        # Close the coroutine to avoid RuntimeWarning
+        if mock_run.called:
+            mock_run.call_args[0][0].close()
 
     def test_unknown_printer_name_exits_with_error(self):
         """--printer nonexistent exits with error."""

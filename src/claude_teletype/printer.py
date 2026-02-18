@@ -180,6 +180,14 @@ class ProfilePrinterDriver:
         else:
             self._inner.write(char)
 
+    def swap_profile(self, new_profile: PrinterProfile) -> None:
+        """Replace the current profile and mark as uninitialized.
+
+        The new profile's init sequences will be sent on the next write().
+        """
+        self._profile = new_profile
+        self._initialized = False
+
     def close(self) -> None:
         if self._initialized and self._inner.is_connected:
             if self._profile.formfeed_on_close:
@@ -232,71 +240,37 @@ def select_printer(printers: list[dict[str, str]]) -> str | None:
         print(f"Please enter a number between 1 and {len(printers)}.")
 
 
-def discover_usb_device() -> UsbPrinterDriver | None:
-    """Try to open a USB printer class device directly via pyusb.
+def _find_usb_printer(
+    diagnostics: list[str] | None = None,
+) -> UsbPrinterDriver | None:
+    """Shared USB printer discovery logic.
 
-    Returns UsbPrinterDriver on success, None if pyusb is missing, no
-    backend is available, or no printer-class device is found.
+    Enumerates USB devices via pyusb, finds printer-class interfaces
+    (class 7), detaches kernel drivers, and opens a bulk OUT endpoint.
+
+    Args:
+        diagnostics: If provided, human-readable messages are appended
+            explaining each step. Pass None for silent operation.
+
+    Returns:
+        UsbPrinterDriver on success, None otherwise.
     """
-    try:
-        import usb.core
-        import usb.util
-    except ImportError:
-        return None
-
-    try:
-        devices = list(usb.core.find(find_all=True))
-    except usb.core.NoBackendError:
-        return None
-
-    USB_PRINTER_CLASS = 7
-
-    for dev in devices:
-        for cfg in dev:
-            for intf in cfg:
-                if intf.bInterfaceClass != USB_PRINTER_CLASS:
-                    continue
-                # Try to detach kernel driver (best-effort, may fail on macOS)
-                try:
-                    if dev.is_kernel_driver_active(intf.bInterfaceNumber):
-                        dev.detach_kernel_driver(intf.bInterfaceNumber)
-                except Exception:
-                    pass
-                # Find bulk OUT endpoint
-                ep_out = usb.util.find_descriptor(
-                    intf,
-                    custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-                    == usb.util.ENDPOINT_OUT,
-                )
-                if ep_out is not None:
-                    try:
-                        dev.set_configuration()
-                    except Exception:
-                        pass
-                    return UsbPrinterDriver(dev, ep_out)
-    return None
-
-
-def discover_usb_device_verbose() -> tuple[UsbPrinterDriver | None, list[str]]:
-    """Try to open a USB printer via pyusb, returning diagnostics.
-
-    Returns (driver, diagnostics) where diagnostics is a list of
-    human-readable strings explaining each step of discovery.
-    """
-    diagnostics: list[str] = []
+    verbose = diagnostics is not None
 
     try:
         import usb.core
         import usb.util
     except ImportError:
-        diagnostics.append("pyusb not installed. Install with: uv sync --extra usb")
-        return None, diagnostics
+        if verbose:
+            diagnostics.append("pyusb not installed. Install with: uv sync --extra usb")
+        return None
 
     try:
         devices = list(usb.core.find(find_all=True))
     except usb.core.NoBackendError:
-        diagnostics.append("libusb backend not found. Install with: brew install libusb")
-        return None, diagnostics
+        if verbose:
+            diagnostics.append("libusb backend not found. Install with: brew install libusb")
+        return None
 
     USB_PRINTER_CLASS = 7
     total_devices = len(devices)
@@ -308,23 +282,27 @@ def discover_usb_device_verbose() -> tuple[UsbPrinterDriver | None, list[str]]:
                 if intf.bInterfaceClass != USB_PRINTER_CLASS:
                     continue
                 found_printer = True
-                try:
-                    vendor_name = dev.product or "Unknown"
-                except Exception:
-                    vendor_name = "Unknown"
-                diagnostics.append(
-                    f"Found USB device: {vendor_name} (0x{dev.idVendor:04x}:0x{dev.idProduct:04x})"
-                )
 
-                # Try to detach kernel driver
+                if verbose:
+                    try:
+                        vendor_name = dev.product or "Unknown"
+                    except Exception:
+                        vendor_name = "Unknown"
+                    diagnostics.append(
+                        f"Found USB device: {vendor_name} (0x{dev.idVendor:04x}:0x{dev.idProduct:04x})"
+                    )
+
+                # Try to detach kernel driver (best-effort, may fail on macOS)
                 try:
                     if dev.is_kernel_driver_active(intf.bInterfaceNumber):
-                        diagnostics.append(
-                            f"Kernel driver active on interface {intf.bInterfaceNumber}, detaching..."
-                        )
+                        if verbose:
+                            diagnostics.append(
+                                f"Kernel driver active on interface {intf.bInterfaceNumber}, detaching..."
+                            )
                         dev.detach_kernel_driver(intf.bInterfaceNumber)
                 except Exception as err:
-                    diagnostics.append(f"Could not detach kernel driver: {err}")
+                    if verbose:
+                        diagnostics.append(f"Could not detach kernel driver: {err}")
 
                 # Find bulk OUT endpoint
                 ep_out = usb.util.find_descriptor(
@@ -337,14 +315,35 @@ def discover_usb_device_verbose() -> tuple[UsbPrinterDriver | None, list[str]]:
                         dev.set_configuration()
                     except Exception:
                         pass
-                    diagnostics.append(f"USB printer found: endpoint OUT {ep_out.bEndpointAddress}")
-                    return UsbPrinterDriver(dev, ep_out), diagnostics
+                    if verbose:
+                        diagnostics.append(f"USB printer found: endpoint OUT {ep_out.bEndpointAddress}")
+                    return UsbPrinterDriver(dev, ep_out)
 
-    if not found_printer:
+    if verbose and not found_printer:
         diagnostics.append(
             f"No USB printer-class devices found. {total_devices} other USB devices present."
         )
-    return None, diagnostics
+    return None
+
+
+def discover_usb_device() -> UsbPrinterDriver | None:
+    """Try to open a USB printer class device directly via pyusb.
+
+    Returns UsbPrinterDriver on success, None if pyusb is missing, no
+    backend is available, or no printer-class device is found.
+    """
+    return _find_usb_printer()
+
+
+def discover_usb_device_verbose() -> tuple[UsbPrinterDriver | None, list[str]]:
+    """Try to open a USB printer via pyusb, returning diagnostics.
+
+    Returns (driver, diagnostics) where diagnostics is a list of
+    human-readable strings explaining each step of discovery.
+    """
+    diagnostics: list[str] = []
+    driver = _find_usb_printer(diagnostics)
+    return driver, diagnostics
 
 
 def discover_macos_usb_printers() -> list[dict]:
@@ -522,7 +521,7 @@ def make_printer_output(
         if char in ("\r", "\f"):
             wrapper.flush()
             safe_write(char)
-            wrapper._column = 0
+            wrapper.reset_column()
         else:
             wrapper.feed(char)
 
