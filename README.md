@@ -82,7 +82,13 @@ claude-teletype --transcript-dir ./logs "save here"
 
 ## Configuration
 
-Settings are stored in `~/.config/claude-teletype/config.toml` with three-layer precedence: defaults < config file < `CLAUDE_TELETYPE_*` env vars < CLI flags.
+Settings are stored in a platform-specific config directory with three-layer precedence: defaults < config file < `CLAUDE_TELETYPE_*` env vars < CLI flags.
+
+| Platform | Config file |
+|----------|-------------|
+| macOS | `~/Library/Application Support/claude-teletype/config.toml` |
+| Linux | `~/.config/claude-teletype/config.toml` |
+| Windows | `%APPDATA%\claude-teletype\config.toml` |
 
 ```bash
 # Generate a config file with defaults
