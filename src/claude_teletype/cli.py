@@ -469,8 +469,7 @@ def main(
         tui_app.run()
 
         if tui_app.session_id:
-            console.print(
+            Console(stderr=True).print(
                 f"To resume: claude-teletype --resume {tui_app.session_id}",
                 style="dim",
-                stderr=True,
             )
