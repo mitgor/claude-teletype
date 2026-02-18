@@ -71,8 +71,9 @@ def classify_error(error_message: str | None) -> ErrorCategory:
         if pattern.lower() in lower:
             return category
 
-    # Special case: "max" + "token" both present (e.g., "max tokens exceeded")
-    if "max" in lower and "token" in lower:
+    # Special case: phrases like "maximum context length" or "max tokens exceeded"
+    # but NOT bare "max_tokens" (common OpenAI/OpenRouter parameter name in errors)
+    if "max" in lower and "token" in lower and "exceed" in lower:
         return ErrorCategory.CONTEXT_EXHAUSTED
 
     return ErrorCategory.UNKNOWN

@@ -61,6 +61,14 @@ class TestClassifyError:
         """Message containing 'fetch failed' returns NETWORK."""
         assert classify_error("fetch failed") == ErrorCategory.NETWORK
 
+    def test_max_tokens_exceeded_returns_context_exhausted(self) -> None:
+        """Message with 'max tokens exceeded' returns CONTEXT_EXHAUSTED."""
+        assert classify_error("max tokens exceeded") == ErrorCategory.CONTEXT_EXHAUSTED
+
+    def test_bare_max_tokens_param_returns_unknown(self) -> None:
+        """Bare 'max_tokens' parameter mention should NOT be CONTEXT_EXHAUSTED."""
+        assert classify_error("invalid value for max_tokens") == ErrorCategory.UNKNOWN
+
     def test_random_error_returns_unknown(self) -> None:
         """Unrecognized error message returns UNKNOWN."""
         assert classify_error("some random error") == ErrorCategory.UNKNOWN

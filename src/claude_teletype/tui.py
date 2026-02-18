@@ -455,7 +455,10 @@ class TeletypeApp(App):
                                 break  # Break inner loop to retry
                             else:
                                 # Non-retryable or max retries exhausted
-                                log.write(f"\n[{ERROR_MESSAGES[category]}]\n")
+                                msg = ERROR_MESSAGES[category]
+                                if item.error_message:
+                                    msg += f"\n  Detail: {item.error_message}"
+                                log.write(f"\n[{msg}]\n")
                         else:
                             # Update session_id from backend (Claude CLI updates it;
                             # API backends don't use it)
