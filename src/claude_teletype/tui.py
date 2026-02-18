@@ -231,10 +231,16 @@ class TeletypeApp(App):
         self._save_settings()
 
     def _apply_printer_profile(self, new_profile) -> None:
-        """Apply a new printer profile, wrapping or re-discovering if needed."""
+        """Apply a new printer profile, wrapping or re-discovering if needed.
+
+        Uses TUI-safe discovery (no interactive prompts, no stderr prints)
+        when the current printer is disconnected or absent.
+        """
         from claude_teletype.printer import (
+            CupsPrinterDriver,
             ProfilePrinterDriver,
-            discover_printer,
+            discover_cups_printers,
+            discover_usb_device,
             make_printer_output,
         )
 
@@ -252,10 +258,17 @@ class TeletypeApp(App):
             self.printer = ProfilePrinterDriver(self.printer, new_profile)
             self._printer_write = make_printer_output(self.printer)
         else:
-            # No connected printer — try discovery with the new profile
-            self.printer = discover_printer(profile=new_profile)
-            if self.printer.is_connected:
+            # No connected printer — TUI-safe discovery (no interactive input())
+            driver = discover_usb_device()
+            if driver is None:
+                # Fallback: auto-select first CUPS USB printer (non-interactive)
+                cups_printers = discover_cups_printers()
+                if cups_printers:
+                    driver = CupsPrinterDriver(cups_printers[0]["name"])
+            if driver is not None:
+                self.printer = ProfilePrinterDriver(driver, new_profile)
                 self._printer_write = make_printer_output(self.printer)
+                self.notify(f"Printer connected ({new_profile.name})")
             else:
                 self.notify("No printer found", severity="warning")
 
@@ -271,8 +284,8 @@ class TeletypeApp(App):
             cfg.backend = self._backend_name
             cfg.model = self._model_config
             save_config(cfg)
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(f"Could not save settings: {exc}", severity="error")
 
     async def _kill_process(self) -> None:
         """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.

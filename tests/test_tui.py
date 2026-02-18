@@ -326,3 +326,124 @@ async def test_open_settings_via_shortcut():
 
         # Verify we're back on default screen
         assert not isinstance(app.screen, SettingsScreen)
+
+
+def test_profile_hotswap_wraps_connected_driver():
+    """Switching profile wraps an existing connected driver in ProfilePrinterDriver."""
+    from claude_teletype.printer import ProfilePrinterDriver
+    from claude_teletype.profiles import get_profile
+
+    mock_driver = MagicMock()
+    mock_driver.is_connected = True
+
+    juki_profile = get_profile("juki")
+
+    app = TeletypeApp(
+        base_delay_ms=0,
+        printer=mock_driver,
+        profile_name="generic",
+        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+    )
+
+    with patch("claude_teletype.config.load_config"), \
+         patch("claude_teletype.config.save_config"):
+        app._apply_settings({
+            "delay": 75.0,
+            "no_audio": False,
+            "backend": "claude-cli",
+            "model": "",
+            "profile": "juki",
+        })
+
+    assert isinstance(app.printer, ProfilePrinterDriver)
+    assert app._profile_name == "juki"
+    assert app._printer_write is not None
+
+
+def test_profile_hotswap_discovers_usb_when_null():
+    """Switching profile from NullPrinter triggers TUI-safe USB discovery."""
+    from claude_teletype.printer import NullPrinterDriver, ProfilePrinterDriver
+    from claude_teletype.profiles import get_profile
+
+    juki_profile = get_profile("juki")
+    mock_usb = MagicMock()
+    mock_usb.is_connected = True
+
+    app = TeletypeApp(
+        base_delay_ms=0,
+        printer=NullPrinterDriver(),
+        profile_name="generic",
+        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+    )
+
+    with patch("claude_teletype.printer.discover_usb_device", return_value=mock_usb), \
+         patch("claude_teletype.config.load_config"), \
+         patch("claude_teletype.config.save_config"):
+        app._apply_settings({
+            "delay": 75.0,
+            "no_audio": False,
+            "backend": "claude-cli",
+            "model": "",
+            "profile": "juki",
+        })
+
+    assert isinstance(app.printer, ProfilePrinterDriver)
+    assert app._printer_write is not None
+
+
+def test_profile_hotswap_cups_fallback_when_no_usb():
+    """Switching profile falls back to CUPS auto-select when USB unavailable."""
+    from claude_teletype.printer import CupsPrinterDriver, ProfilePrinterDriver
+    from claude_teletype.profiles import get_profile
+
+    juki_profile = get_profile("juki")
+
+    app = TeletypeApp(
+        base_delay_ms=0,
+        printer=MagicMock(is_connected=False),
+        profile_name="generic",
+        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+    )
+
+    cups_list = [{"name": "Juki_6100", "uri": "usb://Juki/6100"}]
+
+    with patch("claude_teletype.printer.discover_usb_device", return_value=None), \
+         patch("claude_teletype.printer.discover_cups_printers", return_value=cups_list), \
+         patch("claude_teletype.config.load_config"), \
+         patch("claude_teletype.config.save_config"):
+        app._apply_settings({
+            "delay": 75.0,
+            "no_audio": False,
+            "backend": "claude-cli",
+            "model": "",
+            "profile": "juki",
+        })
+
+    assert isinstance(app.printer, ProfilePrinterDriver)
+    assert isinstance(app.printer._inner, CupsPrinterDriver)
+
+
+def test_settings_save_persists_profile():
+    """_save_settings writes current profile to config file."""
+    from claude_teletype.config import TeletypeConfig
+
+    app = TeletypeApp(
+        base_delay_ms=100.0,
+        profile_name="juki",
+        backend_name="claude-cli",
+        model_config="",
+    )
+    app.no_audio = False
+
+    saved_cfg = None
+
+    def capture_save(cfg, config_path=None):
+        nonlocal saved_cfg
+        saved_cfg = cfg
+
+    with patch("claude_teletype.config.load_config", return_value=TeletypeConfig()), \
+         patch("claude_teletype.config.save_config", side_effect=capture_save):
+        app._save_settings()
+
+    assert saved_cfg is not None
+    assert saved_cfg.printer_profile == "juki"
