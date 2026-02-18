@@ -30,6 +30,7 @@ class SettingsScreen(ModalScreen[dict | None]):
         border: thick $primary;
         background: $surface;
         padding: 1 2;
+        overflow-y: auto;
     }
     #settings-title {
         text-style: bold;

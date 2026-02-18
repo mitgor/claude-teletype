@@ -342,7 +342,8 @@ def main(
 
     # resolved_profile is None means generic (no wrapping)
 
-    # Create and validate backend
+    # Create and validate backend; fall back to claude-cli if configured
+    # backend fails (e.g., missing API key for openrouter/openai)
     try:
         llm_backend = create_backend(
             backend=config.backend,
@@ -352,8 +353,26 @@ def main(
         )
         llm_backend.validate()
     except BackendError as e:
-        console.print(f"[bold red]{e}")
-        raise typer.Exit(1)
+        if config.backend != "claude-cli":
+            console.print(
+                f"[yellow]{e}[/yellow]\n"
+                "[dim]Falling back to claude-cli backend. "
+                "Change backend in Settings (Ctrl+,).[/dim]",
+                highlight=False,
+            )
+            config.backend = "claude-cli"
+            config.model = ""
+            try:
+                llm_backend = create_backend(
+                    backend="claude-cli", session_id=resume,
+                )
+                llm_backend.validate()
+            except BackendError as fallback_err:
+                console.print(f"[bold red]{fallback_err}")
+                raise typer.Exit(1)
+        else:
+            console.print(f"[bold red]{e}")
+            raise typer.Exit(1)
 
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():

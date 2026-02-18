@@ -164,6 +164,59 @@ def merge_cli_flags(config: TeletypeConfig, **flags) -> TeletypeConfig:
     return config
 
 
+def save_config(config: TeletypeConfig, config_path: Path | None = None) -> Path:
+    """Save current configuration to TOML file.
+
+    Preserves custom profiles from the loaded config. Creates parent
+    directories if they don't exist. Returns the path to the saved file.
+    """
+    path = config_path or CONFIG_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _esc(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+    lines = [
+        "# Claude Teletype Configuration",
+        "",
+        "[general]",
+        f"delay = {config.delay}",
+        f"no_audio = {'true' if config.no_audio else 'false'}",
+        f"no_tui = {'true' if config.no_tui else 'false'}",
+        f'transcript_dir = "{_esc(config.transcript_dir)}"',
+        "",
+        "[printer]",
+        f'profile = "{_esc(config.printer_profile)}"',
+    ]
+
+    if config.device:
+        lines.append(f'device = "{_esc(config.device)}"')
+
+    # Preserve custom profiles
+    for name, data in config.custom_profiles.items():
+        lines.append("")
+        lines.append(f"[printer.profiles.{name}]")
+        for key, val in data.items():
+            if isinstance(val, bool):
+                lines.append(f"{key} = {'true' if val else 'false'}")
+            elif isinstance(val, (int, float)):
+                lines.append(f"{key} = {val}")
+            else:
+                lines.append(f'{key} = "{_esc(str(val))}"')
+
+    lines.extend([
+        "",
+        "[llm]",
+        f'backend = "{_esc(config.backend)}"',
+        f'model = "{_esc(config.model)}"',
+        f'system_prompt = "{_esc(config.system_prompt)}"',
+        "",
+    ])
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def write_default_config(config_path: Path | None = None) -> Path:
     """Create a config file with commented TOML template.
 

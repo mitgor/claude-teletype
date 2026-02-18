@@ -148,9 +148,14 @@ class ProfilePrinterDriver:
         self._initialized = False
 
     def _send_raw(self, data: bytes) -> None:
-        """Send raw bytes through the inner driver, byte by byte."""
-        for b in data:
-            self._inner.write(chr(b))
+        """Send raw bytes through the inner driver as a single write.
+
+        Sending ESC sequences atomically prevents the printer from
+        misinterpreting fragmented escape codes (e.g., Juki 6100 drops
+        characters when init/reinit bytes arrive as individual USB transfers).
+        """
+        if data:
+            self._inner.write(data.decode("ascii", errors="replace"))
 
     def _ensure_init(self) -> None:
         if not self._initialized:
@@ -499,6 +504,11 @@ def make_printer_output(
 
     Uses WordWrapper at the given column width for word-boundary wrapping.
     On IOError/OSError, stops writing permanently (PRNT-03).
+
+    The returned callable has a ``.flush()`` attribute that emits any
+    buffered word without adding a trailing newline.  Callers *must*
+    invoke it at the end of every response to avoid leaving the last
+    word stranded in the buffer.
     """
     from claude_teletype.wordwrap import WordWrapper
 
@@ -524,5 +534,11 @@ def make_printer_output(
             wrapper.reset_column()
         else:
             wrapper.feed(char)
+
+    def printer_flush() -> None:
+        if not disconnected:
+            wrapper.flush()
+
+    printer_write.flush = printer_flush  # type: ignore[attr-defined]
 
     return printer_write

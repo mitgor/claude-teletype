@@ -434,6 +434,15 @@ def test_select_printer_retries_on_invalid(mock_input: MagicMock):
 # ---------------------------------------------------------------------------
 
 
+def _collect_raw(inner) -> bytes:
+    """Collect all bytes written to a mock inner driver.
+
+    Handles both single-char writes and multi-char writes (atomic ESC
+    sequences sent by _send_raw).
+    """
+    return b"".join(c.args[0].encode("ascii") for c in inner.write.call_args_list)
+
+
 def test_juki_sends_init_on_first_write():
     """First write sends RESET + LINE_SPACING + FIXED_PITCH init sequence."""
     inner = MagicMock()
@@ -442,9 +451,7 @@ def test_juki_sends_init_on_first_write():
 
     juki.write("A")
 
-    # Collect all chars written to inner
-    calls = [c.args[0] for c in inner.write.call_args_list]
-    raw = bytes(ord(ch) for ch in calls)
+    raw = _collect_raw(inner)
 
     expected_init = (
         b"\x1b\x1aI"  # RESET
@@ -478,8 +485,7 @@ def test_juki_converts_newline_to_crlf_and_reinits():
 
     juki.write("\n")
 
-    calls = [c.args[0] for c in inner.write.call_args_list]
-    raw = bytes(ord(ch) for ch in calls)
+    raw = _collect_raw(inner)
     expected = b"\r\n" + JukiPrinterDriver.LINE_SPACING + JukiPrinterDriver.FIXED_PITCH
     assert raw == expected
 
@@ -564,8 +570,7 @@ class TestProfilePrinterDriver:
 
         ppd.write("A")
 
-        calls = [c.args[0] for c in inner.write.call_args_list]
-        raw = bytes(ord(ch) for ch in calls)
+        raw = _collect_raw(inner)
         expected_init = b"\x1b@\x1b\x32\x1bP"
         assert raw.startswith(expected_init)
         assert raw[-1:] == b"A"
@@ -624,8 +629,7 @@ class TestProfilePrinterDriver:
 
         ppd.write("\n")
 
-        calls = [c.args[0] for c in inner.write.call_args_list]
-        raw = bytes(ord(ch) for ch in calls)
+        raw = _collect_raw(inner)
         expected = b"\r\n\x1b\x32\x1bP"
         assert raw == expected
 
@@ -643,8 +647,7 @@ class TestProfilePrinterDriver:
 
         ppd.close()
 
-        calls = [c.args[0] for c in inner.write.call_args_list]
-        raw = bytes(ord(ch) for ch in calls)
+        raw = _collect_raw(inner)
         assert b"\f" in raw
         assert raw.endswith(b"\x1b@")
         inner.close.assert_called_once()

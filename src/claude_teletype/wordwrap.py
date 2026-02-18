@@ -69,7 +69,16 @@ class WordWrapper:
             self._word_buffer.append(char)
 
     def _flush_word(self) -> None:
-        """Flush the buffered word to output, inserting wraps as needed."""
+        """Flush the buffered word to output, inserting wraps as needed.
+
+        Printable characters (space + word) are batched into a single
+        ``output_fn`` call.  This is critical for printer backends where
+        each call maps to a USB bulk transfer — sending individual bytes
+        after an idle gap causes daisywheel printers (Juki 6100) to drop
+        the first byte of the burst.  Newlines are still emitted as
+        separate calls so ``ProfilePrinterDriver`` can inject CR and
+        reinit sequences.
+        """
         if not self._word_buffer:
             return
         word_len = len(self._word_buffer)
@@ -80,18 +89,26 @@ class WordWrapper:
             self._column = 0
             self._pending_space = False
 
+        batch: list[str] = []
+
         if self._pending_space and self._column > 0:
-            self._output_fn(" ")
+            batch.append(" ")
             self._column += 1
         self._pending_space = False
 
         for ch in self._word_buffer:
             if self._column >= self._width:
+                if batch:
+                    self._output_fn("".join(batch))
+                    batch = []
                 self._output_fn("\n")
                 self._column = 0
-            self._output_fn(ch)
+            batch.append(ch)
             self._column += 1
         self._word_buffer.clear()
+
+        if batch:
+            self._output_fn("".join(batch))
 
     def flush(self) -> None:
         """Flush any remaining buffered word to output.

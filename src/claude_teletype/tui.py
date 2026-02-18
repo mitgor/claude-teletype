@@ -136,6 +136,12 @@ class TeletypeApp(App):
             f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name}"
         )
 
+    def _flush_printer(self) -> None:
+        """Flush the printer's WordWrapper so the last word isn't stranded."""
+        pw = self._printer_write
+        if pw is not None and hasattr(pw, "flush"):
+            pw.flush()
+
     def on_resize(self, event) -> None:
         """Update TUI word wrap width when terminal is resized."""
         if self._tui_wrapper is not None:
@@ -185,7 +191,8 @@ class TeletypeApp(App):
         Updates delay, audio, backend, and profile based on the result dict.
         Backend changes create a new validated backend instance.
         Profile changes mutate the printer driver so the new profile's ESC
-        sequences take effect on the next write.
+        sequences take effect on the next write. Settings are persisted to
+        the config file.
         """
         if result is None:
             return
@@ -213,13 +220,59 @@ class TeletypeApp(App):
             except BackendError as e:
                 self.notify(str(e), severity="error")
 
-        # Profile change: swap printer driver's profile
+        # Profile change: swap printer driver's profile or wrap/re-discover
         if result["profile"] != self._profile_name:
             self._profile_name = result["profile"]
-            if self.printer is not None and hasattr(self.printer, "swap_profile"):
-                new_profile = self._all_profiles.get(result["profile"])
-                if new_profile is not None:
-                    self.printer.swap_profile(new_profile)
+            new_profile = self._all_profiles.get(result["profile"])
+            if new_profile is not None:
+                self._apply_printer_profile(new_profile)
+
+        # Persist settings to config file
+        self._save_settings()
+
+    def _apply_printer_profile(self, new_profile) -> None:
+        """Apply a new printer profile, wrapping or re-discovering if needed."""
+        from claude_teletype.printer import (
+            ProfilePrinterDriver,
+            discover_printer,
+            make_printer_output,
+        )
+
+        if isinstance(self.printer, ProfilePrinterDriver):
+            # Already wrapped — just swap the profile
+            self.printer.swap_profile(new_profile)
+            return
+
+        if new_profile.name == "generic":
+            return
+
+        # Printer is a raw driver (or NullPrinter) — need to wrap or discover
+        if self.printer is not None and self.printer.is_connected:
+            # Wrap the existing connected driver
+            self.printer = ProfilePrinterDriver(self.printer, new_profile)
+            self._printer_write = make_printer_output(self.printer)
+        else:
+            # No connected printer — try discovery with the new profile
+            self.printer = discover_printer(profile=new_profile)
+            if self.printer.is_connected:
+                self._printer_write = make_printer_output(self.printer)
+            else:
+                self.notify("No printer found", severity="warning")
+
+    def _save_settings(self) -> None:
+        """Persist current settings to the config file."""
+        from claude_teletype.config import load_config, save_config
+
+        try:
+            cfg = load_config()
+            cfg.delay = self.base_delay_ms
+            cfg.no_audio = self.no_audio
+            cfg.printer_profile = self._profile_name
+            cfg.backend = self._backend_name
+            cfg.model = self._model_config
+            save_config(cfg)
+        except Exception:
+            pass
 
     async def _kill_process(self) -> None:
         """Kill subprocess with SIGTERM -> wait 5s -> SIGKILL.
@@ -412,9 +465,10 @@ class TeletypeApp(App):
                 if should_retry:
                     continue  # Retry the outer while loop
 
-                # Flush wrapper before final newline to emit buffered word
+                # Flush wrappers to emit any buffered word
                 self._tui_wrapper.flush()
                 log.write("\n")
+                self._flush_printer()
                 break
 
         except asyncio.CancelledError:
@@ -422,12 +476,15 @@ class TeletypeApp(App):
                 self._tui_wrapper.flush()
                 self._tui_wrapper = None
             log.write(" [interrupted]")
+            self._flush_printer()
             raise
         except Exception as exc:
             from claude_teletype.errors import ErrorCategory
 
             if self._tui_wrapper is not None:
                 self._tui_wrapper.flush()
+
+            self._flush_printer()
 
             category = classify_error(str(exc))
             if category != ErrorCategory.UNKNOWN:
