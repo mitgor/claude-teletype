@@ -92,7 +92,7 @@ class TeletypeApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Log(id="output", auto_scroll=True)
-        yield Static("Turn 0 | Context: -- | --", id="status-bar")
+        yield Static("Turn 0 | Context: -- | -- | Printer: --", id="status-bar")
         yield Input(id="prompt", placeholder="Type a prompt and press Enter...")
         yield Footer()
 
@@ -121,6 +121,7 @@ class TeletypeApp(App):
             )
 
         self.query_one("#prompt", Input).focus()
+        self._update_status()
 
     async def on_unmount(self) -> None:
         """Clean up printer, transcript, and subprocess on app exit."""
@@ -132,9 +133,17 @@ class TeletypeApp(App):
 
     def _update_status(self) -> None:
         """Update the status bar with current turn, context, and model info."""
-        self.query_one("#status-bar", Static).update(
-            f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name}"
+        printer_status = (
+            "connected"
+            if self.printer is not None and self.printer.is_connected
+            else "none"
         )
+        try:
+            self.query_one("#status-bar", Static).update(
+                f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name} | Printer: {printer_status}"
+            )
+        except Exception:
+            pass
 
     def _flush_printer(self) -> None:
         """Flush the printer's WordWrapper so the last word isn't stranded."""
@@ -229,6 +238,7 @@ class TeletypeApp(App):
 
         # Persist settings to config file
         self._save_settings()
+        self._update_status()
 
     def _apply_printer_profile(self, new_profile) -> None:
         """Apply a new printer profile, wrapping or re-discovering if needed.
