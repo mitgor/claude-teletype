@@ -61,6 +61,8 @@ class TeletypeApp(App):
         system_prompt: str = "",
         profile_name: str = "generic",
         all_profiles: dict | None = None,
+        openai_api_key: str = "",
+        openrouter_api_key: str = "",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -83,6 +85,8 @@ class TeletypeApp(App):
         self._system_prompt = system_prompt
         self._profile_name = profile_name
         self._all_profiles = all_profiles or {}
+        self._openai_api_key = openai_api_key
+        self._openrouter_api_key = openrouter_api_key
 
     @property
     def session_id(self) -> str | None:
@@ -131,16 +135,49 @@ class TeletypeApp(App):
         if self._transcript_close is not None:
             self._transcript_close()
 
+    def _printer_info(self) -> str:
+        """Return printer status string like 'juki/usb/connected' or 'none'."""
+        from claude_teletype.printer import (
+            CupsPrinterDriver,
+            FilePrinterDriver,
+            ProfilePrinterDriver,
+            UsbPrinterDriver,
+        )
+
+        if self.printer is None:
+            return "none"
+
+        # Determine connection type from driver class
+        driver = self.printer
+        profile_name = self._profile_name
+
+        if isinstance(driver, ProfilePrinterDriver):
+            inner = driver._inner
+        else:
+            inner = driver
+
+        if isinstance(inner, UsbPrinterDriver):
+            conn_type = "usb"
+        elif isinstance(inner, CupsPrinterDriver):
+            conn_type = "cups"
+        elif isinstance(inner, FilePrinterDriver):
+            conn_type = "file"
+        else:
+            conn_type = "none"
+
+        connected = "connected" if self.printer.is_connected else "disconnected"
+
+        if profile_name and profile_name != "generic":
+            return f"{profile_name}/{conn_type}/{connected}"
+        if conn_type != "none":
+            return f"{conn_type}/{connected}"
+        return "none"
+
     def _update_status(self) -> None:
         """Update the status bar with current turn, context, and model info."""
-        printer_status = (
-            "connected"
-            if self.printer is not None and self.printer.is_connected
-            else "none"
-        )
         try:
             self.query_one("#status-bar", Static).update(
-                f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name} | Printer: {printer_status}"
+                f"Turn {self._turn_count} | Context: {self._context_pct} | {self._model_name} | Printer: {self._printer_info()}"
             )
         except Exception:
             pass
@@ -217,10 +254,12 @@ class TeletypeApp(App):
             from claude_teletype.backends import BackendError, create_backend
 
             try:
+                key_map = {"openai": self._openai_api_key, "openrouter": self._openrouter_api_key}
                 new_backend = create_backend(
                     backend=result["backend"],
                     model=result["model"] or None,
                     system_prompt=self._system_prompt or None,
+                    api_key=key_map.get(result["backend"]) or None,
                 )
                 new_backend.validate()
                 self._backend = new_backend

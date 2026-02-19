@@ -185,6 +185,8 @@ def show() -> None:
     typer.echo(f"backend = {config.backend}")
     typer.echo(f"model = {config.model}")
     typer.echo(f"system_prompt = {config.system_prompt!r}")
+    typer.echo(f"openai_api_key = {'***' if config.openai_api_key else ''}")
+    typer.echo(f"openrouter_api_key = {'***' if config.openrouter_api_key else ''}")
 
 
 @config_app.command("init")
@@ -342,6 +344,11 @@ def main(
 
     # resolved_profile is None means generic (no wrapping)
 
+    # Resolve API key from config for the chosen backend
+    def _api_key_for(backend_name: str) -> str | None:
+        key_map = {"openai": config.openai_api_key, "openrouter": config.openrouter_api_key}
+        return key_map.get(backend_name) or None
+
     # Create and validate backend; fall back to claude-cli if configured
     # backend fails (e.g., missing API key for openrouter/openai)
     try:
@@ -350,6 +357,7 @@ def main(
             model=config.model or None,
             system_prompt=config.system_prompt or None,
             session_id=resume,
+            api_key=_api_key_for(config.backend),
         )
         llm_backend.validate()
     except BackendError as e:
@@ -465,6 +473,8 @@ def main(
             system_prompt=config.system_prompt,
             profile_name=resolved_profile.name if resolved_profile else "generic",
             all_profiles=all_profiles,
+            openai_api_key=config.openai_api_key,
+            openrouter_api_key=config.openrouter_api_key,
         )
         tui_app.run()
 

@@ -287,6 +287,7 @@ def test_system_prompt_preserved_on_backend_swap():
         backend="openrouter",
         model="openai/gpt-4o",
         system_prompt="You are a helpful assistant.",
+        api_key=None,
     )
     assert app._system_prompt == "You are a helpful assistant."
 

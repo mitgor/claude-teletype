@@ -45,6 +45,7 @@ def create_backend(
     model: str | None = None,
     system_prompt: str | None = None,
     session_id: str | None = None,
+    api_key: str | None = None,
 ) -> LLMBackend:
     """Create an LLM backend by name.
 
@@ -53,6 +54,7 @@ def create_backend(
         model: Model name override. Defaults vary by backend.
         system_prompt: System prompt for OpenAI/OpenRouter backends.
         session_id: Session ID for Claude CLI resume.
+        api_key: API key override (config file value). Falls back to env var.
 
     Returns:
         An LLMBackend instance.
@@ -69,7 +71,7 @@ def create_backend(
         from claude_teletype.backends.openai_backend import OpenAIBackend
 
         return OpenAIBackend(
-            api_key=os.environ.get("OPENAI_API_KEY"),
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
             model=model or "gpt-4o",
             system_prompt=system_prompt,
         )
@@ -78,7 +80,7 @@ def create_backend(
         from claude_teletype.backends.openai_backend import OpenRouterBackend
 
         return OpenRouterBackend(
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            api_key=api_key or os.environ.get("OPENROUTER_API_KEY"),
             model=model or "openai/gpt-4o",
             system_prompt=system_prompt,
         )

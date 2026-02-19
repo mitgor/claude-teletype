@@ -66,9 +66,11 @@ model = ""
 # Claude Code CLI manages its own system prompt.
 system_prompt = ""
 
-# API keys are read from environment variables (NEVER store in config):
-#   OpenAI:     OPENAI_API_KEY
-#   OpenRouter:  OPENROUTER_API_KEY
+[keys]
+# API keys for LLM backends (config file keys override env vars).
+# Env var fallback: OPENAI_API_KEY, OPENROUTER_API_KEY
+# openai_api_key = "sk-..."
+# openrouter_api_key = "sk-or-..."
 """
 
 
@@ -94,6 +96,10 @@ class TeletypeConfig:
     backend: str = "claude-cli"  # "claude-cli", "openai", "openrouter"
     model: str = ""  # Empty = use backend's default
     system_prompt: str = ""  # For OpenAI/OpenRouter only
+
+    # [keys]
+    openai_api_key: str = ""
+    openrouter_api_key: str = ""
 
     # Non-TOML field: stores raw custom profile dicts from [printer.profiles.*]
     custom_profiles: dict = field(default_factory=dict, repr=False)
@@ -135,8 +141,8 @@ def load_config(config_path: Path | None = None) -> TeletypeConfig:
 
 def apply_env_overrides(config: TeletypeConfig) -> TeletypeConfig:
     """Override config values from CLAUDE_TELETYPE_* environment variables."""
-    # Skip non-env-overridable fields
-    _skip_fields = {"custom_profiles"}
+    # Skip non-env-overridable fields (API keys use their own env vars)
+    _skip_fields = {"custom_profiles", "openai_api_key", "openrouter_api_key"}
 
     for f in fields(TeletypeConfig):
         if f.name in _skip_fields:
@@ -210,6 +216,10 @@ def save_config(config: TeletypeConfig, config_path: Path | None = None) -> Path
         f'backend = "{_esc(config.backend)}"',
         f'model = "{_esc(config.model)}"',
         f'system_prompt = "{_esc(config.system_prompt)}"',
+        "",
+        "[keys]",
+        f'openai_api_key = "{_esc(config.openai_api_key)}"',
+        f'openrouter_api_key = "{_esc(config.openrouter_api_key)}"',
         "",
     ])
 
