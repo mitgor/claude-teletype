@@ -60,6 +60,8 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         reinit_on_newline=True,
         reinit_sequence=b"\x1b\x1e\x09\x1bQ",  # LINE_SPACING + FIXED_PITCH
         formfeed_on_close=True,
+        usb_vendor_id=0x1A86,  # QinHeng Electronics (CH341 USB-to-printer bridge)
+        usb_product_id=0x7584,  # Juki 6100 printer interface
         columns=80,
     ),
     "escp": PrinterProfile(
