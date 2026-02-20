@@ -169,7 +169,7 @@ class TestConfigShow:
     """Tests for `claude-teletype config show` subcommand."""
 
     def test_config_show_default(self, tmp_path):
-        """config show with no config file shows default values."""
+        """config show with no config file shows default values with source annotations."""
         fake_config = tmp_path / "nonexistent.toml"
         with patch("claude_teletype.cli.CONFIG_FILE", fake_config), patch(
             "claude_teletype.config.CONFIG_FILE", fake_config
@@ -177,17 +177,21 @@ class TestConfigShow:
             result = runner.invoke(app, ["config", "show"])
 
         assert result.exit_code == 0
-        assert "delay = 75.0" in result.output
-        assert "no_audio = False" in result.output
-        assert "no_tui = False" in result.output
-        assert "transcript_dir = transcripts" in result.output
-        assert "device = None" in result.output
-        assert "printer_profile = generic" in result.output
-        assert "juki = False" in result.output
+        assert "delay = 75.0  # default" in result.output
+        assert "no_audio = False  # default" in result.output
+        assert "no_tui = False  # default" in result.output
+        assert "transcript_dir = transcripts  # default" in result.output
+        assert "device = None  # default" in result.output
+        assert "printer_profile = generic  # default" in result.output
         assert "File loaded: False" in result.output
+        # Section headers present
+        assert "[general]" in result.output
+        assert "[printer]" in result.output
+        assert "[llm]" in result.output
+        assert "[keys]" in result.output
 
     def test_config_show_with_file(self, tmp_path):
-        """config show with a config file shows loaded values."""
+        """config show with a config file shows loaded values with file source."""
         config_file = tmp_path / "config.toml"
         config_file.write_text("[general]\ndelay = 50.0\nno_audio = true\n")
         with patch("claude_teletype.cli.CONFIG_FILE", config_file), patch(
@@ -196,8 +200,8 @@ class TestConfigShow:
             result = runner.invoke(app, ["config", "show"])
 
         assert result.exit_code == 0
-        assert "delay = 50.0" in result.output
-        assert "no_audio = True" in result.output
+        assert f"delay = 50.0  # file ({config_file})" in result.output
+        assert f"no_audio = True  # file ({config_file})" in result.output
         assert "File loaded: True" in result.output
 
 

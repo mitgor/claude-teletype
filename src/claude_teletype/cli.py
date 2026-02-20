@@ -22,6 +22,7 @@ from claude_teletype.config import (
     apply_env_overrides,
     load_config,
     merge_cli_flags,
+    resolve_sources,
     write_default_config,
 )
 from claude_teletype.pacer import pace_characters
@@ -166,27 +167,39 @@ async def _chat_async(
 
 @config_app.command()
 def show() -> None:
-    """Show effective merged configuration."""
+    """Show effective merged configuration with source annotations."""
     config = load_config()
     config = apply_env_overrides(config)
+    sources = resolve_sources()
 
     config_loaded = CONFIG_FILE.exists()
     typer.echo(f"Config file: {CONFIG_FILE}")
     typer.echo(f"File loaded: {config_loaded}")
     typer.echo("")
 
-    typer.echo(f"delay = {config.delay}")
-    typer.echo(f"no_audio = {config.no_audio}")
-    typer.echo(f"no_tui = {config.no_tui}")
-    typer.echo(f"transcript_dir = {config.transcript_dir}")
-    typer.echo(f"device = {config.device}")
-    typer.echo(f"printer_profile = {config.printer_profile}")
-    typer.echo(f"juki = {config.juki}")
-    typer.echo(f"backend = {config.backend}")
-    typer.echo(f"model = {config.model}")
-    typer.echo(f"system_prompt = {config.system_prompt!r}")
-    typer.echo(f"openai_api_key = {'***' if config.openai_api_key else ''}")
-    typer.echo(f"openrouter_api_key = {'***' if config.openrouter_api_key else ''}")
+    # Field groupings for sectioned output
+    _sections: list[tuple[str, list[str]]] = [
+        ("[general]", ["delay", "no_audio", "no_tui", "transcript_dir"]),
+        ("[printer]", ["device", "printer_profile"]),
+        ("[llm]", ["backend", "model", "system_prompt"]),
+        ("[keys]", ["openai_api_key", "openrouter_api_key"]),
+    ]
+
+    _secret_fields = {"openai_api_key", "openrouter_api_key"}
+
+    for section_header, field_names in _sections:
+        typer.echo(section_header)
+        for name in field_names:
+            value = getattr(config, name)
+            source = sources.get(name, "default")
+            if name in _secret_fields:
+                display_value = "***" if value else ""
+            elif isinstance(value, str):
+                display_value = repr(value) if name == "system_prompt" else value
+            else:
+                display_value = value
+            typer.echo(f"{name} = {display_value}  # {source}")
+        typer.echo("")
 
 
 @config_app.command("init")

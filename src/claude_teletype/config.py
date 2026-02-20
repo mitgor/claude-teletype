@@ -227,6 +227,43 @@ def save_config(config: TeletypeConfig, config_path: Path | None = None) -> Path
     return path
 
 
+def resolve_sources(config_path: Path | None = None) -> dict[str, str]:
+    """Determine the source of each effective config value.
+
+    Compares defaults, file config, and env vars to determine where
+    each setting originates. Returns a dict mapping field names to
+    source strings like "default", "file (/path/to/config.toml)",
+    or "env (CLAUDE_TELETYPE_DELAY)".
+
+    CLI flag source detection is intentionally out of scope -- the
+    ``show`` subcommand runs as a separate Typer subcommand without
+    access to the main command's CLI flags.
+    """
+    path = config_path or CONFIG_FILE
+    defaults = TeletypeConfig()
+    file_config = load_config(path)
+
+    # Fields that are not env-overridable (same skip list as apply_env_overrides)
+    _skip_env_fields = {"custom_profiles", "openai_api_key", "openrouter_api_key"}
+
+    sources: dict[str, str] = {}
+    for f in fields(TeletypeConfig):
+        if f.name == "custom_profiles":
+            continue
+
+        env_key = f"{ENV_PREFIX}{f.name.upper()}"
+
+        # Check env var first (highest precedence for resolve_sources)
+        if f.name not in _skip_env_fields and os.environ.get(env_key) is not None:
+            sources[f.name] = f"env ({env_key})"
+        elif getattr(file_config, f.name) != getattr(defaults, f.name):
+            sources[f.name] = f"file ({path})"
+        else:
+            sources[f.name] = "default"
+
+    return sources
+
+
 def write_default_config(config_path: Path | None = None) -> Path:
     """Create a config file with commented TOML template.
 

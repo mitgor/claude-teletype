@@ -12,6 +12,7 @@ from claude_teletype.config import (
     apply_env_overrides,
     load_config,
     merge_cli_flags,
+    resolve_sources,
     write_default_config,
 )
 
@@ -239,6 +240,47 @@ class TestPrinterProfileConfig:
         )
         result = load_config(config_file)
         assert result.custom_profiles == {}
+
+
+class TestResolveSources:
+    """Tests for resolve_sources() — determines origin of each config value."""
+
+    def test_all_defaults_when_no_file(self, tmp_path):
+        """With no config file, all sources should be 'default'."""
+        sources = resolve_sources(tmp_path / "nonexistent" / "config.toml")
+        for field_name, source in sources.items():
+            assert source == "default", f"{field_name} should be default, got {source}"
+
+    def test_file_source_when_toml_overrides(self, tmp_path):
+        """File overrides are tagged with 'file (path)'."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[general]\ndelay = 50.0\n", encoding="utf-8"
+        )
+        sources = resolve_sources(config_file)
+        assert sources["delay"] == f"file ({config_file})"
+        assert sources["no_audio"] == "default"
+
+    def test_env_source_overrides_file(self, tmp_path, monkeypatch):
+        """Env var wins over file config in source detection."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[general]\ndelay = 50.0\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("CLAUDE_TELETYPE_DELAY", "60")
+        sources = resolve_sources(config_file)
+        assert sources["delay"] == "env (CLAUDE_TELETYPE_DELAY)"
+
+    def test_env_source_without_file(self, tmp_path, monkeypatch):
+        """Env var detected even without a config file."""
+        monkeypatch.setenv("CLAUDE_TELETYPE_NO_AUDIO", "true")
+        sources = resolve_sources(tmp_path / "nonexistent.toml")
+        assert sources["no_audio"] == "env (CLAUDE_TELETYPE_NO_AUDIO)"
+
+    def test_custom_profiles_excluded(self, tmp_path):
+        """'custom_profiles' key does not appear in resolve_sources output."""
+        sources = resolve_sources(tmp_path / "nonexistent.toml")
+        assert "custom_profiles" not in sources
 
 
 class TestConfigFilePath:
