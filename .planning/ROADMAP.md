@@ -57,10 +57,10 @@
   1. User can pass `--profile ibm` and it resolves to the PPDS printer profile
   2. User running `config show` sees every effective setting annotated with its source (file, env, CLI flag, or default)
   3. The "ibm" alias appears in profile listing and help text so users can discover it without reading docs
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 16-01: TBD
+- [ ] 16-01-PLAN.md — IBM alias for PPDS profile + annotated config show with source tags
 
 ### Phase 17: Claude-CLI Warnings
 **Goal**: Users are warned before silent data loss or ignored configuration when using the claude-cli backend
