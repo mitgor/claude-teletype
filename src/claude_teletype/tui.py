@@ -11,10 +11,74 @@ import random
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header, Input, Log, Static
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Input, Log, Static
 
 MAX_RETRIES: int = 3
 BASE_DELAY: float = 1.0
+
+
+class ConfirmSwapScreen(ModalScreen[bool]):
+    """Confirmation dialog for backend hot-swap warning.
+
+    Warns user that switching away from claude-cli will lose session context.
+    Dismisses with True (confirm swap) or False (cancel).
+    """
+
+    CSS = """
+    #confirm-dialog {
+        align: center middle;
+        width: 55;
+        height: auto;
+        border: thick $warning;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-title {
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }
+    #confirm-message {
+        margin-bottom: 1;
+    }
+    #confirm-button-row {
+        margin-top: 1;
+        align: center middle;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-dialog"):
+            yield Static("Backend Switch Warning", id="confirm-title")
+            yield Static(
+                "Switching backends will lose your current session "
+                "context. Conversation history from the claude-cli "
+                "session cannot be transferred to the new backend."
+                "\n\n"
+                "Continue?",
+                id="confirm-message",
+            )
+            with Horizontal(id="confirm-button-row"):
+                yield Button(
+                    "Switch Backend", variant="warning", id="confirm-swap-btn"
+                )
+                yield Button("Cancel", id="cancel-swap-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-swap-btn":
+            self.dismiss(True)
+        elif event.button.id == "cancel-swap-btn":
+            self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
 
 
 class TeletypeApp(App):
@@ -246,7 +310,8 @@ class TeletypeApp(App):
         """Apply changed settings from the SettingsScreen modal.
 
         Updates delay, audio, backend, and profile based on the result dict.
-        Backend changes create a new validated backend instance.
+        Backend changes create a new validated backend instance. When switching
+        away from claude-cli, a confirmation dialog is shown first (context loss).
         Profile changes mutate the printer driver so the new profile's ESC
         sequences take effect on the next write. Settings are persisted to
         the config file.
@@ -258,26 +323,28 @@ class TeletypeApp(App):
         self.no_audio = result["no_audio"]
 
         # Backend or model change: create new validated backend
-        if (
+        backend_changing = (
             result["backend"] != self._backend_name
             or result["model"] != self._model_config
-        ):
-            from claude_teletype.backends import BackendError, create_backend
+        )
 
-            try:
-                key_map = {"openai": self._openai_api_key, "openrouter": self._openrouter_api_key}
-                new_backend = create_backend(
-                    backend=result["backend"],
-                    model=result["model"] or None,
-                    system_prompt=self._system_prompt or None,
-                    api_key=key_map.get(result["backend"]) or None,
+        if backend_changing:
+            # Warn when switching AWAY FROM claude-cli (session context will be lost).
+            # Switching between API backends (openai <-> openrouter) needs no warning
+            # since they don't maintain persistent sessions.
+            if (
+                result["backend"] != self._backend_name
+                and self._backend_name == "claude-cli"
+            ):
+                # Store pending result and show confirmation before swapping
+                self._pending_swap_result = result
+                self.push_screen(
+                    ConfirmSwapScreen(),
+                    callback=self._handle_swap_confirmation,
                 )
-                new_backend.validate()
-                self._backend = new_backend
-                self._backend_name = result["backend"]
-                self._model_config = result["model"]
-            except BackendError as e:
-                self.notify(str(e), severity="error")
+            else:
+                # Model-only change or non-claude-cli swap: proceed directly
+                self._do_backend_swap(result)
 
         # Profile change: swap printer driver's profile or wrap/re-discover
         if result["profile"] != self._profile_name:
@@ -289,6 +356,39 @@ class TeletypeApp(App):
         # Persist settings to config file
         self._save_settings()
         self._update_status()
+
+    def _handle_swap_confirmation(self, confirmed: bool) -> None:
+        """Handle the result of the backend swap confirmation dialog.
+
+        If confirmed, proceed with backend swap using the stored pending result.
+        If cancelled, discard the pending swap (other settings already applied).
+        """
+        result = getattr(self, "_pending_swap_result", None)
+        self._pending_swap_result = None
+
+        if confirmed and result is not None:
+            self._do_backend_swap(result)
+            self._save_settings()
+            self._update_status()
+
+    def _do_backend_swap(self, result: dict) -> None:
+        """Execute the backend swap (create new backend, validate, update state)."""
+        from claude_teletype.backends import BackendError, create_backend
+
+        try:
+            key_map = {"openai": self._openai_api_key, "openrouter": self._openrouter_api_key}
+            new_backend = create_backend(
+                backend=result["backend"],
+                model=result["model"] or None,
+                system_prompt=self._system_prompt or None,
+                api_key=key_map.get(result["backend"]) or None,
+            )
+            new_backend.validate()
+            self._backend = new_backend
+            self._backend_name = result["backend"]
+            self._model_config = result["model"]
+        except BackendError as e:
+            self.notify(str(e), severity="error")
 
     def _apply_printer_profile(self, new_profile) -> None:
         """Apply a new printer profile, wrapping or re-discovering if needed.
