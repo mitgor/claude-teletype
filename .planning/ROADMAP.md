@@ -5,6 +5,7 @@
 - ✅ **v1.0 MVP** - Phases 1-4 (shipped 2026-02-15)
 - ✅ **v1.1 Conversation Mode** - Phases 5-7 (shipped 2026-02-17)
 - ✅ **v1.2 Configuration, Profiles, Multi-LLM, Settings** - Phases 8-15 (shipped 2026-02-17)
+- 🚧 **v1.3 Tech Debt Cleanup** - Phases 16-17 (in progress)
 
 ## Phases
 
@@ -41,7 +42,43 @@
 
 </details>
 
+### 🚧 v1.3 Tech Debt Cleanup (In Progress)
+
+- [ ] **Phase 16: Config and Profile Polish** - IBM alias for PPDS profile and annotated config show output
+- [ ] **Phase 17: Claude-CLI Warnings** - Startup and hot-swap warnings for claude-cli backend limitations
+
+## Phase Details
+
+### Phase 16: Config and Profile Polish
+**Goal**: Users can easily discover and understand printer profiles and configuration sources
+**Depends on**: Nothing (first phase of v1.3; builds on shipped v1.2)
+**Requirements**: PROF-01, CONF-01
+**Success Criteria** (what must be TRUE):
+  1. User can pass `--profile ibm` and it resolves to the PPDS printer profile
+  2. User running `config show` sees every effective setting annotated with its source (file, env, CLI flag, or default)
+  3. The "ibm" alias appears in profile listing and help text so users can discover it without reading docs
+**Plans**: TBD
+
+Plans:
+- [ ] 16-01: TBD
+
+### Phase 17: Claude-CLI Warnings
+**Goal**: Users are warned before silent data loss or ignored configuration when using the claude-cli backend
+**Depends on**: Phase 16 (sequential execution; no technical dependency)
+**Requirements**: WARN-01, WARN-02
+**Success Criteria** (what must be TRUE):
+  1. User who starts the app with system_prompt configured and backend=claude-cli sees a visible warning explaining that system_prompt is ignored (CLAUDE.md is used instead)
+  2. User in the settings modal who switches away from claude-cli to another backend sees a warning that the current session context will be lost
+  3. Warnings are informational only -- they do not block the user from proceeding
+**Plans**: TBD
+
+Plans:
+- [ ] 17-01: TBD
+
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 16 → 17
 
 | Phase | Milestone | Plans | Status | Completed |
 |-------|-----------|-------|--------|-----------|
@@ -60,3 +97,5 @@
 | 13. Settings Panel | v1.2 | 2/2 | ✓ Complete | 2026-02-17 |
 | 14. Verify Config & Traceability | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 15. Fix system_prompt Hot-Swap | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
+| 16. Config and Profile Polish | v1.3 | 0/1 | Not started | - |
+| 17. Claude-CLI Warnings | v1.3 | 0/1 | Not started | - |

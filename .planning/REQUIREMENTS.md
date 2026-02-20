@@ -38,16 +38,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROF-01 | — | Pending |
-| CONF-01 | — | Pending |
-| WARN-01 | — | Pending |
-| WARN-02 | — | Pending |
+| PROF-01 | Phase 16 | Pending |
+| CONF-01 | Phase 16 | Pending |
+| WARN-01 | Phase 17 | Pending |
+| WARN-02 | Phase 17 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 4 total
-- Mapped to phases: 0
-- Unmapped: 4 ⚠️
+- Mapped to phases: 4
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-20*
-*Last updated: 2026-02-20 after initial definition*
+*Last updated: 2026-02-20 after roadmap creation*
