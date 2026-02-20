@@ -47,7 +47,15 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-(No active requirements — define next milestone via `/gsd:new-milestone`)
+## Current Milestone: v1.3 Tech Debt Cleanup
+
+**Goal:** Resolve all known tech debt from v1.2 — improve discoverability, config transparency, and user warnings for edge cases.
+
+**Target features:**
+- Add "ibm" alias for PPDS printer profile
+- Show effective merged config with source annotations in `config show`
+- Warn at startup when system_prompt is set but backend is claude-cli
+- Warn user when hot-swapping away from claude-cli that session context will be lost
 
 ### Out of Scope
 
@@ -106,4 +114,4 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | Backspace intentionally ignored in typewriter mode | Append-only for authenticity — typewriters don't have backspace | ✓ Good |
 
 ---
-*Last updated: 2026-02-17 after v1.2 milestone complete*
+*Last updated: 2026-02-20 after v1.3 milestone started*
