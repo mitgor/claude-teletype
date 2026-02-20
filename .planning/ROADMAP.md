@@ -70,10 +70,10 @@ Plans:
   1. User who starts the app with system_prompt configured and backend=claude-cli sees a visible warning explaining that system_prompt is ignored (CLAUDE.md is used instead)
   2. User in the settings modal who switches away from claude-cli to another backend sees a warning that the current session context will be lost
   3. Warnings are informational only -- they do not block the user from proceeding
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 17-01: TBD
+- [ ] 17-01-PLAN.md — Startup system_prompt warning + settings hot-swap confirmation
 
 ## Progress
 
