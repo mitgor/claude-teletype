@@ -395,6 +395,13 @@ def main(
             console.print(f"[bold red]{e}")
             raise typer.Exit(1)
 
+    # Check for system_prompt + claude-cli conflict at startup
+    from claude_teletype.warnings import check_system_prompt_warning, should_warn_startup
+
+    startup_warning = check_system_prompt_warning(config.backend, config.system_prompt)
+    if startup_warning and should_warn_startup(config.backend, config.system_prompt):
+        console.print(f"[yellow]{startup_warning}[/yellow]", highlight=False)
+
     # Auto-detect piped stdin -- fall back to non-TUI mode
     if not sys.stdin.isatty():
         effective_no_tui = True

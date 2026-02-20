@@ -124,6 +124,17 @@ class TeletypeApp(App):
                 "Resumed session. Type a prompt and press Enter..."
             )
 
+        # Check for system_prompt + claude-cli conflict (TUI-native toast)
+        from claude_teletype.warnings import check_system_prompt_warning, should_warn_startup
+
+        startup_warning = check_system_prompt_warning(
+            self._backend_name, self._system_prompt
+        )
+        if startup_warning and should_warn_startup(
+            self._backend_name, self._system_prompt
+        ):
+            self.notify(startup_warning, severity="warning", timeout=8)
+
         self.query_one("#prompt", Input).focus()
         self._update_status()
 
