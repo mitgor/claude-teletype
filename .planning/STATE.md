@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 16 - Config and Profile Polish (v1.3)
+**Current focus:** Phase 17 - Claude-CLI Warnings (v1.3)
 
 ## Current Position
 
@@ -14,7 +14,7 @@ Plan: 1 of 1 in current phase (COMPLETE)
 Status: Phase 16 complete, ready for Phase 17
 Last activity: 2026-02-20 — Completed 16-01 Config and Profile Polish
 
-Progress: [█████░░░░░] 50% (v1.3: 1/2 plans)
+Progress: [██████████░░░░░░░░░░] 50% (v1.3: 1/2 phases, Phase 17 not yet planned)
 
 ## Performance Metrics
 
@@ -53,5 +53,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 16-01-PLAN.md. Ready for Phase 17.
+Stopped at: Phase 16 complete, ready to plan Phase 17
 Resume file: None

@@ -45,6 +45,9 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ Fixed `--no-tui` mode StreamResult crash with test coverage — v1.2
 - ✓ system_prompt preserved during backend hot-swap in settings modal — v1.2
 
+- ✓ "ibm" alias for PPDS printer profile with case-insensitive lookup — v1.3
+- ✓ `config show` annotates every setting with source (default/file/env) — v1.3
+
 ### Active
 
 ## Current Milestone: v1.3 Tech Debt Cleanup
@@ -74,8 +77,8 @@ The physical typewriter experience — characters appearing on paper one at a ti
 **Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile drivers), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), settings_screen.py (TUI settings modal).
 
 **Known tech debt:**
-- IBM PPDS profile keyed as "ppds" not "ibm" (discoverability)
-- `config show` reflects file+env but not CLI flags (Typer architectural constraint)
+- ~~IBM PPDS profile keyed as "ppds" not "ibm" (discoverability)~~ — resolved v1.3 Phase 16
+- ~~`config show` reflects file+env but not CLI flags~~ — resolved v1.3 Phase 16 (CLI flags excluded by design: separate Typer subcommand)
 - system_prompt silently ignored for claude-cli backend (uses CLAUDE.md instead)
 - Backend hot-swap loses session_id for claude-cli (starts fresh session)
 
@@ -112,6 +115,8 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | ctrl+comma as settings shortcut | Avoids ctrl+s XOFF freeze, matches VS Code/Sublime convention | ✓ Good |
 | SettingsScreen uses ModalScreen[dict|None] | Callback-based result passing, clean dismiss semantics | ✓ Good |
 | Backspace intentionally ignored in typewriter mode | Append-only for authenticity — typewriters don't have backspace | ✓ Good |
+| dataclasses.replace for profile aliasing | Preserves frozen immutability of PrinterProfile | ✓ Good |
+| CLI flag source excluded from config show | show() is a separate Typer subcommand without main's CLI params | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after v1.3 milestone started*
+*Last updated: 2026-02-20 after Phase 16*
