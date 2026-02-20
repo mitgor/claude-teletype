@@ -240,7 +240,7 @@ def main(
         None,
         "--printer",
         "-p",
-        help="Printer profile name (e.g., juki, escp, pcl)",
+        help="Printer profile name (e.g., juki, escp, ppds/ibm, pcl)",
     ),
     juki: bool = typer.Option(
         False,

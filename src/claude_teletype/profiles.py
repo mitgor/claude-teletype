@@ -7,6 +7,7 @@ USB auto-detection by VID:PID matching against profile registry.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 
@@ -101,9 +102,19 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
     ),
 }
 
+# IBM alias: same ESC sequences as PPDS, brand name users recognize
+BUILTIN_PROFILES["ibm"] = dataclasses.replace(
+    BUILTIN_PROFILES["ppds"],
+    name="ibm",
+    description="IBM PPDS (alias for ppds profile)",
+)
+
 
 def get_profile(name: str) -> PrinterProfile:
     """Look up a printer profile by name (case-insensitive).
+
+    "ibm" is an alias for "ppds" — both resolve to the IBM PPDS
+    (Proprinter compatible) profile with identical ESC sequences.
 
     Raises ValueError if the profile name is not found, listing
     all available profile names.

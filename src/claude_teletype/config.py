@@ -37,7 +37,7 @@ no_tui = false
 transcript_dir = "transcripts"
 
 [printer]
-# Printer profile name (generic, juki, escp, ppds, pcl)
+# Printer profile name (generic, juki, escp, ppds/ibm, pcl)
 profile = "generic"
 
 # Printer device path (e.g., /dev/usb/lp0)

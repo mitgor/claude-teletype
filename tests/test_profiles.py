@@ -80,14 +80,14 @@ def test_printer_profile_defaults():
 # ---------------------------------------------------------------------------
 
 
-def test_builtin_profiles_has_five_entries():
-    """BUILTIN_PROFILES contains exactly 5 profiles."""
-    assert len(BUILTIN_PROFILES) == 5
+def test_builtin_profiles_has_six_entries():
+    """BUILTIN_PROFILES contains exactly 6 profiles (including ibm alias)."""
+    assert len(BUILTIN_PROFILES) == 6
 
 
 def test_builtin_profiles_keys():
     """BUILTIN_PROFILES has the expected profile names."""
-    expected = {"generic", "juki", "escp", "ppds", "pcl"}
+    expected = {"generic", "juki", "escp", "ppds", "pcl", "ibm"}
     assert set(BUILTIN_PROFILES.keys()) == expected
 
 
@@ -391,3 +391,31 @@ def test_auto_detect_profile_skips_non_printer_class():
     with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
         result = auto_detect_profile()
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# IBM alias
+# ---------------------------------------------------------------------------
+
+
+def test_ibm_alias_resolves_to_ppds_sequences():
+    """get_profile('ibm') returns a profile with the same ESC sequences as ppds but name='ibm'."""
+    ibm = get_profile("ibm")
+    ppds = get_profile("ppds")
+    assert ibm.name == "ibm"
+    assert ibm.init_sequence == ppds.init_sequence
+    assert ibm.reset_sequence == ppds.reset_sequence
+    assert ibm.line_spacing == ppds.line_spacing
+    assert ibm.char_pitch == ppds.char_pitch
+
+
+def test_ibm_alias_case_insensitive():
+    """get_profile('IBM') works (case-insensitive lookup)."""
+    profile = get_profile("IBM")
+    assert profile.name == "ibm"
+
+
+def test_ibm_profile_in_available_list():
+    """'ibm' appears in the 'Available:' message when an unknown profile is requested."""
+    with pytest.raises(ValueError, match="ibm"):
+        get_profile("nonexistent")
