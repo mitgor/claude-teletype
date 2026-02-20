@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-20)
 ## Current Position
 
 Phase: 16 of 17 (Config and Profile Polish)
-Plan: 0 of 1 in current phase
-Status: Ready to plan
-Last activity: 2026-02-20 — Roadmap created for v1.3 Tech Debt Cleanup
+Plan: 1 of 1 in current phase (COMPLETE)
+Status: Phase 16 complete, ready for Phase 17
+Last activity: 2026-02-20 — Completed 16-01 Config and Profile Polish
 
-Progress: [░░░░░░░░░░] 0% (v1.3: 0/2 plans)
+Progress: [█████░░░░░] 50% (v1.3: 1/2 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 30
+- Total plans completed: 31
 - Average duration: 3.3min
-- Total execution time: 1.6 hours
+- Total execution time: 1.7 hours
 
 **By Milestone:**
 
@@ -30,13 +30,17 @@ Progress: [░░░░░░░░░░] 0% (v1.3: 0/2 plans)
 | v1.0 MVP | 4 | 8 | 22min | 2026-02-15 |
 | v1.1 Conversation Mode | 3 | 7 | 20min | 2026-02-16 → 2026-02-17 |
 | v1.2 Config/Profiles/LLM/Settings | 8 | 13 | 57min | 2026-02-14 → 2026-02-17 |
-| v1.3 Tech Debt Cleanup | 2 | 0/2 | — | 2026-02-20 → |
+| v1.3 Tech Debt Cleanup | 2 | 1/2 | 4min | 2026-02-20 → |
 
 ## Accumulated Context
 
 ### Decisions
 
 All decisions logged in PROJECT.md Key Decisions table (24 entries).
+
+- Used dataclasses.replace for IBM profile alias (preserves frozen immutability)
+- CLI flag source detection excluded from resolve_sources (separate subcommand)
+- Deprecated juki field excluded from sectioned config show output
 
 ### Pending Todos
 
@@ -49,5 +53,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Roadmap created for v1.3. Ready to plan Phase 16.
+Stopped at: Completed 16-01-PLAN.md. Ready for Phase 17.
 Resume file: None

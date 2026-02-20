@@ -9,11 +9,11 @@ Requirements for tech debt cleanup. Each maps to roadmap phases.
 
 ### Profile Discoverability
 
-- [ ] **PROF-01**: User can reference IBM PPDS printer profile as "ibm" (alias resolving to existing "ppds" profile)
+- [x] **PROF-01**: User can reference IBM PPDS printer profile as "ibm" (alias resolving to existing "ppds" profile)
 
 ### Config Transparency
 
-- [ ] **CONF-01**: `config show` displays effective merged configuration from all three layers (file, env, CLI flags) with source annotations indicating where each value originates
+- [x] **CONF-01**: `config show` displays effective merged configuration from all three layers (file, env, CLI flags) with source annotations indicating where each value originates
 
 ### User Warnings
 
@@ -38,8 +38,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROF-01 | Phase 16 | Pending |
-| CONF-01 | Phase 16 | Pending |
+| PROF-01 | Phase 16 | Complete |
+| CONF-01 | Phase 16 | Complete |
 | WARN-01 | Phase 17 | Pending |
 | WARN-02 | Phase 17 | Pending |
 
