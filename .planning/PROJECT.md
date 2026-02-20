@@ -47,6 +47,8 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 - ✓ "ibm" alias for PPDS printer profile with case-insensitive lookup — v1.3
 - ✓ `config show` annotates every setting with source (default/file/env) — v1.3
+- ✓ Startup warning when system_prompt configured with claude-cli backend (ignored in favor of CLAUDE.md) — v1.3
+- ✓ Backend hot-swap confirmation dialog when switching away from claude-cli (context loss prevention) — v1.3
 
 ### Active
 
@@ -117,6 +119,8 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | Backspace intentionally ignored in typewriter mode | Append-only for authenticity — typewriters don't have backspace | ✓ Good |
 | dataclasses.replace for profile aliasing | Preserves frozen immutability of PrinterProfile | ✓ Good |
 | CLI flag source excluded from config show | show() is a separate Typer subcommand without main's CLI params | ✓ Good |
+| Per-process suppression for startup warnings | Module-level set sufficient; config changes restart code paths | ✓ Good |
+| ConfirmSwapScreen only when leaving claude-cli | API backends have no persistent sessions; only claude-cli has context loss risk | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after Phase 16*
+*Last updated: 2026-02-20 after Phase 17*
