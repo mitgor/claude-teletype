@@ -55,7 +55,7 @@
 **Requirements**: PROF-01, CONF-01
 **Success Criteria** (what must be TRUE):
   1. User can pass `--profile ibm` and it resolves to the PPDS printer profile
-  2. User running `config show` sees every effective setting annotated with its source (file, env, CLI flag, or default)
+  2. User running `config show` sees every effective setting annotated with its source (file, env, or default)
   3. The "ibm" alias appears in profile listing and help text so users can discover it without reading docs
 **Plans**: 1 plan
 
