@@ -48,3 +48,30 @@
 
 ---
 
+
+## v1.3 Tech Debt Cleanup (Shipped: 2026-02-20)
+
+**Phases:** 16-17 (2 phases, 2 plans, 4 tasks)
+**Timeline:** 2026-02-20 (1 day)
+**Code:** +515 lines across 10 files, 430 tests passing (3,381 LOC source + 5,709 LOC tests)
+
+**Key accomplishments:**
+- "ibm" alias for PPDS printer profile — `--profile ibm` resolves to PPDS with case-insensitive lookup
+- Annotated `config show` — every setting displays its source (default/file/env) via `resolve_sources()`
+- Startup warning when system_prompt configured with claude-cli backend (shown in both CLI and TUI)
+- Backend hot-swap confirmation dialog when switching away from claude-cli (context loss prevention)
+- warnings.py module with pure check functions and per-process suppression pattern
+
+**v1.2 debt resolved:**
+- IBM PPDS profile now discoverable as "ibm" (Phase 16)
+- `config show` now annotates sources for file and env layers (Phase 16, CLI flags excluded by design)
+- system_prompt conflict warned at startup (Phase 17)
+- Backend hot-swap now requires confirmation when leaving claude-cli (Phase 17)
+
+**Remaining tech debt:**
+- `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
+- Pre-existing test_cli_teletype_passes_no_profile failure (USB auto-detection test)
+- Juki 9100 control codes extrapolated from 6100 (need hardware verification)
+
+---
+

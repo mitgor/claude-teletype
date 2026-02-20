@@ -52,15 +52,7 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-## Current Milestone: v1.3 Tech Debt Cleanup
-
-**Goal:** Resolve all known tech debt from v1.2 — improve discoverability, config transparency, and user warnings for edge cases.
-
-**Target features:**
-- Add "ibm" alias for PPDS printer profile
-- Show effective merged config with source annotations in `config show`
-- Warn at startup when system_prompt is set but backend is claude-cli
-- Warn user when hot-swapping away from claude-cli that session context will be lost
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -72,17 +64,16 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.2 shipped (2026-02-17). 3,191 LOC source + 5,349 LOC tests (Python). 401 tests passing.
+**Current state:** v1.3 shipped (2026-02-20). 3,381 LOC source + 5,709 LOC tests (Python). 430 tests passing.
 
 **Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile drivers), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), settings_screen.py (TUI settings modal).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile drivers), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), settings_screen.py (TUI settings modal), warnings.py (config conflict detection + startup warnings).
 
 **Known tech debt:**
-- ~~IBM PPDS profile keyed as "ppds" not "ibm" (discoverability)~~ — resolved v1.3 Phase 16
-- ~~`config show` reflects file+env but not CLI flags~~ — resolved v1.3 Phase 16 (CLI flags excluded by design: separate Typer subcommand)
-- system_prompt silently ignored for claude-cli backend (uses CLAUDE.md instead)
-- Backend hot-swap loses session_id for claude-cli (starts fresh session)
+- `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
+- Pre-existing test_cli_teletype_passes_no_profile failure (USB auto-detection test)
+- Juki 9100 control codes extrapolated from 6100 (need hardware verification)
 
 ## Constraints
 
@@ -123,4 +114,4 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | ConfirmSwapScreen only when leaving claude-cli | API backends have no persistent sessions; only claude-cli has context loss risk | ✓ Good |
 
 ---
-*Last updated: 2026-02-20 after Phase 17*
+*Last updated: 2026-02-20 after v1.3 milestone*

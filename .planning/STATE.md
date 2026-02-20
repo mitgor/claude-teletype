@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-20)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** v1.3 milestone complete
+**Current focus:** Planning next milestone
 
 ## Current Position
 
 Phase: 17 of 17 (Claude-CLI Warnings) COMPLETE
 Plan: 1 of 1 in current phase (COMPLETE)
-Status: Phase 17 complete, v1.3 milestone complete
-Last activity: 2026-02-20 — Completed 17-01 Claude-CLI Warnings
+Status: v1.3 milestone archived, ready for next milestone
+Last activity: 2026-02-20 — Archived v1.3 Tech Debt Cleanup milestone
 
 Progress: [████████████████████] 100% (v1.3: 2/2 phases complete)
 
@@ -37,13 +37,7 @@ Progress: [████████████████████] 100% (v
 ### Decisions
 
 All decisions logged in PROJECT.md Key Decisions table (24 entries).
-
-- Used dataclasses.replace for IBM profile alias (preserves frozen immutability)
-- CLI flag source detection excluded from resolve_sources (separate subcommand)
-- Deprecated juki field excluded from sectioned config show output
-- Per-process suppression for startup warnings (module-level set, no file persistence needed)
-- ConfirmSwapScreen only triggers when switching AWAY FROM claude-cli (API backends have no persistent sessions)
-- Startup warning shown in both CLI and TUI modes for visibility
+v1.3 decisions archived in MILESTONES.md.
 
 ### Pending Todos
 
@@ -56,5 +50,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Phase 17 complete, v1.3 milestone complete
+Stopped at: v1.3 milestone archived, ready for /gsd:new-milestone
 Resume file: None
