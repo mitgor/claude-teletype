@@ -17,8 +17,8 @@ Requirements for tech debt cleanup. Each maps to roadmap phases.
 
 ### User Warnings
 
-- [ ] **WARN-01**: User sees a startup warning when system_prompt is configured but backend is claude-cli (which ignores system_prompt in favor of CLAUDE.md)
-- [ ] **WARN-02**: User sees a warning in settings modal when switching away from claude-cli backend that session context will be lost
+- [x] **WARN-01**: User sees a startup warning when system_prompt is configured but backend is claude-cli (which ignores system_prompt in favor of CLAUDE.md)
+- [x] **WARN-02**: User sees a warning in settings modal when switching away from claude-cli backend that session context will be lost
 
 ## Future Requirements
 
@@ -40,8 +40,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | PROF-01 | Phase 16 | Complete |
 | CONF-01 | Phase 16 | Complete |
-| WARN-01 | Phase 17 | Pending |
-| WARN-02 | Phase 17 | Pending |
+| WARN-01 | Phase 17 | Complete |
+| WARN-02 | Phase 17 | Complete |
 
 **Coverage:**
 - v1.3 requirements: 4 total

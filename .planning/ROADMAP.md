@@ -45,7 +45,7 @@
 ### 🚧 v1.3 Tech Debt Cleanup (In Progress)
 
 - [x] **Phase 16: Config and Profile Polish** - IBM alias for PPDS profile and annotated config show output
-- [ ] **Phase 17: Claude-CLI Warnings** - Startup and hot-swap warnings for claude-cli backend limitations
+- [x] **Phase 17: Claude-CLI Warnings** - Startup and hot-swap warnings for claude-cli backend limitations (completed 2026-02-20)
 
 ## Phase Details
 
@@ -98,4 +98,4 @@ Phases execute in numeric order: 16 → 17
 | 14. Verify Config & Traceability | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 15. Fix system_prompt Hot-Swap | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 16. Config and Profile Polish | v1.3 | Complete    | 2026-02-20 | 2026-02-20 |
-| 17. Claude-CLI Warnings | v1.3 | 0/1 | Not started | - |
+| 17. Claude-CLI Warnings | 1/1 | Complete   | 2026-02-20 | - |
