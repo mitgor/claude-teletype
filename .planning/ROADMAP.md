@@ -85,12 +85,12 @@ Plans:
   4. User can choose "Skip / Simulator" to bypass printer setup and use the app without hardware
   5. User sees inline discovery progress and connection status messages (e.g., "Scanning USB...", "3 CUPS queues found", "pyusb not installed -- USB detection unavailable") while the setup screen loads
   6. When pyusb is missing, user can trigger installation from within the setup screen and see a progress indicator while `uv sync --extra usb` runs asynchronously
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 3 plans
 
 Plans:
-- [ ] 19-01: TBD
-- [ ] 19-02: TBD
+- [ ] 19-01-PLAN.md -- PrinterSelection dataclass and create_driver_for_selection() factory
+- [ ] 19-02-PLAN.md -- PrinterSetupScreen widget layout, interactions, and tests
+- [ ] 19-03-PLAN.md -- TUI/CLI integration: wire setup screen into startup flow
 
 ### Phase 20: Config Persistence & Smart Startup
 **Goal**: Users configure their printer once and the app remembers -- setup is skipped on subsequent launches when the saved printer is still connected
@@ -129,6 +129,6 @@ Phases execute in numeric order: 18 → 19 → 20
 | 15. Fix system_prompt Hot-Swap | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 16. Config and Profile Polish | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
-| 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete   | 2026-04-03 |
-| 19. Printer Setup Screen | v1.4 | 0/TBD | Not started | - |
+| 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete    | 2026-04-03 |
+| 19. Printer Setup Screen | v1.4 | 0/3 | Not started | - |
 | 20. Config Persistence & Smart Startup | v1.4 | 0/TBD | Not started | - |
