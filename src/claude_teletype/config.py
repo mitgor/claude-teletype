@@ -7,6 +7,7 @@ with three-layer precedence: defaults < config file < env vars < CLI flags.
 from __future__ import annotations
 
 import os
+import tempfile
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -43,6 +44,12 @@ profile = "generic"
 # Printer device path (e.g., /dev/usb/lp0)
 # Uncomment to use a specific device instead of auto-discovery:
 # device = "/dev/usb/lp0"
+
+# Saved printer selection (auto-populated by setup screen):
+# [printer.saved]
+# type = "usb"           # "usb", "cups", or "skip"
+# id = "1234:5678"       # VID:PID for USB, queue name for CUPS
+# profile = "generic"    # printer profile name
 
 # Custom profile example (uncomment and modify):
 # [printer.profiles.my-printer]
@@ -101,6 +108,11 @@ class TeletypeConfig:
     openai_api_key: str = ""
     openrouter_api_key: str = ""
 
+    # [printer.saved] — persisted printer selection from setup screen
+    saved_printer_type: str = ""  # "usb", "cups", "skip", or ""
+    saved_printer_id: str = ""  # USB: "1234:5678" VID:PID hex, CUPS: queue name
+    saved_printer_profile: str = ""  # printer profile name
+
     # Non-TOML field: stores raw custom profile dicts from [printer.profiles.*]
     custom_profiles: dict = field(default_factory=dict, repr=False)
 
@@ -117,6 +129,7 @@ def load_config(config_path: Path | None = None) -> TeletypeConfig:
     # Extract custom profiles before flattening (they would break flat field mapping)
     printer_section = raw.get("printer", {})
     custom_profiles_raw = printer_section.get("profiles", {})
+    saved_section = printer_section.get("saved", {})
 
     # Flatten nested TOML sections into flat dataclass fields
     flat: dict = {}
@@ -136,13 +149,24 @@ def load_config(config_path: Path | None = None) -> TeletypeConfig:
     filtered = {k: v for k, v in flat.items() if k in valid}
     config = TeletypeConfig(**filtered)
     config.custom_profiles = custom_profiles_raw
+
+    # Map [printer.saved] sub-table to saved_printer_* fields
+    if saved_section:
+        config.saved_printer_type = saved_section.get("type", "")
+        config.saved_printer_id = saved_section.get("id", "")
+        config.saved_printer_profile = saved_section.get("profile", "")
+
     return config
 
 
 def apply_env_overrides(config: TeletypeConfig) -> TeletypeConfig:
     """Override config values from CLAUDE_TELETYPE_* environment variables."""
-    # Skip non-env-overridable fields (API keys use their own env vars)
-    _skip_fields = {"custom_profiles", "openai_api_key", "openrouter_api_key"}
+    # Skip non-env-overridable fields (API keys use their own env vars;
+    # saved_printer_* are internal state from setup screen)
+    _skip_fields = {
+        "custom_profiles", "openai_api_key", "openrouter_api_key",
+        "saved_printer_type", "saved_printer_id", "saved_printer_profile",
+    }
 
     for f in fields(TeletypeConfig):
         if f.name in _skip_fields:
@@ -198,6 +222,14 @@ def save_config(config: TeletypeConfig, config_path: Path | None = None) -> Path
     if config.device:
         lines.append(f'device = "{_esc(config.device)}"')
 
+    # Saved printer selection (from setup screen)
+    if config.saved_printer_type:
+        lines.append("")
+        lines.append("[printer.saved]")
+        lines.append(f'type = "{_esc(config.saved_printer_type)}"')
+        lines.append(f'id = "{_esc(config.saved_printer_id)}"')
+        lines.append(f'profile = "{_esc(config.saved_printer_profile)}"')
+
     # Preserve custom profiles
     for name, data in config.custom_profiles.items():
         lines.append("")
@@ -223,7 +255,29 @@ def save_config(config: TeletypeConfig, config_path: Path | None = None) -> Path
         "",
     ])
 
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    content = "\n".join(lines) + "\n"
+    # Validate TOML before writing -- catch template bugs early
+    tomllib.loads(content)
+    # Atomic write: temp file in same directory + os.replace
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(path.parent), suffix=".tmp", prefix=".config-"
+    )
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        fd = -1  # Mark as closed
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     return path
 
 
@@ -244,7 +298,10 @@ def resolve_sources(config_path: Path | None = None) -> dict[str, str]:
     file_config = load_config(path)
 
     # Fields that are not env-overridable (same skip list as apply_env_overrides)
-    _skip_env_fields = {"custom_profiles", "openai_api_key", "openrouter_api_key"}
+    _skip_env_fields = {
+        "custom_profiles", "openai_api_key", "openrouter_api_key",
+        "saved_printer_type", "saved_printer_id", "saved_printer_profile",
+    }
 
     sources: dict[str, str] = {}
     for f in fields(TeletypeConfig):
