@@ -214,6 +214,14 @@ def init_config() -> None:
     typer.echo(f"Config file created: {path}")
 
 
+@app.command()
+def diagnose() -> None:
+    """Show printer diagnostics: USB devices, CUPS queues, pyusb and libusb status."""
+    from claude_teletype.diagnose import run_diagnose
+
+    run_diagnose()
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
