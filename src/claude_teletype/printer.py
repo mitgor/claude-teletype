@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -36,6 +37,41 @@ class NullPrinterDriver:
 
     def close(self) -> None:
         pass
+
+
+@dataclass
+class UsbDeviceInfo:
+    """Discovered USB printer-class device."""
+
+    vendor_id: int
+    product_id: int
+    product_name: str = ""
+    manufacturer: str = ""
+    serial: str = ""
+    bus: int = 0
+    address: int = 0
+
+
+@dataclass
+class CupsPrinterInfo:
+    """Discovered CUPS printer queue."""
+
+    name: str
+    uri: str
+    vendor: str = ""
+    model: str = ""
+    serial: str = ""
+
+
+@dataclass
+class DiscoveryResult:
+    """Aggregated printer discovery results."""
+
+    pyusb_available: bool = False
+    libusb_available: bool = False
+    usb_devices: list[UsbDeviceInfo] = field(default_factory=list)
+    cups_printers: list[CupsPrinterInfo] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
 
 
 class FilePrinterDriver:
@@ -442,6 +478,101 @@ def discover_cups_printers() -> list[dict[str, str]]:
                                 entry["serial"] = param[7:]
                 printers.append(entry)
     return printers
+
+
+def discover_all() -> DiscoveryResult:
+    """Aggregate all printer discovery into a single structured result.
+
+    Never raises exceptions. All errors are recorded in diagnostics.
+    CUPS discovery always runs regardless of pyusb status.
+    """
+    result = DiscoveryResult()
+
+    # 1. Check pyusb availability
+    try:
+        import importlib.util
+
+        pyusb_spec = importlib.util.find_spec("usb")
+        result.pyusb_available = pyusb_spec is not None
+    except Exception:
+        result.pyusb_available = False
+
+    if not result.pyusb_available:
+        result.diagnostics.append("pyusb not installed. Install with: uv sync --extra usb")
+    else:
+        # 2. Check libusb backend and enumerate USB devices
+        try:
+            import usb.core
+            import usb.util
+        except ImportError:
+            result.diagnostics.append("pyusb import failed despite being installed")
+            result.pyusb_available = False
+        else:
+            try:
+                devices = list(usb.core.find(find_all=True))
+                result.libusb_available = True
+            except usb.core.NoBackendError:
+                result.diagnostics.append(
+                    "libusb backend not found. Install with: brew install libusb"
+                )
+                devices = []
+
+            USB_PRINTER_CLASS = 7
+            for dev in devices:
+                for cfg in dev:
+                    for intf in cfg:
+                        if intf.bInterfaceClass == USB_PRINTER_CLASS:
+                            try:
+                                product_name = dev.product or ""
+                            except Exception:
+                                product_name = ""
+                            try:
+                                manufacturer = dev.manufacturer or ""
+                            except Exception:
+                                manufacturer = ""
+                            try:
+                                serial = dev.serial_number or ""
+                            except Exception:
+                                serial = ""
+                            result.usb_devices.append(
+                                UsbDeviceInfo(
+                                    vendor_id=dev.idVendor,
+                                    product_id=dev.idProduct,
+                                    product_name=product_name,
+                                    manufacturer=manufacturer,
+                                    serial=serial,
+                                    bus=dev.bus or 0,
+                                    address=dev.address or 0,
+                                )
+                            )
+                            break  # one entry per device, not per interface
+                    else:
+                        continue
+                    break
+
+            if result.libusb_available and not result.usb_devices:
+                total = len(devices)
+                result.diagnostics.append(
+                    f"No USB printer-class devices found. {total} other USB devices present."
+                )
+
+    # 3. CUPS discovery (always, regardless of pyusb)
+    try:
+        cups_raw = discover_cups_printers()
+        for p in cups_raw:
+            result.cups_printers.append(
+                CupsPrinterInfo(
+                    name=p["name"],
+                    uri=p["uri"],
+                    vendor=p.get("vendor", ""),
+                    model=p.get("model", ""),
+                    serial=p.get("serial", ""),
+                )
+            )
+    except Exception as e:
+        result.diagnostics.append(f"CUPS discovery failed: {e}")
+
+    return result
 
 
 def discover_printer(

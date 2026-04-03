@@ -30,7 +30,6 @@ class TestDiscoverAll:
 
         mock_spec = MagicMock()  # truthy value for find_spec
 
-        # We need to mock find_spec only for "usb", not break other imports
         original_find_spec = __import__("importlib.util", fromlist=["find_spec"]).find_spec
 
         def patched_find_spec(name, *args, **kwargs):
@@ -39,18 +38,21 @@ class TestDiscoverAll:
             return original_find_spec(name, *args, **kwargs)
 
         # Mock usb.core to raise NoBackendError on find()
+        NoBackendError = type("NoBackendError", (Exception,), {})
         mock_usb_core = MagicMock()
-        mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
-        mock_usb_core.find.side_effect = mock_usb_core.NoBackendError()
+        mock_usb_core.NoBackendError = NoBackendError
+        mock_usb_core.find.side_effect = NoBackendError()
 
-        mock_usb_util = MagicMock()
+        # Build parent mock with .core pointing to our mock_usb_core
+        mock_usb = MagicMock()
+        mock_usb.core = mock_usb_core
 
         import sys
 
         with patch("importlib.util.find_spec", side_effect=patched_find_spec):
             with patch.dict(
                 sys.modules,
-                {"usb": MagicMock(), "usb.core": mock_usb_core, "usb.util": mock_usb_util},
+                {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": MagicMock()},
             ):
                 with patch(
                     "claude_teletype.printer.discover_cups_printers", return_value=[]
@@ -160,16 +162,20 @@ class TestDiscoverAll:
         mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
         mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
 
+        NoBackendError = type("NoBackendError", (Exception,), {})
         mock_usb_core = MagicMock()
-        mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
+        mock_usb_core.NoBackendError = NoBackendError
         mock_usb_core.find.return_value = [mock_dev]
+
+        mock_usb = MagicMock()
+        mock_usb.core = mock_usb_core
 
         import sys
 
         with patch("importlib.util.find_spec", side_effect=patched_find_spec):
             with patch.dict(
                 sys.modules,
-                {"usb": MagicMock(), "usb.core": mock_usb_core, "usb.util": MagicMock()},
+                {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": MagicMock()},
             ):
                 with patch(
                     "claude_teletype.printer.discover_cups_printers", return_value=[]
