@@ -55,7 +55,7 @@
 
 **Milestone Goal:** Interactive TUI screen for discovering, selecting, and configuring printers at startup -- replacing silent auto-detection with a visible, user-driven setup flow.
 
-- [ ] **Phase 18: Discovery Data Layer & Diagnostics** - Structured discovery primitives and CLI diagnose command
+- [x] **Phase 18: Discovery Data Layer & Diagnostics** - Structured discovery primitives and CLI diagnose command (completed 2026-04-03)
 - [ ] **Phase 19: Printer Setup Screen** - Interactive TUI for device selection, profile assignment, and pyusb install
 - [ ] **Phase 20: Config Persistence & Smart Startup** - Save printer selection to TOML and skip setup on reconnect
 
@@ -72,7 +72,7 @@
 **Plans**: 1 plan
 
 Plans:
-- [ ] 18-01-PLAN.md -- Discovery dataclasses, discover_all(), diagnose CLI command
+- [x] 18-01-PLAN.md -- Discovery dataclasses, discover_all(), diagnose CLI command
 
 ### Phase 19: Printer Setup Screen
 **Goal**: Users see an interactive setup screen on startup where they can browse discovered devices, pick a connection method, assign a printer profile, install pyusb if missing, or skip to simulator mode
@@ -129,6 +129,6 @@ Phases execute in numeric order: 18 → 19 → 20
 | 15. Fix system_prompt Hot-Swap | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 16. Config and Profile Polish | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
-| 18. Discovery Data Layer & Diagnostics | v1.4 | 0/1 | Not started | - |
+| 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete   | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 0/TBD | Not started | - |
 | 20. Config Persistence & Smart Startup | v1.4 | 0/TBD | Not started | - |
