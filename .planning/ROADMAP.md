@@ -57,7 +57,7 @@
 
 - [x] **Phase 18: Discovery Data Layer & Diagnostics** - Structured discovery primitives and CLI diagnose command (completed 2026-04-03)
 - [x] **Phase 19: Printer Setup Screen** - Interactive TUI for device selection, profile assignment, and pyusb install (completed 2026-04-03)
-- [ ] **Phase 20: Config Persistence & Smart Startup** - Save printer selection to TOML and skip setup on reconnect
+- [x] **Phase 20: Config Persistence & Smart Startup** - Save printer selection to TOML and skip setup on reconnect (completed 2026-04-03)
 
 ## Phase Details
 
@@ -104,7 +104,7 @@ Plans:
 
 Plans:
 - [x] 20-01-PLAN.md -- Config fields, atomic save, persist printer selection after setup
-- [ ] 20-02-PLAN.md -- Smart startup: match saved printer against discovery, skip/show setup
+- [x] 20-02-PLAN.md -- Smart startup: match saved printer against discovery, skip/show setup
 
 ## Progress
 
@@ -132,4 +132,4 @@ Phases execute in numeric order: 18 → 19 → 20
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete    | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 3/3 | Complete    | 2026-04-03 |
-| 20. Config Persistence & Smart Startup | v1.4 | 1/2 | In Progress|  |
+| 20. Config Persistence & Smart Startup | v1.4 | 2/2 | Complete   | 2026-04-03 |
