@@ -127,6 +127,7 @@ class TeletypeApp(App):
         all_profiles: dict | None = None,
         openai_api_key: str = "",
         openrouter_api_key: str = "",
+        discovery=None,  # DiscoveryResult | None -- if set, shows setup screen on mount
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -151,11 +152,23 @@ class TeletypeApp(App):
         self._all_profiles = all_profiles or {}
         self._openai_api_key = openai_api_key
         self._openrouter_api_key = openrouter_api_key
+        self._discovery = discovery
 
     @property
     def session_id(self) -> str | None:
         """Current session ID for resume support. Read by CLI after exit."""
         return self._session_id
+
+    def _needs_printer_setup(self) -> bool:
+        """Check if printer setup screen should be shown on startup.
+
+        Shows setup when discovery data is provided AND no printer is already
+        configured (printer is None or NullPrinterDriver).
+        """
+        if self._discovery is None:
+            return False
+        from claude_teletype.printer import NullPrinterDriver
+        return self.printer is None or isinstance(self.printer, NullPrinterDriver)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -199,8 +212,51 @@ class TeletypeApp(App):
         ):
             self.notify(startup_warning, severity="warning", timeout=8)
 
+        if self._needs_printer_setup():
+            self.call_after_refresh(self._show_setup_screen)
+
         self.query_one("#prompt", Input).focus()
         self._update_status()
+
+    def _show_setup_screen(self) -> None:
+        """Push the printer setup screen (deferred via call_after_refresh)."""
+        from claude_teletype.printer_setup_screen import PrinterSetupScreen
+
+        self.push_screen(
+            PrinterSetupScreen(
+                discovery=self._discovery,
+                all_profiles=self._all_profiles,
+            ),
+            callback=self._handle_setup_result,
+        )
+
+    def _handle_setup_result(self, result) -> None:
+        """Handle PrinterSelection from setup screen dismiss.
+
+        None = user skipped (simulator mode). PrinterSelection = create driver.
+        """
+        if result is None:
+            # Skip -- simulator mode, printer stays NullPrinterDriver
+            self._update_status()
+            self.query_one("#prompt", Input).focus()
+            return
+
+        from claude_teletype.printer import create_driver_for_selection, make_printer_output
+
+        driver = create_driver_for_selection(
+            result, self._discovery, all_profiles=self._all_profiles
+        )
+        self.printer = driver
+
+        # Update profile name from selection
+        self._profile_name = result.profile_name
+
+        # Set up printer output if driver is connected
+        if driver.is_connected:
+            self._printer_write = make_printer_output(driver)
+
+        self._update_status()
+        self.query_one("#prompt", Input).focus()
 
     async def on_unmount(self) -> None:
         """Clean up printer, transcript, and subprocess on app exit."""
