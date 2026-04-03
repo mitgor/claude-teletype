@@ -589,7 +589,7 @@ class TestProfilePrinterDriver:
         assert inner.write.call_count == first_count + 1
 
     def test_crlf_newline_when_true(self):
-        """When profile.crlf=True, newline sends CR before LF."""
+        """When profile.crlf=True, newline sends CR+LF as single atomic write."""
         inner = MagicMock()
         inner.is_connected = True
         profile = PrinterProfile(name="test", crlf=True)
@@ -598,8 +598,8 @@ class TestProfilePrinterDriver:
 
         ppd.write("\n")
 
-        calls = [c.args[0] for c in inner.write.call_args_list]
-        assert calls == ["\r", "\n"]
+        raw = _collect_raw(inner)
+        assert raw == b"\r\n"
 
     def test_lf_only_when_crlf_false(self):
         """When profile.crlf=False, newline sends LF only."""
@@ -611,8 +611,8 @@ class TestProfilePrinterDriver:
 
         ppd.write("\n")
 
-        calls = [c.args[0] for c in inner.write.call_args_list]
-        assert calls == ["\n"]
+        raw = _collect_raw(inner)
+        assert raw == b"\n"
 
     def test_reinit_on_newline_sends_reinit_sequence(self):
         """When reinit_on_newline=True, reinit_sequence sent after newline."""

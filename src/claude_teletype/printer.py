@@ -177,11 +177,17 @@ class ProfilePrinterDriver:
             return
         self._ensure_init()
         if char == "\n":
+            # Send CR+LF+reinit as a single atomic transfer.
+            # Fragmented USB transfers cause the Juki 6100 (CH341 bridge)
+            # to drop bytes — especially the LF after CR, which results
+            # in carriage return without paper advance on wrapped lines.
+            newline_data = b""
             if self._profile.crlf:
-                self._inner.write("\r")
-            self._inner.write("\n")
+                newline_data += b"\r"
+            newline_data += b"\n"
             if self._profile.reinit_on_newline and self._profile.reinit_sequence:
-                self._send_raw(self._profile.reinit_sequence)
+                newline_data += self._profile.reinit_sequence
+            self._send_raw(newline_data)
         else:
             self._inner.write(char)
 
