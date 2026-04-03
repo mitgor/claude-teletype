@@ -74,6 +74,16 @@ class DiscoveryResult:
     diagnostics: list[str] = field(default_factory=list)
 
 
+@dataclass
+class PrinterSelection:
+    """Result from PrinterSetupScreen -- captures user's printer choice."""
+
+    connection_type: str  # "usb" | "cups" | "skip"
+    device_index: int | None = None  # index into DiscoveryResult.usb_devices
+    cups_printer_name: str | None = None
+    profile_name: str = "generic"
+
+
 class FilePrinterDriver:
     """Direct device file I/O driver."""
 
@@ -573,6 +583,47 @@ def discover_all() -> DiscoveryResult:
         result.diagnostics.append(f"CUPS discovery failed: {e}")
 
     return result
+
+
+def create_driver_for_selection(
+    selection: PrinterSelection,
+    discovery: DiscoveryResult,
+    all_profiles: dict[str, PrinterProfile] | None = None,
+) -> PrinterDriver:
+    """Convert a PrinterSelection from the setup screen into a PrinterDriver.
+
+    Args:
+        selection: User's choice from PrinterSetupScreen.
+        discovery: Discovery results (for context, not currently used for USB).
+        all_profiles: Profile catalog for profile wrapping. If None, uses BUILTIN_PROFILES.
+
+    Returns:
+        Configured PrinterDriver (possibly wrapped in ProfilePrinterDriver).
+    """
+    from claude_teletype.profiles import BUILTIN_PROFILES
+
+    if selection.connection_type == "skip":
+        return NullPrinterDriver()
+
+    driver: PrinterDriver | None = None
+
+    if selection.connection_type == "usb":
+        driver = _find_usb_printer()
+    elif selection.connection_type == "cups":
+        if selection.cups_printer_name:
+            driver = CupsPrinterDriver(selection.cups_printer_name)
+
+    if driver is None:
+        return NullPrinterDriver()
+
+    # Wrap with profile if not generic
+    if selection.profile_name and selection.profile_name != "generic":
+        profiles = all_profiles or BUILTIN_PROFILES
+        profile = profiles.get(selection.profile_name)
+        if profile is not None:
+            driver = ProfilePrinterDriver(driver, profile)
+
+    return driver
 
 
 def discover_printer(
