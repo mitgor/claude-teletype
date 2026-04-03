@@ -9,16 +9,16 @@ Requirements for the Printer Setup TUI milestone. Each maps to roadmap phases.
 
 ### Printer Setup Screen
 
-- [ ] **SETUP-01**: User sees a list of all discovered USB devices and CUPS printers on startup
+- [x] **SETUP-01**: User sees a list of all discovered USB devices and CUPS printers on startup
 - [x] **SETUP-02**: User can choose between USB Direct and CUPS Queue connection methods
-- [ ] **SETUP-03**: User must select a printer profile (juki/escp/ppds/pcl/generic) for USB devices, with VID:PID auto-suggestion
+- [x] **SETUP-03**: User must select a printer profile (juki/escp/ppds/pcl/generic) for USB devices, with VID:PID auto-suggestion
 - [x] **SETUP-04**: User can skip printer setup and run in simulator-only mode
-- [ ] **SETUP-05**: User sees discovery progress and connection status messages inline in the setup screen
+- [x] **SETUP-05**: User sees discovery progress and connection status messages inline in the setup screen
 
 ### Dependency Management
 
 - [x] **DEP-01**: App handles missing pyusb gracefully -- shows CUPS printers only, no crashes
-- [ ] **DEP-02**: User can install pyusb from within the app via async `uv sync --extra usb` with progress indicator
+- [x] **DEP-02**: User can install pyusb from within the app via async `uv sync --extra usb` with progress indicator
 
 ### Config Persistence
 
@@ -53,13 +53,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SETUP-01 | Phase 19 | Pending |
+| SETUP-01 | Phase 19 | Complete |
 | SETUP-02 | Phase 19 | Complete |
-| SETUP-03 | Phase 19 | Pending |
+| SETUP-03 | Phase 19 | Complete |
 | SETUP-04 | Phase 19 | Complete |
-| SETUP-05 | Phase 19 | Pending |
+| SETUP-05 | Phase 19 | Complete |
 | DEP-01 | Phase 18 | Complete |
-| DEP-02 | Phase 19 | Pending |
+| DEP-02 | Phase 19 | Complete |
 | CFG-01 | Phase 20 | Pending |
 | CFG-02 | Phase 20 | Pending |
 | DIAG-01 | Phase 18 | Complete |
