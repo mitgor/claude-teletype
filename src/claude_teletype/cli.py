@@ -467,10 +467,23 @@ def main(
         console.print("[bold red]No USB printer available for teletype mode.")
         raise typer.Exit(1)
 
-    # Discover printer (lazy import to avoid loading printer module when unused)
-    from claude_teletype.printer import discover_printer
+    # Discover printer: use discover_all() for TUI (setup screen handles selection)
+    # or discover_printer() for --no-tui mode (direct selection)
+    from claude_teletype.printer import discover_all, discover_printer
 
-    printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
+    if effective_no_tui:
+        # --no-tui mode: use existing direct discovery (no setup screen)
+        printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
+        discovery = None
+    else:
+        # TUI mode: run lightweight discovery, pass to setup screen
+        # If user specified --device, use direct discovery (skip setup screen)
+        if config.device:
+            printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
+            discovery = None  # No setup screen needed
+        else:
+            discovery = discover_all()
+            printer_driver = None  # Setup screen will create the driver
 
     if effective_no_tui:
         if not prompt:
@@ -503,6 +516,7 @@ def main(
             all_profiles=all_profiles,
             openai_api_key=config.openai_api_key,
             openrouter_api_key=config.openrouter_api_key,
+            discovery=discovery,
         )
         tui_app.run()
 
