@@ -237,6 +237,8 @@ class TeletypeApp(App):
         """
         if result is None:
             # Skip -- simulator mode, printer stays NullPrinterDriver
+            # Clear saved printer so setup shows again next time
+            self._clear_saved_printer()
             self._update_status()
             self.query_one("#prompt", Input).focus()
             return
@@ -251,12 +253,57 @@ class TeletypeApp(App):
         # Update profile name from selection
         self._profile_name = result.profile_name
 
+        # Persist printer selection to config (CFG-01)
+        self._save_printer_selection(result)
+
         # Set up printer output if driver is connected
         if driver.is_connected:
             self._printer_write = make_printer_output(driver)
 
         self._update_status()
         self.query_one("#prompt", Input).focus()
+
+    def _save_printer_selection(self, selection) -> None:
+        """Save printer selection from setup screen to config file."""
+        from claude_teletype.config import load_config, save_config
+
+        try:
+            cfg = load_config()
+            cfg.saved_printer_type = selection.connection_type
+
+            # Build device identifier
+            if selection.connection_type == "usb" and self._discovery is not None:
+                if (
+                    selection.device_index is not None
+                    and selection.device_index < len(self._discovery.usb_devices)
+                ):
+                    usb_dev = self._discovery.usb_devices[selection.device_index]
+                    cfg.saved_printer_id = f"{usb_dev.vendor_id:04x}:{usb_dev.product_id:04x}"
+                else:
+                    cfg.saved_printer_id = ""
+            elif selection.connection_type == "cups" and selection.cups_printer_name:
+                cfg.saved_printer_id = selection.cups_printer_name
+            else:
+                cfg.saved_printer_id = ""
+
+            cfg.saved_printer_profile = selection.profile_name
+            save_config(cfg)
+        except Exception as exc:
+            self.notify(f"Could not save printer config: {exc}", severity="error")
+
+    def _clear_saved_printer(self) -> None:
+        """Clear saved printer selection from config."""
+        from claude_teletype.config import load_config, save_config
+
+        try:
+            cfg = load_config()
+            if cfg.saved_printer_type:
+                cfg.saved_printer_type = ""
+                cfg.saved_printer_id = ""
+                cfg.saved_printer_profile = ""
+                save_config(cfg)
+        except Exception:
+            pass  # Non-critical
 
     async def on_unmount(self) -> None:
         """Clean up printer, transcript, and subprocess on app exit."""
