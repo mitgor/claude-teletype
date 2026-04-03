@@ -186,3 +186,93 @@ class TestDiscoverAll:
         assert result.libusb_available is True
         assert result.usb_devices == []
         assert any("No USB printer-class devices found" in d for d in result.diagnostics)
+
+
+class TestDiagnoseCommand:
+    """Tests for the `claude-teletype diagnose` CLI command."""
+
+    def test_diagnose_exits_zero_with_pyusb_missing(self):
+        """diagnose command exits 0 and prints Printer Diagnostics."""
+        from typer.testing import CliRunner
+
+        from claude_teletype.cli import app
+        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+
+        runner = CliRunner()
+        mock_result = DiscoveryResult(
+            pyusb_available=False,
+            diagnostics=["pyusb not installed. Install with: uv sync --extra usb"],
+        )
+
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_result):
+            result = runner.invoke(app, ["diagnose"])
+
+        assert result.exit_code == 0
+        assert "Printer Diagnostics" in result.output
+        assert "Not installed" in result.output
+        # No traceback
+        assert "Traceback" not in result.output
+
+    def test_diagnose_shows_cups_printers(self):
+        """diagnose command shows CUPS printer queues."""
+        from typer.testing import CliRunner
+
+        from claude_teletype.cli import app
+        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+
+        runner = CliRunner()
+        mock_result = DiscoveryResult(
+            pyusb_available=False,
+            cups_printers=[CupsPrinterInfo(name="TestQ", uri="usb://Test/Q")],
+            diagnostics=["pyusb not installed. Install with: uv sync --extra usb"],
+        )
+
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_result):
+            result = runner.invoke(app, ["diagnose"])
+
+        assert result.exit_code == 0
+        assert "TestQ" in result.output
+
+    def test_diagnose_distinguishes_no_devices_from_no_pyusb(self):
+        """Output differs between 'pyusb not installed' and 'no devices found'."""
+        from typer.testing import CliRunner
+
+        from claude_teletype.cli import app
+        from claude_teletype.printer import DiscoveryResult
+
+        runner = CliRunner()
+
+        # Case 1: pyusb not installed
+        mock_no_pyusb = DiscoveryResult(
+            pyusb_available=False,
+            diagnostics=["pyusb not installed. Install with: uv sync --extra usb"],
+        )
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_no_pyusb):
+            r1 = runner.invoke(app, ["diagnose"])
+
+        assert "Not installed" in r1.output
+        assert "pyusb not installed" in r1.output
+
+        # Case 2: pyusb present, libusb present, but no printer devices
+        mock_no_printers = DiscoveryResult(
+            pyusb_available=True,
+            libusb_available=True,
+            usb_devices=[],
+            diagnostics=["No USB printer-class devices found. 3 other USB devices present."],
+        )
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_no_printers):
+            r2 = runner.invoke(app, ["diagnose"])
+
+        assert "No USB printer-class devices found" in r2.output
+        assert "Installed" in r2.output  # pyusb shows as installed
+
+    def test_run_diagnose_returns_none(self):
+        """run_diagnose() returns None."""
+        from claude_teletype.diagnose import run_diagnose
+        from claude_teletype.printer import DiscoveryResult
+
+        mock_result = DiscoveryResult(pyusb_available=False)
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_result):
+            ret = run_diagnose()
+
+        assert ret is None
