@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Printer Setup TUI
-status: verifying
-stopped_at: Completed 19-03-PLAN.md
-last_updated: "2026-04-03T08:29:12.324Z"
+status: executing
+stopped_at: Completed 20-01-PLAN.md
+last_updated: "2026-04-03T12:17:23.104Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 19 — Printer Setup Screen
+**Current focus:** Phase 20 — Config Persistence & Smart Startup
 
 ## Current Position
 
-Phase: 19 (Printer Setup Screen) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 20 (Config Persistence & Smart Startup) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0%
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19-printer-setup-screen P01 | 1min | 1 tasks | 2 files |
 | Phase 19-printer-setup-screen P02 | 3min | 2 tasks | 2 files |
 | Phase 19-printer-setup-screen P03 | 2min | 2 tasks | 2 files |
+| Phase 20 P01 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ v1.3 decisions archived in MILESTONES.md.
 - [Phase 19]: VID:PID profile matching done locally via getattr loop to avoid pyusb import in UI thread
 - [Phase 19]: call_after_refresh used to defer setup screen push to next frame, preventing Textual mount-time screen conflicts
 - [Phase 19]: discover_all() only called in TUI mode without --device; --no-tui and --device paths use existing discover_printer()
+- [Phase 20]: Atomic write uses fd-level os.write + os.replace for crash safety (no intermediate partial state)
+- [Phase 20]: TOML content validated via tomllib.loads before write to catch template bugs
+- [Phase 20]: saved_printer_* fields excluded from env overrides -- internal state, not user settings
 
 ### Pending Todos
 
@@ -82,6 +86,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T08:29:12.322Z
-Stopped at: Completed 19-03-PLAN.md
+Last session: 2026-04-03T12:17:23.102Z
+Stopped at: Completed 20-01-PLAN.md
 Resume file: None

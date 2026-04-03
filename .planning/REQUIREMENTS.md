@@ -22,7 +22,7 @@ Requirements for the Printer Setup TUI milestone. Each maps to roadmap phases.
 
 ### Config Persistence
 
-- [ ] **CFG-01**: User's printer+profile selection is saved to TOML config file
+- [x] **CFG-01**: User's printer+profile selection is saved to TOML config file
 - [ ] **CFG-02**: Setup screen is skipped on next launch if saved printer is still connected (USB by VID:PID, CUPS by queue name)
 
 ### Diagnostics
@@ -60,7 +60,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SETUP-05 | Phase 19 | Complete |
 | DEP-01 | Phase 18 | Complete |
 | DEP-02 | Phase 19 | Complete |
-| CFG-01 | Phase 20 | Pending |
+| CFG-01 | Phase 20 | Complete |
 | CFG-02 | Phase 20 | Pending |
 | DIAG-01 | Phase 18 | Complete |
 
