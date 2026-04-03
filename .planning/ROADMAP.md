@@ -100,10 +100,11 @@ Plans:
   1. After completing printer setup, the user's printer type, device identifier, and profile selection are saved to the TOML config file
   2. On next launch, if the saved printer is still connected (USB matched by VID:PID, CUPS matched by queue name), the setup screen is skipped and the app goes straight to chat
   3. On next launch, if the saved printer is NOT connected, the setup screen reappears so the user can reconfigure
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 20-01: TBD
+- [ ] 20-01-PLAN.md -- Config fields, atomic save, persist printer selection after setup
+- [ ] 20-02-PLAN.md -- Smart startup: match saved printer against discovery, skip/show setup
 
 ## Progress
 
@@ -130,5 +131,5 @@ Phases execute in numeric order: 18 → 19 → 20
 | 16. Config and Profile Polish | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete    | 2026-04-03 |
-| 19. Printer Setup Screen | v1.4 | 3/3 | Complete   | 2026-04-03 |
-| 20. Config Persistence & Smart Startup | v1.4 | 0/TBD | Not started | - |
+| 19. Printer Setup Screen | v1.4 | 3/3 | Complete    | 2026-04-03 |
+| 20. Config Persistence & Smart Startup | v1.4 | 0/2 | Not started | - |
