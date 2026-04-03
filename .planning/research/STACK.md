@@ -1,567 +1,236 @@
-# Technology Stack: v1.2 Configuration, Profiles, Multi-LLM, Settings, Typewriter
+# Stack Research
 
-**Project:** Claude Teletype v1.2
-**Researched:** 2026-02-17
-**Focus:** Config system, printer profiles, multi-LLM backends, TUI settings, typewriter mode
-**Overall Confidence:** HIGH
+**Domain:** Printer setup TUI features for existing Python CLI/TUI app
+**Researched:** 2026-04-02
+**Confidence:** HIGH
 
----
+## Scope
 
-## Executive Summary
+This research covers ONLY the stack additions/changes needed for v1.4 Printer Setup TUI features:
+1. Interactive printer setup/selection screen (Textual-based)
+2. Running `uv sync --extra usb` from within the app to auto-install pyusb
+3. A `claude-teletype diagnose` CLI subcommand
+4. Persisting printer selection to TOML config
 
-v1.2 adds **3 new dependencies** (`openai`, `tomli-w`, `platformdirs`) and **0 library swaps**. The OpenAI Python SDK is the single largest addition -- it provides streaming for both OpenAI and OpenRouter APIs via a `base_url` override. Configuration uses Python 3.12's built-in `tomllib` for reading (zero-dep) plus `tomli-w` for writing. `platformdirs` provides cross-platform XDG-compliant config file location. Printer profiles use raw bytes (no library needed -- ESC/P and PCL are byte-level protocols). The TUI settings panel uses Textual's existing `ModalScreen`, `Select`, `Switch`, and `Input` widgets.
+Existing stack (Python 3.12+, Textual 7.x, Typer, Rich, pyusb, tomllib, platformdirs) is validated and NOT re-researched.
 
----
+## Verdict: No New Dependencies Required
+
+All four features can be built with the existing dependency set. No new pip packages needed. No pyproject.toml changes required.
 
 ## Recommended Stack Additions
 
-### 1. Multi-LLM Backend: `openai` Python SDK
+### New Capabilities From Existing Libraries
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| openai | >=2.21.0 | Streaming chat completions for OpenAI + OpenRouter | Official SDK, both providers use identical API. OpenRouter works via `base_url="https://openrouter.ai/api/v1"`. Single dependency handles both backends. |
+| Library | Current Version | New Usage | Why No Addition Needed |
+|---------|----------------|-----------|----------------------|
+| Textual | 7.5.0 (installed), >=7.0.0 (pinned) | Full `Screen` (not ModalScreen) for printer setup wizard | Already has `OptionList`, `RadioSet`, `RadioButton`, `Static`, `Button`, `LoadingIndicator` -- all needed widgets ship with Textual 7.x |
+| Textual | 7.5.0 | `@work(thread=True)` decorator for async subprocess (`uv sync`) | Worker pattern already used in `tui.py` for streaming |
+| Typer | >=0.23.0 | New `diagnose` subcommand | Same pattern as existing `config show`/`config init` subcommands |
+| subprocess | stdlib | Run `uv sync --extra usb` | Already used for CUPS `lpstat` and `lp` commands in printer.py |
+| shutil | stdlib | `shutil.which("uv")` to find uv binary | Already used for `shutil.which("claude")` in cli.py |
+| Rich | >=14.0.0 | `Table` for structured diagnose output | Already a dependency, Console already instantiated in cli.py |
 
-**Why the official SDK over raw httpx+SSE:** The openai SDK handles SSE parsing, delta extraction, error typing, retry logic, and rate-limit headers. Building this from httpx-sse would require ~200 lines of parsing code to replicate what the SDK does in one line. The SDK weighs in with transitive dependencies (httpx, pydantic, anyio, jiter, tqdm, distro, sniffio), but httpx overlaps with what we would need anyway, and pydantic is useful for config validation down the road.
+### Core Technologies (Unchanged)
 
-**Why NOT the `anthropic` Python SDK:** The project wraps Claude Code CLI (subprocess), not the Anthropic API directly. Adding the anthropic SDK would create a parallel streaming/error/auth code path that diverges from the CLI wrapper. Claude Code CLI remains the primary backend for Claude models.
+| Technology | Version | Purpose | Status |
+|------------|---------|---------|--------|
+| Python | >=3.12 | Runtime | No change |
+| Textual | 7.5.0 (installed), >=7.0.0 (pinned) | TUI framework | No version bump needed |
+| Typer | >=0.23.0 | CLI argument parsing | No change |
+| Rich | >=14.0.0 | CLI formatting for diagnose output | No change |
+| pyusb | >=1.3.0 (optional) | USB device enumeration | No change -- this is what we help users install |
 
-**Integration pattern with existing bridge:**
+## Integration Points
+
+### 1. Printer Setup Screen (Textual Screen)
+
+**Use `Screen`, not `ModalScreen`.** The setup screen is a full startup flow, not a modal overlay on an existing screen.
+
+**Why `Screen[dict | None]`:** Follows the existing `ModalScreen[dict | None]` pattern from `SettingsScreen` but as a full screen. The result type carries the selected printer config back to the app. `None` means "skip setup, use defaults."
 
 ```python
-# New: llm_backends.py (parallel to bridge.py)
-from openai import AsyncOpenAI
+from textual.screen import Screen
+from textual.widgets import OptionList, RadioSet, RadioButton, Button, Static, LoadingIndicator
 
-async def stream_openai_response(
-    prompt: str,
-    messages: list[dict],
-    model: str = "gpt-4o",
-    base_url: str | None = None,  # None = OpenAI, URL = OpenRouter
-    api_key: str | None = None,
-) -> AsyncIterator[str]:
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-    stream = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=True,
+class PrinterSetupScreen(Screen[dict | None]):
+    """Full-screen printer setup wizard. Dismisses with selected config or None (skip)."""
+```
+
+**Key Textual widgets for the setup screen:**
+
+| Widget | Purpose | Notes |
+|--------|---------|-------|
+| `OptionList` | Display discovered USB devices and CUPS printers as selectable list | Better than `ListView` for simple single-selection; fires `OptionList.OptionSelected` message |
+| `RadioSet` + `RadioButton` | Connection method selection (Direct USB vs CUPS queue) and profile selection (juki/escp/ppds/pcl/generic) | Mutually exclusive selection, fires `RadioSet.Changed` |
+| `Static` | Diagnostic info display (devices found, connection status) | Already used throughout the app |
+| `Button` | Confirm/Skip actions | Already used in SettingsScreen |
+| `LoadingIndicator` | Show during pyusb install (`uv sync`) | Built into Textual 7.x |
+| `Label` | Section headers | Already used in SettingsScreen |
+
+**Screen flow via `push_screen`:**
+```python
+# In TeletypeApp.on_mount():
+if not self._has_saved_printer():
+    self.push_screen(PrinterSetupScreen(...), callback=self._on_setup_complete)
+```
+
+**Confidence:** HIGH -- `Screen[ResultType]` with typed dismiss() verified in Textual docs and already used as `ModalScreen[dict | None]` in settings_screen.py. All widgets verified in Textual 7.x widget gallery.
+
+### 2. Running `uv sync --extra usb` From Within the App
+
+**Approach:** `subprocess.run()` with `shutil.which("uv")` -- no new dependencies.
+
+**Critical design decisions:**
+
+| Decision | Recommendation | Rationale |
+|----------|---------------|-----------|
+| Find uv binary | `shutil.which("uv")` | Same pattern as `check_claude_installed()` uses `shutil.which("claude")` |
+| Detect if uv-managed | Check for `uv.lock` in project root, or `os.environ.get("UV_EXECUTABLE")` | UV_EXECUTABLE is set by uv when it spawns subprocesses |
+| Working directory | Run from project root (where `pyproject.toml` lives) | `uv sync` needs pyproject.toml context |
+| Find project root | Walk up from `__file__` looking for `pyproject.toml` | Standard Python pattern |
+| Async execution | Use Textual `@work(thread=True)` decorator | Keeps TUI responsive during install; already used in tui.py for streaming |
+| Error handling | Capture stderr, show in setup screen diagnostic area | User needs to see what went wrong |
+| Post-install import | Call `importlib.invalidate_caches()` then retry `import usb.core` | Python caches module paths; invalidation needed after install |
+| Restart guidance | Show "pyusb installed -- restart to detect USB devices" if import still fails | sys.path may not include new install location in running process |
+
+**Implementation pattern:**
+```python
+import shutil
+import subprocess
+
+def install_pyusb() -> tuple[bool, str]:
+    """Attempt to install pyusb via uv sync. Returns (success, message)."""
+    uv = shutil.which("uv")
+    if uv is None:
+        return False, "uv not found. Install pyusb manually: pip install pyusb"
+
+    project_root = _find_project_root()
+    if project_root is None:
+        return False, "Could not find pyproject.toml. Run: uv sync --extra usb"
+
+    result = subprocess.run(
+        [uv, "sync", "--extra", "usb"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    async for chunk in stream:
-        if chunk.choices[0].delta.content is not None:
-            yield chunk.choices[0].delta.content
+    if result.returncode != 0:
+        return False, f"uv sync failed: {result.stderr.strip()}"
+
+    try:
+        import importlib
+        importlib.invalidate_caches()
+        import usb.core
+        return True, "pyusb installed successfully"
+    except ImportError:
+        return False, "pyusb installed. Restart the app to detect USB devices."
 ```
 
-**OpenRouter usage is identical -- just change base_url:**
+**Confidence:** HIGH -- subprocess.run() pattern already used in printer.py for CUPS. shutil.which() already used in cli.py. uv sync --extra syntax verified in uv docs.
 
-```python
-# OpenAI direct
-client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+### 3. Diagnose CLI Subcommand
 
-# OpenRouter (same SDK, different base_url)
-client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"],
-)
-```
+**Use `@app.command()` not a sub-Typer.** The diagnose command is a single flat command (`claude-teletype diagnose`), not a group with subcommands.
 
-**Key difference from Claude Code CLI bridge:** OpenAI/OpenRouter backends manage their own message history (list of dicts) since there is no `--resume` equivalent. The bridge.py `stream_claude_response()` delegates history to Claude Code; the new `stream_openai_response()` receives the full message list.
+**Typer integration is safe:** The existing `_PromptFriendlyGroup` hack in cli.py handles the conflict between the positional `prompt` argument and subcommand names. Adding `diagnose` as an `@app.command()` works because `_PromptFriendlyGroup.parse_args()` checks `self.list_commands(ctx)` for known subcommand names. "diagnose" will be recognized as a command, not consumed as a prompt.
 
-**Confidence:** HIGH -- openai SDK v2.21.0 verified on PyPI (released 2026-02-14). OpenRouter OpenAI-compatible endpoint verified in official docs.
-
-### 2. Configuration Reading: `tomllib` (stdlib, Python 3.12+)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| tomllib | stdlib (3.12+) | Parse TOML config files | Zero-dependency, ships with Python 3.12+. TOML is the natural format for a Python project already using pyproject.toml. |
-
-**Why TOML over YAML/JSON/INI:**
-- TOML: Human-readable, comment-friendly, typed values (booleans, integers, arrays), already the Python ecosystem standard (pyproject.toml). Users are familiar.
-- YAML: Requires pyyaml dependency, has surprising gotchas (Norway problem, implicit type coercion), overkill for config.
-- JSON: No comments, no trailing commas, hostile to hand-editing.
-- INI: No nested structures, no typed values, would need manual parsing for printer profiles.
-
-**Usage:**
-
-```python
-import tomllib
-from pathlib import Path
-
-def load_config(path: Path) -> dict:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-```
-
-**Confidence:** HIGH -- `tomllib` is in the Python 3.12 stdlib, documented at docs.python.org.
-
-### 3. Configuration Writing: `tomli-w`
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| tomli-w | >=1.2.0 | Write TOML config files | Minimal (zero-dep) counterpart to stdlib tomllib. Needed because tomllib is read-only. Only 2 functions: `dump()` and `dumps()`. |
-
-**Why tomli-w over tomlkit:** tomlkit is a full style-preserving TOML editor (useful for preserving comments during roundtrips), but it is heavier and more complex. For our use case -- writing config from a settings panel -- we generate fresh TOML from a dict, so style preservation is unnecessary. tomli-w is simpler and lighter.
-
-**Usage:**
-
-```python
-import tomli_w
-
-def save_config(config: dict, path: Path) -> None:
-    with open(path, "wb") as f:
-        tomli_w.dump(config, f)
-```
-
-**Confidence:** HIGH -- tomli-w v1.2.0 verified on PyPI (released 2025-01-15). Zero dependencies, requires Python >=3.9.
-
-### 4. Config File Location: `platformdirs`
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| platformdirs | >=4.9.0 | Cross-platform config directory (XDG on Linux, ~/Library on macOS) | Standard solution for "where do config files go." Zero dependencies. Used by pip, black, ruff, virtualenv. |
-
-**Why platformdirs over hardcoded paths:**
-- macOS: `~/Library/Application Support/claude-teletype/config.toml`
-- Linux: `~/.config/claude-teletype/config.toml` (XDG_CONFIG_HOME)
-- Fallback: `~/.claude-teletype/config.toml`
-
-Hardcoding `~/.config/` is wrong on macOS. Hardcoding `~/Library/` is wrong on Linux. platformdirs handles both correctly.
-
-**Usage:**
-
-```python
-from platformdirs import user_config_dir
-from pathlib import Path
-
-config_dir = Path(user_config_dir("claude-teletype"))
-config_path = config_dir / "config.toml"
-```
-
-**Confidence:** HIGH -- platformdirs v4.9.2 verified on PyPI (released 2026-02-16). Zero dependencies, requires Python >=3.10.
-
----
-
-## Printer Profile System: Raw Bytes (No New Dependencies)
-
-Printer control codes (ESC/P, PCL, Juki) are byte-level protocols. No library exists or is needed -- you send raw escape sequences to the device. The existing `JukiPrinterDriver` in `printer.py` already demonstrates this pattern.
-
-### Control Code Reference
-
-**ESC/P (Epson/IBM dot matrix -- Epson FX, LQ, IBM Proprinter):**
-
-| Function | Bytes (hex) | Sequence | Notes |
-|----------|-------------|----------|-------|
-| Reset | `1B 40` | ESC @ | Full printer reset |
-| Bold on | `1B 45` | ESC E | Emphasized printing |
-| Bold off | `1B 46` | ESC F | Cancel emphasized |
-| Italic on | `1B 34` | ESC 4 | |
-| Italic off | `1B 35` | ESC 5 | |
-| Condensed on | `0F` | SI | 17 CPI compressed |
-| Condensed off | `12` | DC2 | Back to normal pitch |
-| Line spacing 1/6" | `1B 32` | ESC 2 | 6 LPI (normal) |
-| Line spacing 1/8" | `1B 30` | ESC 0 | 8 LPI (compact) |
-| Form feed | `0C` | FF | |
-| CR + LF | `0D 0A` | CR LF | Most dot matrix need explicit CR |
-
-**PCL (HP LaserJet/DeskJet/inkjet):**
-
-| Function | Sequence | Notes |
-|----------|----------|-------|
-| Reset | `1B 45` | Ec E |
-| Line spacing 6 LPI | `1B 26 6C 36 44` | Ec&l6D |
-| Line spacing 8 LPI | `1B 26 6C 38 44` | Ec&l8D |
-| Orientation portrait | `1B 26 6C 30 4F` | Ec&l0O |
-| Bold (stroke weight) | `1B 28 73 33 42` | Ec(s3B |
-| Fixed pitch 10 CPI | `1B 28 73 31 30 48` | Ec(s10H |
-
-**Juki 6100 (already implemented -- daisywheel, uses proprietary ESC codes):**
-
-| Function | Bytes (hex) | Existing code |
-|----------|-------------|---------------|
-| Reset | `1B 1A 49` | `JukiPrinterDriver.RESET` |
-| Line spacing 1/6" | `1B 1E 09` | `JukiPrinterDriver.LINE_SPACING` |
-| Fixed pitch | `1B 51` | `JukiPrinterDriver.FIXED_PITCH` |
-
-**Juki 9100 (NEC Spinwriter-compatible):** The Juki 9100 uses a superset of Juki 6100 codes with additional NEC Spinwriter compatibility. Key additions include proportional spacing control and print wheel selection. The exact codes need verification from the hardware manual -- flag for phase-specific research with the actual printer.
-
-### Implementation Pattern: Profile-Based Driver
-
-```python
-@dataclass
-class PrinterProfile:
-    """Control code profile for a specific printer type."""
-    name: str
-    reset: bytes
-    line_spacing_6lpi: bytes
-    bold_on: bytes
-    bold_off: bytes
-    condensed_on: bytes
-    condensed_off: bytes
-    newline: bytes  # "\n" or "\r\n"
-    form_feed: bytes
-    columns: int  # printable width at default pitch
-
-ESCP_PROFILE = PrinterProfile(
-    name="escp",
-    reset=b"\x1b@",
-    line_spacing_6lpi=b"\x1b2",
-    bold_on=b"\x1bE",
-    bold_off=b"\x1bF",
-    condensed_on=b"\x0f",
-    condensed_off=b"\x12",
-    newline=b"\r\n",
-    form_feed=b"\x0c",
-    columns=80,
-)
-
-JUKI_6100_PROFILE = PrinterProfile(
-    name="juki6100",
-    reset=b"\x1b\x1aI",
-    line_spacing_6lpi=b"\x1b\x1e\x09",
-    bold_on=b"",  # Juki 6100 daisywheel has no bold
-    bold_off=b"",
-    condensed_on=b"",
-    condensed_off=b"",
-    newline=b"\r\n",
-    form_feed=b"\x0c",
-    columns=80,
-)
-```
-
-This replaces the current hardcoded `JukiPrinterDriver` with a generic `ProfiledPrinterDriver` that takes any `PrinterProfile`. The existing `JukiPrinterDriver` becomes a profile dict rather than a class.
-
-**Confidence:** HIGH for ESC/P codes (verified against Epson official reference and IBM docs). MEDIUM for Juki 9100 (extrapolated from 6100, needs hardware verification). HIGH for PCL basics (verified against HP developer docs).
-
----
-
-## TUI Settings Panel: Existing Textual Widgets (No New Dependencies)
-
-Textual (now at v8.0.0, released 2026-02-16) already has every widget needed for a settings screen.
-
-### Textual v8.0 Compatibility Note
-
-The project currently pins `textual>=7.0.0`. Textual 8.0 has minor breaking changes:
-- `Select.BLANK` renamed to `Select.NULL`
-- `OptionList` separator changed from `Separator` to `None`
-
-Neither of these affects the existing TUI (which uses `Log`, `Input`, `Header`, `Footer`, `Static`). The settings panel should target v8.0+ APIs. **Recommend updating pin to `textual>=8.0.0`.**
-
-### Widget Inventory for Settings Screen
-
-| Widget | Purpose | Already in Textual |
-|--------|---------|-------------------|
-| `ModalScreen` | Settings overlay on main screen | Yes |
-| `Select` | Dropdown for printer profile, LLM backend | Yes |
-| `Switch` | Toggle audio on/off, printer on/off | Yes |
-| `Input` | Character delay (ms), API keys | Yes, with `type="number"` and `validators=[Number(min, max)]` |
-| `RadioSet` / `RadioButton` | LLM provider selection | Yes |
-| `TabbedContent` | Organize settings into tabs (General / Printer / LLM) | Yes |
-| `Button` | Save / Cancel | Yes |
-| `Label` / `Static` | Section headers, descriptions | Yes |
-
-### Settings Screen Pattern
-
-```python
-from textual.screen import ModalScreen
-from textual.widgets import Select, Switch, Input, Button, TabbedContent, TabPane
-
-class SettingsScreen(ModalScreen[dict | None]):
-    """Modal settings screen. Dismissed with config dict or None (cancel)."""
-
-    BINDINGS = [("escape", "cancel", "Cancel")]
-
-    def compose(self) -> ComposeResult:
-        with TabbedContent():
-            with TabPane("General"):
-                yield Label("Character delay (ms)")
-                yield Input(value="75", type="number", id="delay")
-                yield Label("Audio")
-                yield Switch(value=True, id="audio")
-            with TabPane("Printer"):
-                yield Label("Printer profile")
-                yield Select(
-                    [("ESC/P (Epson/IBM)", "escp"),
-                     ("Juki 6100", "juki6100"),
-                     ("PCL (HP)", "pcl"),
-                     ("None", "none")],
-                    id="printer-profile",
-                )
-            with TabPane("LLM"):
-                yield Label("Backend")
-                yield Select(
-                    [("Claude Code CLI", "claude"),
-                     ("OpenAI", "openai"),
-                     ("OpenRouter", "openrouter")],
-                    id="llm-backend",
-                )
-        yield Button("Save", variant="primary", id="save")
-        yield Button("Cancel", id="cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "save":
-            self.dismiss(self._collect_settings())
-        else:
-            self.dismiss(None)
-
-    # Called from main app:
-    # self.push_screen(SettingsScreen(), callback=self._apply_settings)
-```
-
-**Confidence:** HIGH -- ModalScreen dismiss/callback pattern verified in official Textual docs. Switch, Select, Input, TabbedContent all verified in widget gallery.
-
----
-
-## Typewriter Mode Enhancements: No New Dependencies
-
-The existing `teletype.py` handles raw keyboard-to-printer mode using `termios` and `tty` (stdlib). The "simple typewriter mode" for v1.2 enhances this with:
-
-1. **Profile-aware init codes** -- send the active PrinterProfile's reset/line_spacing on startup instead of hardcoded Juki bytes
-2. **Local echo to TUI** -- optionally mirror typed characters to a Textual Log widget instead of stderr
-3. **Backspace handling** -- send BS (0x08) + space + BS for overstriking on impact printers
-
-No new dependencies needed. The current `run_teletype()` function expands to accept a `PrinterProfile` instead of a `juki: bool` flag.
-
----
-
-## Existing Stack Updates
-
-| Technology | Current Pin | Recommended Pin | Reason |
-|------------|-------------|-----------------|--------|
-| textual | >=7.0.0 | >=8.0.0 | Use `Select.NULL` (v8 API), smooth scrolling. Minor migration: no impact on existing Log/Input/Header usage. |
-
-All other existing dependencies remain unchanged.
-
----
-
-## Complete Dependency Changes
-
-### pyproject.toml diff
-
-```toml
-[project]
-dependencies = [
-    "typer>=0.23.0",
-    "rich>=14.0.0",
-    "textual>=8.0.0",        # Was >=7.0.0 (v8 has Select.NULL rename)
-    "sounddevice>=0.5.0",
-    "numpy>=1.26.0",
-    "platformdirs>=4.9.0",   # NEW: cross-platform config directory
-    "tomli-w>=1.2.0",        # NEW: TOML config writing (reading is stdlib tomllib)
-]
-
-[project.optional-dependencies]
-usb = ["pyusb>=1.3.0"]
-llm = ["openai>=2.21.0"]    # NEW: optional, for OpenAI/OpenRouter backends
-```
-
-**Key decision: `openai` is an optional dependency.** The core Claude Teletype experience uses Claude Code CLI (subprocess, no SDK). The openai SDK is only needed if the user wants OpenAI or OpenRouter as an alternative LLM backend. This keeps the default install lightweight and avoids pulling in httpx/pydantic/etc for users who only use Claude.
-
-### Installation Commands
-
-```bash
-# Core (Claude Code CLI only, config system, printer profiles)
-uv sync
-
-# With OpenAI/OpenRouter support
-uv sync --extra llm
-
-# With USB printer support
-uv sync --extra usb
-
-# Everything
-uv sync --extra llm --extra usb
-
-# Dev
-uv sync --group dev
-```
-
----
-
-## Alternatives Considered
-
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Config format | TOML (tomllib + tomli-w) | YAML (pyyaml) | Extra dependency, surprising type coercion gotchas, not the Python ecosystem standard |
-| Config format | TOML | JSON | No comments, hostile to hand-editing |
-| Config location | platformdirs | Hardcoded `~/.config/` | Wrong on macOS (should be `~/Library/Application Support/`) |
-| Config location | platformdirs | `~/.claude-teletype/` | Non-standard, pollutes home directory |
-| Multi-LLM SDK | openai (official) | httpx + httpx-sse (raw) | ~200 lines of SSE/delta parsing to replicate; SDK handles retries, rate limits, typing |
-| Multi-LLM SDK | openai (official) | litellm | Massive dependency that wraps 100+ providers. Overkill for 2 providers (OpenAI + OpenRouter). |
-| Multi-LLM SDK | openai (official) | anthropic SDK | Not needed -- Claude access is via CLI subprocess, not API. Adding anthropic SDK creates parallel code path. |
-| TOML writer | tomli-w | tomlkit | tomlkit preserves comments/style on roundtrip. Unnecessary since we generate config fresh from settings dict. |
-| Settings UI | Textual ModalScreen | Separate CLI command | Breaks flow. Settings should be accessible from within the TUI session. |
-| Printer control codes | Raw bytes in dataclass profiles | python-escpos library | python-escpos targets POS/receipt printers (ESC/POS), not dot-matrix printers (ESC/P). Different protocol. Also adds dependency for something that is literally 10 bytes per profile. |
-
----
-
-## What NOT to Add
-
-| Library | Why Not |
-|---------|---------|
-| `pyyaml` | TOML is better for config (comments + types + Python standard). No YAML. |
-| `python-escpos` | ESC/POS != ESC/P. Targets receipt printers, not dot-matrix. Wrong protocol. |
-| `tomlkit` | Style-preserving roundtrip unnecessary. We generate config from dict. |
-| `litellm` | 100+ provider wrapper. Overkill. We need exactly 2 providers. |
-| `anthropic` | Claude access is via CLI. SDK would create parallel auth/streaming/error paths. |
-| `pydantic` | Comes as transitive dep of openai, but do NOT use it for config validation. Keep config as plain dicts with manual validation. Avoids coupling. |
-| `keyring` | API key storage. Premature -- environment variables are the standard for API keys. Users can use their OS keychain manually. |
-| `python-dotenv` | .env file loading. Unnecessary -- users set env vars in their shell profile. Adding dotenv creates confusion about which env vars come from where. |
-
----
-
-## Integration Points with Existing Code
-
-### New Module: `config.py`
-
-```python
-"""Application configuration: load, save, defaults, file location."""
-import tomllib
-import tomli_w
-from pathlib import Path
-from platformdirs import user_config_dir
-
-APP_NAME = "claude-teletype"
-DEFAULT_CONFIG = {
-    "general": {
-        "delay_ms": 75.0,
-        "audio": True,
-        "transcript_dir": None,  # None = ./transcripts
-    },
-    "printer": {
-        "profile": "none",  # "escp", "juki6100", "pcl", "none"
-        "device": None,
-        "columns": 80,
-    },
-    "llm": {
-        "backend": "claude",  # "claude", "openai", "openrouter"
-        "model": None,  # None = backend default
-        "openai_api_key_env": "OPENAI_API_KEY",
-        "openrouter_api_key_env": "OPENROUTER_API_KEY",
-    },
-}
-```
-
-### New Module: `profiles.py`
-
-```python
-"""Printer profiles with control code definitions."""
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class PrinterProfile:
-    name: str
-    reset: bytes
-    init_sequence: bytes  # sent once at start
-    newline: bytes
-    form_feed: bytes
-    columns: int
-
-PROFILES: dict[str, PrinterProfile] = {
-    "escp": PrinterProfile(...),
-    "juki6100": PrinterProfile(...),
-    "pcl": PrinterProfile(...),
-}
-```
-
-### Modified: `bridge.py` -- Unchanged for Claude Code CLI
-
-The existing `stream_claude_response()` stays as-is. New LLM backends get a parallel module.
-
-### New Module: `llm_backends.py`
-
-```python
-"""Alternative LLM backends via OpenAI-compatible API."""
-# Only importable when openai extra is installed
-```
-
-### Modified: `printer.py` -- Profile-Based Driver
-
-`JukiPrinterDriver` refactored into generic `ProfiledPrinterDriver` that accepts any `PrinterProfile`. The `JukiPrinterDriver` class is kept as a backward-compatible alias.
-
-### Modified: `tui.py` -- Settings Keybinding
-
-```python
-BINDINGS = [
-    Binding("ctrl+d", "quit", "Quit"),
-    Binding("escape", "cancel_stream", "Cancel", show=False),
-    Binding("ctrl+comma", "settings", "Settings"),  # NEW
-]
-```
-
-### Modified: `cli.py` -- Config Loading
+**Rich Table for output:** Use existing `console = Console()` with `rich.table.Table` for structured diagnostic data. Rich is already a dependency.
 
 ```python
 @app.command()
-def chat(...):
-    config = load_config()  # Load from platformdirs location
-    # CLI flags override config file values
-    effective_delay = delay if delay != 75.0 else config["general"]["delay_ms"]
+def diagnose():
+    """Show printer diagnostic information."""
+    from rich.table import Table
+    # Reuse discover_cups_printers(), discover_usb_device_verbose(),
+    # discover_macos_usb_printers() from printer.py
 ```
 
----
+**Confidence:** HIGH -- same subcommand pattern as existing `config show`/`config init`. _PromptFriendlyGroup verified to handle additional command names.
 
-## Risk Assessment
+### 4. Persisting Printer Selection to TOML Config
 
-| Area | Risk | Mitigation |
-|------|------|------------|
-| openai SDK dependency weight (httpx, pydantic, etc.) | LOW | Made optional via `[project.optional-dependencies] llm`. Core install stays light. |
-| OpenRouter API compatibility drift | LOW | OpenRouter explicitly documents OpenAI SDK compatibility. Same `chat.completions.create()` call. |
-| Textual 8.0 breaking change (`Select.BLANK` -> `Select.NULL`) | LOW | Only affects new settings code, not existing TUI. Easy to target v8 from the start. |
-| Juki 9100 control codes unverified | MEDIUM | Start with Juki 6100 profile (known working). Add 9100 profile during implementation with hardware testing. |
-| Config file migration (none exists yet) | LOW | v1.2 is first version with config. No migration needed. Default config generated on first run. |
-| Message history management for OpenAI/OpenRouter | MEDIUM | Unlike Claude Code CLI (which manages history internally), OpenAI/OpenRouter need client-side message list. Keep it simple: in-memory list, no persistence across sessions initially. |
+**Extend existing `TeletypeConfig` dataclass and `save_config()`.** No new libraries.
 
----
+New fields needed in `TeletypeConfig`:
+
+| Field | Type | Default | TOML Location | Purpose |
+|-------|------|---------|---------------|---------|
+| `cups_printer` | `str` | `""` | `[printer]` | CUPS queue name when using CUPS connection |
+
+**Note:** The existing `device` field already handles direct USB device paths. The existing `printer_profile` field already stores the profile name. The only missing piece is a CUPS printer name field.
+
+**The `save_config()` function** already writes TOML by hand (string template, not tomli-w) because it preserves comments. Adding new `[printer]` fields follows the exact same pattern -- append lines to the `[printer]` section.
+
+**Skip-on-relaunch logic:** On startup, check if `printer_profile` is set to something other than "generic" AND the target device/CUPS queue still exists. If yes, skip setup screen. If no (device unplugged, CUPS queue removed), show setup screen again.
+
+**Confidence:** HIGH -- extends existing config.py patterns. save_config() hand-formats TOML strings; adding fields is trivial.
+
+## What NOT to Add
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `pycups` (Python CUPS bindings) | Heavyweight C extension, requires CUPS development headers to compile. Only need `lpstat -v` output and `lp -o raw` to send jobs | `subprocess.run(["lpstat", "-v"])` -- already working in printer.py |
+| `python-usb-monitor` or `pyudev` | Only useful for live USB hotplug events; setup screen runs once at startup, not continuously | Enumerate once with existing `usb.core.find(find_all=True)` |
+| `tomli-w` for config writing | Already decided against in v1.2 -- tomli-w cannot write comments, hand-formatted template preserves documentation | Continue using the string-template approach in `save_config()` |
+| `textual-wizard` or similar | No official Textual wizard library; building with Screen + widgets is straightforward | Compose widgets directly in `PrinterSetupScreen` |
+| `pip` as install backend | App is a uv project (`uv.lock` exists); mixing pip and uv causes resolver conflicts | Always prefer `uv sync --extra usb` |
+| `importlib.metadata` for pyusb detection | Overly complex for a simple "is it importable?" check | `try: import usb.core` -- already the pattern in profiles.py |
+| Any new Textual version pin | Textual 7.5.0 has all needed widgets; no reason to bump | Keep `textual>=7.0.0` |
+
+## Stack Patterns by Variant
+
+**If pyusb is already installed:**
+- USB devices appear in the setup screen's device list
+- Profile selection offered for each USB printer-class device
+- No install prompt shown
+
+**If pyusb is NOT installed:**
+- Setup screen shows "USB detection unavailable"
+- Offers "Install USB support" button that runs `uv sync --extra usb`
+- Falls back to showing CUPS printers only (via `lpstat`)
+- After install, prompts restart or re-enumerates if import succeeds
+
+**If neither pyusb nor CUPS printers found:**
+- Setup screen shows "No printers detected"
+- Offers manual device path entry (text input for `/dev/usb/lp0`)
+- Offers "Continue without printer" to use simulator mode
+
+**If running in --no-tui mode:**
+- Skip the TUI setup screen entirely
+- Use existing auto-detection logic (unchanged)
+- The `diagnose` command works independently of TUI
+
+## Version Compatibility
+
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| Textual >=7.0.0 | `Screen[result_type]` | Generic Screen with typed dismiss() stable in 7.x |
+| Textual >=7.0.0 | OptionList, RadioSet, RadioButton, LoadingIndicator | All shipped since Textual 0.27+, stable in 7.x |
+| Textual 7.5.0 | `@work(thread=True)` | Worker pattern stable since Textual 0.18+ |
+| Typer >=0.23.0 | `@app.command()` alongside `@app.callback()` | Works with _PromptFriendlyGroup hack |
+| pyusb >=1.3.0 | libusb 1.0.x via homebrew | macOS requires `brew install libusb` separately |
+
+## pyproject.toml Changes
+
+**None required.** All dependencies already declared:
+- `textual>=7.0.0` -- has all needed widgets
+- `typer>=0.23.0` -- supports subcommands
+- `rich>=14.0.0` -- has Table, Console for diagnostics
+- `pyusb>=1.3.0` in `[project.optional-dependencies] usb` -- what we are helping users install
 
 ## Sources
 
-- OpenAI Python SDK v2.21.0 on PyPI: https://pypi.org/project/openai/
-  - Confirmed: `AsyncOpenAI`, `stream=True`, `chunk.choices[0].delta.content`
-  - Dependencies: httpx, pydantic, anyio, jiter, tqdm, distro, sniffio
-  - Confidence: HIGH (official package, verified 2026-02-17)
+- Textual widget gallery: https://textual.textualize.io/widget_gallery/ -- verified OptionList, RadioSet, RadioButton, LoadingIndicator availability (HIGH confidence)
+- Textual Screen docs: https://textual.textualize.io/guide/screens/ -- Screen[ResultType] pattern (HIGH confidence)
+- Textual OptionList: https://textual.textualize.io/widgets/option_list/ -- single-select list widget (HIGH confidence)
+- Textual RadioSet: https://textual.textualize.io/widgets/radioset/ -- mutually exclusive selection (HIGH confidence)
+- uv CLI reference: https://docs.astral.sh/uv/reference/cli/ -- `uv sync --extra` flags (HIGH confidence)
+- uv environment variables: https://docs.astral.sh/uv/reference/environment/ -- UV_EXECUTABLE detection (HIGH confidence)
+- Existing codebase: settings_screen.py (ModalScreen pattern), cli.py (Typer subcommand pattern, shutil.which), printer.py (CUPS/USB discovery), config.py (save_config pattern) -- all verified by code inspection
+- Installed Textual version: 7.5.0 (verified via `uv run python -c "import textual; print(textual.__version__)"`)
 
-- OpenRouter OpenAI SDK integration: https://openrouter.ai/docs/guides/community/openai-sdk
-  - Confirmed: `base_url="https://openrouter.ai/api/v1"` with standard OpenAI client
-  - Confidence: HIGH (official OpenRouter docs)
-
-- Python tomllib (stdlib): https://docs.python.org/3.12/library/tomllib.html
-  - Read-only TOML parser, binary mode required
-  - Confidence: HIGH (Python stdlib docs)
-
-- tomli-w v1.2.0 on PyPI: https://pypi.org/project/tomli-w/
-  - Zero dependencies, `dump()` and `dumps()` API
-  - Confidence: HIGH (official package)
-
-- platformdirs v4.9.2 on PyPI: https://pypi.org/project/platformdirs/
-  - Zero dependencies, `user_config_dir()` API
-  - Confidence: HIGH (official package)
-
-- Textual v8.0.0 on PyPI: https://pypi.org/project/textual/
-  - Breaking changes: Select.BLANK -> Select.NULL, OptionList separator change
-  - ModalScreen, Switch, Select, Input, TabbedContent all confirmed available
-  - Confidence: HIGH (official package + widget gallery)
-
-- Textual ModalScreen docs: https://textual.textualize.io/guide/screens/
-  - dismiss() callback pattern and push_screen_wait() async pattern
-  - Confidence: HIGH (official docs)
-
-- Textual widget gallery: https://textual.textualize.io/widget_gallery/
-  - Confirmed: Input (with type="number"), Switch, Select, RadioSet, TabbedContent, Button, Label
-  - Confidence: HIGH (official docs)
-
-- ESC/P control codes: https://stanislavs.org/helppc/epson_printer_codes.html
-  - ESC @, ESC E/F, SI/DC2, ESC 2/0 confirmed for Epson FX/LQ series
-  - Confidence: HIGH (well-established protocol, cross-referenced with IBM docs)
-
-- IBM PPDS and ESC/P reference: https://www.ibm.com/support/pages/list-ibm-ppds-and-epson-escp-control-codes-and-escape-sequences
-  - Cross-reference for ESC/P codes on IBM-compatible dot matrix
-  - Confidence: HIGH (IBM official support page)
-
-- PCL command reference: https://people.wou.edu/~soukupm/pcl_commands.htm and https://developers.hp.com/hp-printer-command-languages-pcl
-  - PCL5 escape sequence structure confirmed
-  - Confidence: HIGH (HP developer portal)
-
-- Juki 6100 technical manual: https://archive.org/stream/bitsavers_jukiJuki61y84_24339953/Juki_6100_Technical_Manual_May84_djvu.txt
-  - ESC codes for Juki daisywheel series
-  - Confidence: MEDIUM (archive.org scan, confirmed by working code in printer.py)
-
-- OpenAI streaming API guide: https://developers.openai.com/api/docs/guides/streaming-responses
-  - stream=True, delta.content extraction pattern
-  - Confidence: HIGH (official OpenAI docs)
+---
+*Stack research for: v1.4 Printer Setup TUI*
+*Researched: 2026-04-02*

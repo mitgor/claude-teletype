@@ -6,6 +6,7 @@
 - ✅ **v1.1 Conversation Mode** - Phases 5-7 (shipped 2026-02-17)
 - ✅ **v1.2 Configuration, Profiles, Multi-LLM, Settings** - Phases 8-15 (shipped 2026-02-17)
 - ✅ **v1.3 Tech Debt Cleanup** - Phases 16-17 (shipped 2026-02-20)
+- 🚧 **v1.4 Printer Setup TUI** - Phases 18-20 (in progress)
 
 ## Phases
 
@@ -50,10 +51,64 @@
 
 </details>
 
+### v1.4 Printer Setup TUI (In Progress)
+
+**Milestone Goal:** Interactive TUI screen for discovering, selecting, and configuring printers at startup -- replacing silent auto-detection with a visible, user-driven setup flow.
+
+- [ ] **Phase 18: Discovery Data Layer & Diagnostics** - Structured discovery primitives and CLI diagnose command
+- [ ] **Phase 19: Printer Setup Screen** - Interactive TUI for device selection, profile assignment, and pyusb install
+- [ ] **Phase 20: Config Persistence & Smart Startup** - Save printer selection to TOML and skip setup on reconnect
+
+## Phase Details
+
+### Phase 18: Discovery Data Layer & Diagnostics
+**Goal**: Users can run a single diagnose command to see all discoverable printers, USB status, and pyusb availability -- and the app handles missing pyusb without crashing
+**Depends on**: Phase 17 (v1.3 complete)
+**Requirements**: DIAG-01, DEP-01
+**Success Criteria** (what must be TRUE):
+  1. User can run `claude-teletype diagnose` and see a structured report listing USB devices, CUPS queues, pyusb status, and libusb backend availability
+  2. When pyusb is not installed, the app shows only CUPS printers in discovery output and does not crash or show tracebacks
+  3. The diagnose command output distinguishes between "no devices found" and "pyusb not installed" states
+**Plans**: 1 plan
+
+Plans:
+- [ ] 18-01-PLAN.md -- Discovery dataclasses, discover_all(), diagnose CLI command
+
+### Phase 19: Printer Setup Screen
+**Goal**: Users see an interactive setup screen on startup where they can browse discovered devices, pick a connection method, assign a printer profile, install pyusb if missing, or skip to simulator mode
+**Depends on**: Phase 18
+**Requirements**: SETUP-01, SETUP-02, SETUP-03, SETUP-04, SETUP-05, DEP-02
+**Success Criteria** (what must be TRUE):
+  1. User sees a list of all discovered USB devices and CUPS printers on the setup screen at startup
+  2. User can select between USB Direct and CUPS Queue connection methods for a chosen device
+  3. User can assign a printer profile (juki/escp/ppds/pcl/generic) to a USB device, with the correct profile auto-suggested when VID:PID matches a known printer
+  4. User can choose "Skip / Simulator" to bypass printer setup and use the app without hardware
+  5. User sees inline discovery progress and connection status messages (e.g., "Scanning USB...", "3 CUPS queues found", "pyusb not installed -- USB detection unavailable") while the setup screen loads
+  6. When pyusb is missing, user can trigger installation from within the setup screen and see a progress indicator while `uv sync --extra usb` runs asynchronously
+**Plans**: TBD
+**UI hint**: yes
+
+Plans:
+- [ ] 19-01: TBD
+- [ ] 19-02: TBD
+
+### Phase 20: Config Persistence & Smart Startup
+**Goal**: Users configure their printer once and the app remembers -- setup is skipped on subsequent launches when the saved printer is still connected
+**Depends on**: Phase 19
+**Requirements**: CFG-01, CFG-02
+**Success Criteria** (what must be TRUE):
+  1. After completing printer setup, the user's printer type, device identifier, and profile selection are saved to the TOML config file
+  2. On next launch, if the saved printer is still connected (USB matched by VID:PID, CUPS matched by queue name), the setup screen is skipped and the app goes straight to chat
+  3. On next launch, if the saved printer is NOT connected, the setup screen reappears so the user can reconfigure
+**Plans**: TBD
+
+Plans:
+- [ ] 20-01: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 16 → 17
+Phases execute in numeric order: 18 → 19 → 20
 
 | Phase | Milestone | Plans | Status | Completed |
 |-------|-----------|-------|--------|-----------|
@@ -72,5 +127,8 @@ Phases execute in numeric order: 16 → 17
 | 13. Settings Panel | v1.2 | 2/2 | ✓ Complete | 2026-02-17 |
 | 14. Verify Config & Traceability | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
 | 15. Fix system_prompt Hot-Swap | v1.2 | 1/1 | ✓ Complete | 2026-02-17 |
-| 16. Config and Profile Polish | v1.3 | Complete    | 2026-02-20 | 2026-02-20 |
-| 17. Claude-CLI Warnings | 1/1 | Complete    | 2026-02-20 | - |
+| 16. Config and Profile Polish | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
+| 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
+| 18. Discovery Data Layer & Diagnostics | v1.4 | 0/1 | Not started | - |
+| 19. Printer Setup Screen | v1.4 | 0/TBD | Not started | - |
+| 20. Config Persistence & Smart Startup | v1.4 | 0/TBD | Not started | - |

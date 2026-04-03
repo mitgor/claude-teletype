@@ -1,644 +1,301 @@
-# Domain Pitfalls: v1.2 Configuration, Printer Profiles, Multi-LLM, Settings UI, Typewriter Mode
+# Pitfalls Research
 
-**Domain:** Adding configuration system, printer profiles with per-printer control codes, multi-LLM backends (OpenAI + OpenRouter), TUI settings page, and typewriter mode to an existing Python terminal application
-**Researched:** 2026-02-17
-**Confidence:** HIGH (verified with official API docs for OpenAI/Anthropic/OpenRouter, Textual docs, Python stdlib docs, printer protocol references)
-
----
+**Domain:** Adding printer setup TUI, USB device selection, CUPS discovery, pyusb auto-install, and config persistence to an existing Python Textual app
+**Researched:** 2026-04-02
+**Confidence:** HIGH (verified against existing codebase, Textual docs, pyusb/libusb issue trackers, CUPS documentation)
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites, security vulnerabilities, or major breakage.
-
-### Pitfall 1: Storing API Keys in the Config File Alongside Non-Secret Settings
+### Pitfall 1: Subprocess (uv sync) Blocks the Textual Event Loop
 
 **What goes wrong:**
-The developer creates a single `config.toml` file that stores everything -- delays, printer preferences, AND API keys for OpenAI/OpenRouter. The file gets committed to git. Or the user shares their config with someone for debugging. Or a crash dump includes the config contents. The API keys are now leaked. Even if the file is excluded from git, it sits on disk in plaintext, readable by any process running as the same user.
+Running `subprocess.run(["uv", "sync", "--extra", "usb"])` synchronously from within a Textual app freezes the entire TUI. The event loop stops processing repaints, key events, and timers. The user sees a frozen screen with no feedback for several seconds while `uv sync` downloads and installs pyusb.
 
 **Why it happens:**
-It is the simplest implementation. One file, one load function, one save function. The developer intends to add `.gitignore` entries and "handle it later." But the config file is a natural thing to share ("here's my setup") and plaintext files are trivially exfiltrated by malware or shoulder-surfing.
+Textual runs on a single asyncio event loop. Any synchronous blocking call (subprocess.run, time.sleep, blocking I/O) stalls everything. Developers reach for subprocess.run because it is the simplest API and works fine outside a TUI context.
 
-**Consequences:**
-- API keys leaked to git history (even if removed later, they are in reflog forever)
-- API keys exposed when user shares config for support/debugging
-- Third-party processes on same machine can read the keys
-- OpenAI/OpenRouter keys have billing implications -- a leaked key generates charges
+**How to avoid:**
+Use `asyncio.create_subprocess_exec` inside a Textual `@work` worker. Stream stdout/stderr line-by-line and update a status widget in real time. Example pattern:
 
-**Prevention:**
-1. **Separate secrets from config entirely.** Non-secret settings go in `config.toml`. API keys go in one of:
-   - **Environment variables** (simplest, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) -- the existing convention both OpenAI and OpenRouter recommend
-   - **A dedicated `.env` file** loaded via `python-dotenv` -- still plaintext but at least separate from shareable config and conventionally gitignored
-   - **macOS Keychain via `keyring` library** -- encrypted at rest, requires user authentication
-2. **The config file should only store a boolean** like `llm_provider = "openai"`, never the key itself.
-3. **At load time, resolve keys from environment variables first**, then `.env` file, then keyring. Never write keys to `config.toml`.
-4. **Mask keys in any logging or error output**: show only last 4 characters (`sk-...abcd`).
-
-**Detection:**
-- `grep -r "sk-" .` or `grep -r "api_key" config.toml` in the repo
-- Check if `config.toml` contains any string starting with `sk-` or `or-`
-
-**Confidence:** HIGH -- standard security practice, verified with [GitGuardian secrets management guide](https://blog.gitguardian.com/how-to-handle-secrets-in-python/) and [OpenAI API key documentation](https://platform.openai.com/docs/api-reference/authentication).
-
-**Phase to address:** Config system phase (first). The secret/non-secret boundary must be established before any code reads API keys.
-
----
-
-### Pitfall 2: Treating OpenAI SSE and Anthropic NDJSON (via Claude Code CLI) as the Same Stream Format
-
-**What goes wrong:**
-The developer creates a "unified streaming interface" that assumes all LLM backends produce the same stream format. The current bridge.py parses NDJSON lines from Claude Code CLI's `--output-format stream-json`. The developer assumes OpenAI's streaming is also NDJSON. It is not. OpenAI uses Server-Sent Events (SSE) with `data: {json}` prefixes and terminates with `data: [DONE]`. Anthropic's direct API also uses SSE but with different event types (`content_block_delta` vs OpenAI's `choices[0].delta.content`). The parser silently produces no output or crashes on `json.loads("data: {...}")`.
-
-**Why it happens:**
-Three different stream formats are in play and they look superficially similar:
-
-| Backend | Format | Text Location | Stream End | Usage Location |
-|---------|--------|---------------|------------|----------------|
-| Claude Code CLI | NDJSON (one JSON per line) | `event.delta.text` in `content_block_delta` | EOF + `result` message | `result` message at end |
-| OpenAI API | SSE (`data: {json}\n\n`) | `choices[0].delta.content` | `data: [DONE]` | Final chunk before `[DONE]` (if `stream_options.include_usage: true`) |
-| Anthropic API | SSE (`event: type\ndata: {json}\n\n`) | `delta.text` in `content_block_delta` | `event: message_stop` | `message_delta` event with cumulative usage |
-| OpenRouter API | SSE (OpenAI-compatible + comments) | `choices[0].delta.content` | `data: [DONE]` | Same as OpenAI but may include SSE comments like `: OPENROUTER PROCESSING` |
-
-**Consequences:**
-- Silent failure: parser finds no matching events, yields nothing, user sees empty response
-- Crash on `json.loads()` when input includes `data: ` prefix or `event: ` lines
-- `data: [DONE]` causes JSONDecodeError if not handled
-- OpenRouter SSE comment lines (`: OPENROUTER PROCESSING`) cause parsing errors
-- Usage/cost tracking breaks because token counts are reported differently
-
-**Prevention:**
-1. **Each backend gets its own stream parser module.** Do NOT try to normalize at the byte level. Instead:
-   - `bridge.py` (existing) -- parses Claude Code CLI NDJSON, unchanged
-   - `openai_bridge.py` (new) -- parses OpenAI SSE format
-   - `openrouter_bridge.py` (new, or reuse openai_bridge) -- parses OpenAI-compatible SSE with comment filtering
-2. **All parsers yield the same output type**: `AsyncIterator[str | StreamResult]`. The normalization happens at the output, not the input.
-3. **OpenAI SSE parsing must:**
-   - Skip blank lines (SSE delimiter)
-   - Skip lines starting with `:` (SSE comments, used by OpenRouter for keepalive)
-   - Strip `data: ` prefix before JSON parsing
-   - Handle `data: [DONE]` as stream termination (not JSON)
-   - Extract text from `choices[0].delta.content` (may be None on non-content chunks)
-4. **Anthropic direct API SSE parsing must:**
-   - Parse `event:` lines to determine event type
-   - Handle `ping` events (skip them)
-   - Handle `error` events mid-stream
-   - Extract text from `content_block_delta` events with `text_delta` type
-   - Detect `message_stop` for stream end
-5. **Test with real API responses**, not mocked data. SSE edge cases (empty delta, `content: null`, tool_use blocks) are easy to miss.
-
-**Detection:**
-- Run all three backends and compare output for the same prompt
-- Specifically test: empty response, very long response, response with code blocks, rate limit mid-stream
-
-**Confidence:** HIGH -- verified from [Anthropic streaming docs](https://platform.claude.com/docs/en/api/messages-streaming), [OpenAI streaming reference](https://platform.openai.com/docs/api-reference/chat-streaming), [OpenRouter streaming docs](https://openrouter.ai/docs/api/reference/streaming), and [Simon Willison's SSE comparison](https://til.simonwillison.net/llms/streaming-llm-apis).
-
-**Phase to address:** Multi-LLM phase. This is the core architectural decision for the provider abstraction.
-
----
-
-### Pitfall 3: Switching LLM Provider Mid-Session Corrupts Conversation Context
-
-**What goes wrong:**
-The user opens settings mid-conversation, switches from Claude Code to OpenAI, and sends the next prompt. The app tries to continue the conversation but the context is gone -- Claude Code's session state (stored in `~/.claude/sessions/`) is meaningless to OpenAI, and the conversation history was never tracked in-process (because v1.1 deliberately delegated context management to Claude Code). The user gets a response with no context of the previous 10 turns.
-
-**Why it happens:**
-The v1.1 architecture made a deliberate and correct decision (see v1.1 PITFALLS.md, Pitfall 4): let Claude Code own session state via `--resume <session_id>`. This means the app stores NO conversation history in-process. When switching to a provider that does not have access to Claude Code's session storage, there is no history to send.
-
-**Consequences:**
-- Complete context loss on provider switch
-- User confusion: "I just asked about X, why does it not remember?"
-- If the app tries to reconstruct history from the transcript, it gets only the text (no system prompts, no tool results, no token counts)
-- Switching back to Claude Code works (session_id is still valid), creating asymmetric behavior
-
-**Prevention:**
-1. **Do NOT allow provider switching mid-session.** When the user changes LLM provider in settings, start a new session. Display a clear message: "Switching provider starts a new conversation."
-2. **Alternative (more complex, defer to later milestone):** Maintain a shadow conversation history in-process alongside Claude Code's session management. On provider switch, replay the history to the new provider. This is complex and was explicitly avoided in v1.1 for good reason.
-3. **For v1.2, the simple approach is correct:** Provider is set at session start. Changing it requires a new session. The settings UI should make this clear with a warning before applying the change.
-4. **Store the provider choice in StreamResult** so the status bar shows which provider is active. This prevents confusion about which backend is handling the current session.
-
-**Detection:**
-- Test: start session with Claude Code (5 turns), switch to OpenAI in settings, send prompt. Does the response have context?
-- Test: switch from OpenAI to Claude Code. Does `--resume` work with a session_id from OpenAI? (It should not -- they are separate systems.)
-
-**Confidence:** HIGH -- direct analysis of the v1.1 architecture decision in bridge.py and tui.py.
-
-**Phase to address:** Settings UI phase, but the constraint must be documented in the multi-LLM phase architecture.
-
----
-
-### Pitfall 4: Printer Control Code Bytes Interpreted as Text Characters
-
-**What goes wrong:**
-The developer stores printer control codes as strings in TOML config: `init_sequence = "\x1b\x1aI"`. When loaded by Python's `tomllib`, the string contains Unicode characters U+001B, U+001A, U+0049. The code calls `driver.write(init_sequence)` which encodes each character with `char.encode("ascii", errors="replace")`. This works for ASCII-range control characters. But the developer then tries to store multi-byte ESC/P2 parameters like `\x1b\x2a\x00\x80\x02` (graphics mode with a 640-byte parameter). The `\x80` is outside ASCII range. `errors="replace"` converts it to `?` (0x3F). The printer receives `ESC * NUL ? STX` instead of `ESC * NUL 0x80 STX`, enters an undefined state, and may print garbage, jam, or hang.
-
-**Why it happens:**
-The existing `PrinterDriver.write(char: str)` interface was designed for printable text characters. It encodes with `ascii, errors="replace"`. Printer control codes often include bytes outside the ASCII printable range (0x80-0xFF are used for parameter values, graphic data, and extended character sets). The `str -> bytes` encoding path silently corrupts these values.
-
-**Consequences:**
-- Control codes silently corrupted -- no error raised
-- Printer enters undefined state (wrong graphics mode, wrong pitch, wrong paper feed distance)
-- On dot matrix printers, corrupted ESC sequences can cause the printhead to slam into the side of the carriage (line spacing set to 0) or feed paper continuously
-- On daisywheel/impact printers like the Juki, corrupted init codes produce wrong pitch or line spacing with no visible error
-
-**Prevention:**
-1. **Printer profiles should store control codes as byte arrays, not strings.** Use hex notation in TOML:
-   ```toml
-   [printer.juki_6100]
-   init_codes = "1b 1a 49 1b 1e 09 1b 51"  # hex string
-   newline = "0d 0a"
-   ```
-   Parse at load time: `bytes.fromhex(value.replace(" ", ""))`
-2. **Add a `write_raw(data: bytes)` method to PrinterDriver** that bypasses the `str.encode("ascii")` path. The existing `JukiPrinterDriver._send_raw()` already does this character-by-character, but it should be a first-class method on the protocol.
-3. **Validate control code sequences at profile load time.** Check that sequences start with valid ESC (0x1B) or control characters. Reject sequences that contain obviously invalid byte patterns.
-4. **Never pass raw control code bytes through the WordWrapper or output_fn pipeline.** Control codes must be sent directly to the driver, bypassing the character-by-character pacing/wrapping system.
-
-**Detection:**
-- Print a test pattern with init codes that include bytes > 0x7F
-- Compare hex dump of sent bytes vs expected bytes: `driver.write()` output vs profile definition
-
-**Confidence:** HIGH -- direct code analysis of `FilePrinterDriver.write()` and `UsbPrinterDriver.write()` which both use `char.encode("ascii", errors="replace")`, confirmed by [ESC/P reference](https://files.support.epson.com/pdf/general/escp2ref.pdf) which documents parameters in the 0x80-0xFF range.
-
-**Phase to address:** Printer profiles phase. The `write_raw()` method must exist before profiles send init codes.
-
----
-
-### Pitfall 5: Config File Schema Changes Break Existing Installations on Upgrade
-
-**What goes wrong:**
-v1.2.0 ships with `config.toml` having fields `[llm]`, `[printer]`, `[audio]`. v1.2.1 adds `[printer.paper]` with a required `size` field. Users who upgrade have an old config file without `[printer.paper]`. The app crashes on startup with `KeyError: 'paper'` or a Pydantic `ValidationError`. The user sees a stack trace, has no idea what changed, and files a bug report.
-
-**Why it happens:**
-Config schema evolution is one of the most common sources of bugs in desktop applications. Every new field must have a default value. Every renamed field must be migrated. Every removed field must be silently ignored. Most developers test with fresh configs and never test the upgrade path.
-
-**Consequences:**
-- App crashes on startup after upgrade -- worst possible user experience
-- Users manually edit config files incorrectly trying to fix it
-- If the app writes a "fixed" config that drops unknown fields, user customizations from newer versions are lost on downgrade
-
-**Prevention:**
-1. **Every config field MUST have a default value.** Use Pydantic `BaseModel` with defaults for all fields:
-   ```python
-   class PrinterConfig(BaseModel):
-       default_device: str | None = None
-       columns: int = 80
-       paper_size: str = "a4"  # Always has a default
-   ```
-2. **Include a `schema_version` integer in the config file.** Check it at load time. If missing, assume version 1 and migrate:
-   ```toml
-   schema_version = 1
-   ```
-3. **Use `model_config = ConfigDict(extra="ignore")` in Pydantic** to silently drop unknown fields rather than crashing. This handles downgrade gracefully.
-4. **Write a `migrate_config(data: dict, from_version: int) -> dict` function** that applies sequential transformations:
-   ```python
-   def migrate_config(data, from_version):
-       if from_version < 2:
-           data.setdefault("printer", {}).setdefault("paper_size", "a4")
-       if from_version < 3:
-           # Rename old key
-           if "delay_ms" in data:
-               data["pacing"] = {"base_delay_ms": data.pop("delay_ms")}
-       data["schema_version"] = CURRENT_VERSION
-       return data
-   ```
-5. **Test the upgrade path explicitly:** Load a v1 config with v2 code. Load a v2 config with v1 code (downgrade). Load a corrupt/empty config.
-6. **Never crash on config load failure.** Fall back to defaults and warn the user:
-   ```
-   [Warning: config.toml has errors. Using defaults. Run 'claude-teletype config reset' to fix.]
-   ```
-
-**Detection:**
-- Delete the config file and launch the app -- should work with defaults
-- Load a config from an older version -- should work without errors
-- Add unknown fields to config -- should be silently ignored
-
-**Confidence:** HIGH -- standard configuration management pattern, verified with [Pydantic BaseSettings docs](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) and the TOML 1.1.0 specification.
-
-**Phase to address:** Config system phase (first). Schema versioning and migration must be built into the first implementation, not retrofitted.
-
----
-
-## Moderate Pitfalls
-
-Mistakes that cause significant bugs or rework but are contained to specific modules.
-
-### Pitfall 6: OpenRouter SSE Comment Lines Cause Silent Stream Parsing Failure
-
-**What goes wrong:**
-The developer implements OpenAI-compatible SSE parsing that strips the `data: ` prefix and parses JSON. This works for direct OpenAI API calls. When the same parser is used for OpenRouter, it encounters lines like `: OPENROUTER PROCESSING` (SSE comments used as keepalive). The parser tries `json.loads("OPENROUTER PROCESSING")`, gets a `JSONDecodeError`, and either crashes or (if caught) silently drops the comment -- which is correct. But the parser may also encounter empty `data:` lines or `data: ` with trailing whitespace, leading to `json.loads("")` errors.
-
-**Why it happens:**
-OpenRouter's SSE stream is mostly OpenAI-compatible but includes extra comment payloads that the official OpenAI SDK never produces. Per the SSE specification, lines starting with `:` are comments and should be ignored. But many ad-hoc SSE parsers do not handle this.
-
-**Prevention:**
-1. **The SSE parser must explicitly handle the SSE spec's four line types:**
-   ```python
-   for line in stream:
-       line = line.strip()
-       if not line:
-           continue  # Empty line (event boundary)
-       if line.startswith(":"):
-           continue  # SSE comment (OpenRouter keepalive)
-       if line.startswith("data: "):
-           payload = line[6:]
-           if payload == "[DONE]":
-               break  # Stream complete
-           chunk = json.loads(payload)
-           # Process chunk...
-       if line.startswith("event: "):
-           event_type = line[7:]
-           # Only relevant for Anthropic direct API
-   ```
-2. **Use the `httpx-sse` library** or similar for SSE parsing rather than hand-rolling. It handles comments, multi-line data fields, and event types correctly.
-3. **Test with OpenRouter specifically** -- the comment payloads only appear under load when OpenRouter is routing to a slow backend.
-
-**Detection:**
-- Send a request to OpenRouter during high traffic. Check if keepalive comments cause errors.
-- Log all raw SSE lines before parsing to see what the stream actually contains.
-
-**Confidence:** MEDIUM -- verified from [OpenRouter streaming docs](https://openrouter.ai/docs/api/reference/streaming) which document comment payloads, but the specific failure mode depends on parser implementation.
-
-**Phase to address:** Multi-LLM phase, specifically the OpenAI/OpenRouter bridge implementation.
-
----
-
-### Pitfall 7: Textual ModalScreen Dismissal While Background Worker Is Streaming
-
-**What goes wrong:**
-The user opens the settings screen (ModalScreen push) while a Claude response is streaming in the background. They change a setting and dismiss the screen. The background worker was started on the main screen, and it is still running. But the worker holds references to widgets on the main screen (`self.query_one("#output", Log)`). If the modal screen's compose/dismiss cycle causes any recomposition of the main screen, the widget references become stale. The worker crashes with `NoMatches` or writes to a detached widget.
-
-**Why it happens:**
-Textual's worker lifecycle is tied to the DOM node where the worker was created. Pushing a modal screen does NOT pop the underlying screen -- it overlays it. The underlying screen's widgets remain mounted. However, if the settings screen modifies the app state in a way that triggers recomposition of the underlying screen (e.g., changing CSS classes, calling `recompose()`), widgets are destroyed and recreated with new IDs. The running worker's cached widget references (`log = self.query_one("#output", Log)`) now point to dead objects.
-
-**Consequences:**
-- `NoMatches` exception crashes the streaming worker
-- Partial response lost -- user sees interrupted output
-- App may enter inconsistent state (input remains disabled, status bar not updated)
-
-**Prevention:**
-1. **Do NOT trigger recomposition of the main screen from the settings screen.** Settings changes should update app-level state (instance variables), not CSS or widget structure.
-2. **The settings screen should only modify config values, not apply them immediately.** Use a "changes take effect on next message" or "changes take effect on next session" pattern for settings that affect the streaming pipeline.
-3. **Re-query widgets inside the worker loop, not once at the start.** Instead of:
-   ```python
-   log = self.query_one("#output", Log)  # Cached reference
-   for chunk in stream:
-       log.write(chunk)  # Breaks if recomposed
-   ```
-   Use:
-   ```python
-   for chunk in stream:
-       self.query_one("#output", Log).write(chunk)  # Fresh query
-   ```
-   This is slightly less efficient but survives recomposition.
-4. **Settings that affect the current stream (delay, audio) can use reactive attributes** that the worker reads on each iteration, rather than cached values.
-5. **Disable the settings shortcut while streaming** (simplest prevention). Re-enable when the response completes.
-
-**Detection:**
-- Open settings screen while response is streaming. Change a setting. Dismiss. Does the stream continue?
-- Open settings screen, trigger a recompose (resize the terminal while settings is open), dismiss. Does the worker crash?
-
-**Confidence:** MEDIUM -- based on [Textual Screens docs](https://textual.textualize.io/guide/screens/) and [Textual Workers docs](https://textual.textualize.io/guide/workers/) which describe widget lifecycle, but the specific interaction between modal screens and workers is not explicitly documented.
-
-**Phase to address:** TUI settings phase. Must be tested with concurrent streaming.
-
----
-
-### Pitfall 8: Printer Profile CR/LF Newline Handling Differs Between Printer Types
-
-**What goes wrong:**
-The developer creates printer profiles that all use `\n` for newlines (matching Python convention). The Epson dot matrix works because it has "auto CR" enabled by default. The Juki daisywheel does not -- it needs explicit `\r\n`. The HP inkjet expects `\n` only. The developer tests on one printer, ships, and users with other printers get staircase printing (each line indented further right) or double-spaced output.
-
-**Why it happens:**
-Printer newline behavior varies fundamentally:
-
-| Printer Type | Default Newline | Auto-CR | Notes |
-|-------------|----------------|---------|-------|
-| Epson ESC/P dot matrix | LF only (auto-CR on by default) | Configurable via DIP switch | `ESC 5` turns auto LF on/off |
-| IBM PPDS emulation | LF includes CR automatically | Always on in PPDS mode | Different from ESC/P mode on same printer |
-| Juki daisywheel | Needs explicit CR+LF | Off | Impact printers generally need CR+LF |
-| HP inkjet (PCL) | LF only | Driver handles it | PCL `ESC &k2G` sets CR+LF mode |
-| Thermal receipt (ESC/POS) | LF only | Always on | `\n` always moves to start of next line |
-
-The existing `JukiPrinterDriver` already handles this correctly (converts `\n` to `\r\n`), but generalizing to profiles requires each profile to declare its newline behavior.
-
-**Consequences:**
-- Staircase printing: each line starts further right because CR was not sent
-- Double spacing: printer interprets LF as LF+CR+LF because auto-CR and explicit CR both fire
-- Garbled output on printer that interprets CR as form feed or other control character
-
-**Prevention:**
-1. **Each printer profile must declare its newline mode explicitly:**
-   ```toml
-   [printer.juki_6100]
-   newline = "crlf"  # Send CR+LF
-
-   [printer.epson_lq590]
-   newline = "lf"    # Send LF only (auto-CR is on)
-
-   [printer.hp_deskjet]
-   newline = "lf"    # PCL handles it
-   ```
-2. **The profile driver must intercept `\n` and replace it with the profile's newline bytes** before writing to the hardware driver. This is the same pattern `JukiPrinterDriver` uses, but generalized.
-3. **Include auto-CR initialization in the profile's init_codes** where supported. For Epson, send `ESC 5 1` to explicitly enable auto-CR so the profile does not depend on DIP switch settings.
-4. **Test each profile on actual hardware** -- newline behavior cannot be accurately simulated.
-
-**Detection:**
-- Print a multi-line test pattern. If lines staircase right, CR is missing. If double-spaced, CR is being doubled.
-
-**Confidence:** HIGH -- verified from [Epson LQ-590 manual](https://files.support.epson.com/htmldocs/lq590_/lq590_rf/cp_3.htm) (auto-CR DIP switch), [IBM PPDS reference](https://www.ibm.com/support/pages/list-ibm-ppds-and-epson-escp-control-codes-and-escape-sequences) (LF includes CR in PPDS mode), and existing Juki code in `printer.py`.
-
-**Phase to address:** Printer profiles phase. Newline mode is the most fundamental profile setting.
-
----
-
-### Pitfall 9: `keyring` Library Fails Silently in Headless/SSH Environments
-
-**What goes wrong:**
-The developer uses `keyring` for API key storage (good security practice). It works perfectly in development (macOS with GUI). In production or CI, the app runs via SSH or in a Docker container. `keyring` silently falls back to the `null` backend, which stores nothing and returns `None` for all keys. The app starts, cannot find any API key, and shows "Authentication error" with no indication that keyring is the problem.
-
-**Why it happens:**
-On macOS, `keyring` uses the system Keychain, which requires a GUI login session. Over SSH without a forwarded Keychain, the Keychain is locked. `keyring` does not raise an error -- it silently returns `None`. On Linux without GNOME Keyring or KDE Wallet, the same thing happens. The developer never tests outside their GUI terminal.
-
-**Consequences:**
-- API keys "disappear" when running over SSH
-- No error message indicates keyring is the problem
-- User sets keys, restarts app, keys are gone (null backend stored nothing)
-- CI/CD pipelines fail mysteriously
-
-**Prevention:**
-1. **Do NOT use keyring as the primary or only key storage.** Use it as an optional enhancement.
-2. **Key resolution order should be:**
-   ```
-   1. Environment variable (OPENAI_API_KEY, OPENROUTER_API_KEY)
-   2. .env file in project root
-   3. keyring (if available and functional)
-   4. Prompt user interactively
-   ```
-3. **Test keyring availability before using it:**
-   ```python
-   try:
-       import keyring
-       # Write and read a test value to verify backend works
-       keyring.set_password("claude-teletype-test", "test", "test")
-       if keyring.get_password("claude-teletype-test", "test") == "test":
-           keyring.delete_password("claude-teletype-test", "test")
-           keyring_available = True
-       else:
-           keyring_available = False
-   except Exception:
-       keyring_available = False
-   ```
-4. **When keyring fails, log a clear message:** "Keychain not available (running headless?). Using environment variables for API keys."
-5. **For v1.2, skip keyring entirely.** Environment variables are sufficient and universally supported. Add keyring support in a later milestone if users request it.
-
-**Detection:**
-- SSH into the machine and try to access a keyring-stored key
-- Run in a Docker container and check if keys persist
-
-**Confidence:** HIGH -- verified from [keyring docs](https://keyring.readthedocs.io/) and [macOS Keychain headless issues](https://github.com/jaraco/keyring/issues/457).
-
-**Phase to address:** Config system phase. Decide on key storage strategy before implementing it.
-
----
-
-### Pitfall 10: Typewriter Mode and Conversation Mode Share Input Handling Code That Conflicts
-
-**What goes wrong:**
-The developer implements typewriter mode (keyboard direct to printer) by reusing the TUI's input handling. In the TUI, `Input` widget captures keystrokes, buffers them, and submits on Enter. In typewriter mode, each keystroke should go immediately to the printer with no buffering. The developer adds a "typewriter mode" flag to `TeletypeApp` that changes behavior. But the `Input` widget still captures keystrokes, still buffers, still has placeholder text, still responds to Ctrl+D for quit. The typewriter experience feels like typing into a text field, not like a typewriter.
-
-**Why it happens:**
-The TUI's `Input` widget is designed for editing (backspace, cursor movement, selection). Typewriter mode needs raw character passthrough with NO editing capability -- what you type is what prints, immediately, irrevocably (like a real typewriter). These are fundamentally different input models, and trying to share code between them creates a Frankenstein that satisfies neither use case.
-
-**Consequences:**
-- Backspace "works" in the input widget but the character is already printed (cannot un-print)
-- Cursor movement keys produce escape sequences that the printer interprets as control codes
-- Delete key produces printer-visible characters
-- The typewriter "feel" is destroyed by input buffering
-
-**Prevention:**
-1. **Typewriter mode should NOT use the TUI at all.** The existing `teletype.py` module already does this correctly: it uses `tty.setcbreak()` for raw character input and writes directly to the printer driver. This is the right approach.
-2. **For v1.2, keep typewriter mode as a separate code path from the TUI.** The `--teletype` flag already bypasses `TeletypeApp` entirely. Enhance this path rather than trying to add typewriter mode inside the TUI.
-3. **If a TUI typewriter mode is desired later**, use a custom widget that overrides `on_key()` to forward raw keystrokes, NOT the `Input` widget. But this is unnecessary complexity for v1.2.
-4. **Mode switching between conversation and typewriter should restart the app**, not switch within the TUI. They are different applications that happen to share printer hardware.
-
-**Detection:**
-- In typewriter mode, press backspace. Does the printer receive a backspace character? Or does the Input widget consume it?
-- Type rapidly in typewriter mode. Is there any buffering delay?
-
-**Confidence:** HIGH -- direct analysis of existing `teletype.py` (raw mode) vs `tui.py` (Input widget), and the architectural differences between immediate vs. buffered input.
-
-**Phase to address:** Typewriter mode phase. Keep it as a separate code path. Do NOT merge into TUI.
-
----
-
-### Pitfall 11: OpenAI/OpenRouter Error Responses Use Different Error Structures Than Claude Code
-
-**What goes wrong:**
-The existing `errors.py` classifies errors by searching for substrings like "rate_limit", "overloaded", "429" in error messages. This works for Claude Code CLI error strings. OpenAI returns errors as structured JSON with a different schema: `{"error": {"message": "...", "type": "invalid_request_error", "code": "model_not_found"}}`. OpenRouter wraps errors differently again, and mid-stream errors arrive as SSE chunks with `finish_reason: "error"`. The error classifier never matches, and all OpenAI/OpenRouter errors show as "UNKNOWN".
-
-**Why it happens:**
-Each provider has its own error taxonomy:
-
-| Provider | Error Format | Rate Limit | Auth Error | Context Exceeded |
-|----------|-------------|------------|------------|-----------------|
-| Claude Code CLI | Text in NDJSON `result` | "rate_limit" / "429" | "not authenticated" | "context window" |
-| OpenAI API | JSON `{"error": {"type": "...", "code": "..."}}` | HTTP 429 + `"rate_limit_exceeded"` | HTTP 401 + `"invalid_api_key"` | `"context_length_exceeded"` or `finish_reason: "length"` |
-| OpenRouter API | JSON (OpenAI-compatible) + mid-stream errors | HTTP 429 + `"rate_limit_exceeded"` | HTTP 401/403 | `finish_reason: "error"` with error field |
-| Anthropic API | JSON `{"type": "error", "error": {"type": "...", "message": "..."}}` | `"rate_limit_error"` | `"authentication_error"` | `"invalid_request_error"` + message |
-
-**Prevention:**
-1. **Extend the error classification to accept structured error objects, not just strings:**
-   ```python
-   def classify_error(
-       error_message: str | None = None,
-       error_type: str | None = None,
-       error_code: str | None = None,
-       http_status: int | None = None,
-   ) -> ErrorCategory:
-   ```
-2. **Each bridge module should extract error fields into this common signature** before calling the classifier.
-3. **Add HTTP status code classification** as a first-pass filter:
-   - 401/403 -> AUTH
-   - 429 -> RATE_LIMIT
-   - 500/502/503 -> OVERLOADED
-   - 529 -> OVERLOADED (Anthropic-specific)
-4. **Handle OpenRouter mid-stream errors** (arrive as SSE chunks after HTTP 200): check every chunk for `finish_reason: "error"` and extract the error message from the chunk's `error` field.
-
-**Detection:**
-- Force each error type on each backend (invalid key, rate limit, huge prompt) and verify the classifier produces the correct category.
-
-**Confidence:** HIGH -- verified from [OpenAI error codes](https://platform.openai.com/docs/api-reference/errors), [OpenRouter error handling docs](https://openrouter.ai/docs/api/reference/streaming), and [Anthropic error docs](https://platform.claude.com/docs/en/api/errors).
-
-**Phase to address:** Multi-LLM phase, as part of each bridge implementation. The error classifier extension should be done before the bridges are built.
-
----
-
-## Minor Pitfalls
-
-Mistakes that cause user-facing bugs but are quick to fix.
-
-### Pitfall 12: TOML Config File Location Platform Differences
-
-**What goes wrong:**
-The developer hardcodes the config path as `~/.config/claude-teletype/config.toml`. This follows XDG convention on Linux. On macOS, the convention is `~/Library/Application Support/claude-teletype/config.toml`. The app works on the developer's Linux machine but users on macOS cannot find their config file and `~/Library/Application Support/` already has a different structure expectation.
-
-**Prevention:**
-Use `platformdirs` library (pure Python, no native deps):
 ```python
-from platformdirs import user_config_dir
-config_dir = Path(user_config_dir("claude-teletype"))
+@work(exclusive=True)
+async def install_pyusb(self) -> bool:
+    proc = await asyncio.create_subprocess_exec(
+        "uv", "sync", "--extra", "usb",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    return proc.returncode == 0
 ```
-This returns `~/Library/Application Support/claude-teletype` on macOS and `~/.config/claude-teletype` on Linux. Alternatively, for simplicity, use `~/.claude-teletype/config.toml` which works on both platforms and is easy to find.
 
-**Confidence:** HIGH -- standard cross-platform pattern.
+After `uv sync` completes, the pyusb module must be importable in the already-running process. Python caches failed imports in `sys.modules` -- if you tried `import usb.core` before installation and it raised ImportError, Python will NOT retry it automatically. You must either (a) never attempt the import before installation, or (b) delete the failed entry from `sys.modules` before retrying.
 
-**Phase to address:** Config system phase.
+**Warning signs:**
+- TUI freezes for 2-10 seconds during "installing dependencies"
+- No progress indicator visible
+- User hits Ctrl+C thinking the app is hung, killing the install mid-way
+
+**Phase to address:**
+Phase 1 (pyusb auto-install) -- must be async from day one, not "fix later"
 
 ---
 
-### Pitfall 13: Config File Written During Streaming Causes Partial Write / Corruption
+### Pitfall 2: pyusb Import Cache After Failed Import
 
 **What goes wrong:**
-The user changes a setting in the TUI while a response is streaming. The settings screen saves the config to disk. A crash or power loss during the write leaves a truncated TOML file. Next startup, the config cannot be parsed and the app crashes (see Pitfall 5).
+The app tries `import usb.core` at startup to check if pyusb is available, catches ImportError, offers to install it, runs `uv sync --extra usb`, then tries `import usb.core` again -- and it still fails with ImportError even though pyusb is now installed.
 
-**Prevention:**
-1. **Atomic writes:** Write to a temporary file, then `os.replace()` to the target path. This is atomic on POSIX:
-   ```python
-   import tempfile, os
-   with tempfile.NamedTemporaryFile(
-       mode="w", dir=config_dir, delete=False, suffix=".tmp"
-   ) as f:
-       toml.dump(config_data, f)
-       tmp_path = f.name
-   os.replace(tmp_path, config_path)
-   ```
-2. **Never crash on corrupt config** -- fall back to defaults (see Pitfall 5).
+**Why it happens:**
+Python's import system caches failed imports. After the first ImportError, `sys.modules` may contain a partial entry or a `None` marker for the module. Subsequent `import` statements return the cached failure without checking the filesystem again.
 
-**Confidence:** HIGH -- standard file I/O pattern.
+**How to avoid:**
+Two strategies:
 
-**Phase to address:** Config system phase.
+1. **Never import before installation.** Check for pyusb availability by looking for the package metadata (`importlib.util.find_spec("usb")`) rather than actually importing it.
+
+2. **Clear the cache after installation.** After `uv sync` succeeds:
+```python
+for key in list(sys.modules.keys()):
+    if key == "usb" or key.startswith("usb."):
+        del sys.modules[key]
+import usb.core  # Now works
+```
+
+Strategy 1 is cleaner. The existing codebase already uses try/except ImportError in `_find_usb_printer()` -- this pattern is fine for the "pyusb not installed" path, but the import must not be attempted module-level or at app startup before the install flow completes.
+
+**Warning signs:**
+- "pyusb installed successfully" message followed by "pyusb not found" error
+- Works after restarting the app but not within the same session
+
+**Phase to address:**
+Phase 1 (pyusb auto-install) -- the install-then-reimport flow must be designed together
 
 ---
 
-### Pitfall 14: TOML Cannot Represent Raw Byte Sequences Directly
+### Pitfall 3: macOS Kernel Driver Conflicts With USB Printer Devices
 
 **What goes wrong:**
-The developer tries to store printer control codes as TOML string values with `\x` escapes: `init = "\x1b\x1a\x49"`. TOML 1.0 does NOT support `\x` escapes in strings. Only `\uXXXX` and `\UXXXXXXXX` are supported. The `\x` is treated as literal backslash-x, producing the string `\x1b\x1a\x49` (12 printable characters) instead of 3 bytes. TOML 1.1 adds `\xHH` support, but Python's `tomllib` (stdlib since 3.11) implements TOML 1.0 only.
+On macOS, `usb.core.find()` discovers the printer device, but `dev.set_configuration()` or `ep_out.write()` fails with USBError "Access denied" or "Resource busy." The printer appears in System Information and CUPS but pyusb cannot claim it.
 
-**Prevention:**
-1. **Store control codes as hex strings, not escape sequences:**
-   ```toml
-   init_codes = "1B 1A 49 1B 1E 09 1B 51"
-   ```
-   Parse with `bytes.fromhex(value.replace(" ", ""))`.
-2. **Or store as arrays of integers:**
-   ```toml
-   init_codes = [0x1B, 0x1A, 0x49, 0x1B, 0x1E, 0x09, 0x1B, 0x51]
-   ```
-   Parse with `bytes(value)`.
-3. **Do NOT rely on TOML 1.1 `\x` escapes** -- Python's stdlib `tomllib` does not support them as of Python 3.13.
+**Why it happens:**
+macOS loads a kernel extension (KEXT) for USB printer class devices (`AppleUSBPrinterClass.kext`). This KEXT exclusively claims the USB interface. Unlike Linux, macOS historically did not support `detach_kernel_driver()` via libusb. Since libusb 1.0.25, kernel driver detach IS supported on macOS, but it requires either root privileges or a signed app with Apple's USB entitlement -- neither of which applies to a Python CLI tool.
 
-**Confidence:** HIGH -- verified from [TOML 1.0 spec](https://toml.io/en/v1.0.0) (no `\xHH` support) and [Python tomllib docs](https://docs.python.org/3/library/tomllib.html) which implement TOML 1.0.
+The existing code in `printer.py:_find_usb_printer()` already has a best-effort `detach_kernel_driver` call, but it swallows the exception silently. On macOS, this will almost always fail for printer-class devices.
 
-**Phase to address:** Printer profiles phase. The byte representation format must be decided before defining any profiles.
+**How to avoid:**
+- Present USB direct mode and CUPS mode as co-equal options in the setup TUI, not USB-first with CUPS as fallback.
+- When USB direct fails on macOS, show a specific diagnostic: "macOS kernel driver is claiming this device. Use CUPS printer queue instead, or run with sudo (not recommended)."
+- The `discover_macos_usb_printers()` (ioreg-based) function in printer.py can verify that the device EXISTS even when pyusb cannot claim it. Use this for diagnostics.
+- Consider: on macOS the realistic path for most users is CUPS, not direct USB. The setup TUI should default to showing CUPS queues on macOS.
+
+**Warning signs:**
+- USB device appears in discovery list but "Test connection" fails
+- Works on Linux but not macOS
+- Works with sudo but not as normal user
+
+**Phase to address:**
+Phase 2 (USB device selection + CUPS selection) -- must handle platform differences in the UI
 
 ---
 
-### Pitfall 15: OpenAI Token Usage Only Available if Explicitly Requested in Streaming Mode
+### Pitfall 4: Config File Corruption on Concurrent or Partial Writes
 
 **What goes wrong:**
-The developer implements cost/token tracking by reading usage from the final streaming chunk. With OpenAI, `usage` is `null` in all streaming chunks by default. The developer assumes the API changed or their parsing is broken. They never see token counts.
+The setup TUI saves printer selection to TOML config via `save_config()`. If the app crashes mid-write, or if another instance is running `config show` simultaneously, the config file can end up truncated or malformed. On next launch, `tomllib.load()` raises `TOMLDecodeError` and the app fails to start.
 
-**Prevention:**
-OpenAI requires `stream_options: {"include_usage": true}` in the request body to get usage data in streaming mode. Without this flag, `usage` is null in all chunks and the final chunk with usage data is not sent. Add this to every OpenAI streaming request.
+**Why it happens:**
+The existing `save_config()` in config.py uses `path.write_text()` which is NOT atomic on most filesystems. It truncates the file first, then writes content. A crash between truncate and write-complete leaves a partial file. Additionally, the handwritten TOML template approach (string concatenation in `save_config()`) is fragile -- a single unescaped quote in a user-entered value could produce invalid TOML.
 
-**Confidence:** HIGH -- verified from [OpenAI streaming docs](https://platform.openai.com/docs/api-reference/chat-streaming) which state the `usage` field requires `stream_options`.
+**How to avoid:**
+- **Atomic writes:** Write to a temporary file in the same directory, then `os.replace()` (atomic on POSIX) to the final path:
+```python
+import tempfile
+tmp = tempfile.NamedTemporaryFile(
+    mode="w", dir=path.parent, suffix=".tmp", delete=False
+)
+tmp.write(content)
+tmp.flush()
+os.fsync(tmp.fileno())
+tmp.close()
+os.replace(tmp.name, str(path))
+```
+- **Validation after write:** Read back the written file with `tomllib.loads()` before replacing the original. If parse fails, keep the original.
+- **Backup:** Copy the existing config to `config.toml.bak` before overwriting.
+- The existing `_esc()` helper in `save_config()` handles backslash/quote/newline, but test it with edge cases (empty strings, Unicode, multi-line system prompts).
 
-**Phase to address:** Multi-LLM phase, in the OpenAI bridge.
+**Warning signs:**
+- Config file is 0 bytes after a crash
+- "Invalid TOML" error on startup after previously working fine
+- User reports settings "disappeared"
+
+**Phase to address:**
+Phase 3 (config persistence / save-to-TOML) -- atomic write must be the implementation, not a later fix
 
 ---
 
-### Pitfall 16: Textual Settings Screen Keybinding Conflicts with Main Screen
+### Pitfall 5: Textual Screen Lifecycle -- Setup Screen Before Main Screen
 
 **What goes wrong:**
-The developer binds `Ctrl+S` to open settings. But `Ctrl+S` might also be used in a future text editing context. More critically, the settings screen defines its own bindings (e.g., `Escape` to dismiss) that conflict with the main screen's `Escape` to cancel streaming. If the settings screen does not properly capture input focus, keystrokes leak through to the main screen.
+The setup screen is pushed during `on_mount()` but the main screen's widgets are not yet fully composed. After the setup screen is dismissed, the main screen either shows a blank output pane, fails to register keybindings, or throws an exception trying to query a widget that has not mounted yet.
 
-**Prevention:**
-1. **Use `ModalScreen` (not regular `Screen`) for settings.** Modal screens dim the background and capture all input -- keystrokes do not leak to the underlying screen.
-2. **Choose a non-conflicting keybinding for settings.** `F2` (common convention for settings in TUI apps), `Ctrl+,` (macOS convention), or a command palette approach.
-3. **Disable the settings keybinding while streaming** to avoid the worker interaction problem (Pitfall 7).
+**Why it happens:**
+Textual's screen lifecycle is asynchronous. `on_mount()` fires when the app's DOM is ready, but if you call `push_screen()` synchronously in `on_mount()`, the default screen may not have finished its compose/mount cycle. The pushed screen obscures the default screen, and when dismissed, the default screen receives focus but may not be in a consistent state.
 
-**Confidence:** HIGH -- verified from [Textual Screens guide](https://textual.textualize.io/guide/screens/) which describes modal screen input capture.
+**How to avoid:**
+Two proven patterns:
 
-**Phase to address:** TUI settings phase.
+1. **Make the setup screen the default screen**, not a pushed overlay. Set `SCREENS = {"setup": SetupScreen}` and `push_screen("setup")` only when needed, or use `switch_screen`. After setup completes, `switch_screen` to the main chat screen.
+
+2. **Use `push_screen_wait` in a worker** if you need the setup screen as a modal:
+```python
+@work
+async def show_setup(self) -> None:
+    result = await self.push_screen_wait(SetupScreen())
+    if result:
+        self.apply_printer_config(result)
+```
+
+Pattern 1 is simpler and avoids the "screen under screen" state management entirely. The main TeletypeApp already has complex screen management (SettingsScreen, ConfirmSwapScreen, TypewriterScreen). Adding another pushed screen increases the state space. Consider making setup a phase that happens BEFORE the main app screen is composed.
+
+**Warning signs:**
+- Blank screen after dismissing setup
+- Keybindings (Ctrl+comma for settings) not working after setup
+- `NoMatches` exception when querying widgets after screen pop
+
+**Phase to address:**
+Phase 2 (setup TUI screen) -- architecture decision about screen lifecycle must come first
 
 ---
 
-## Phase-Specific Warnings
+### Pitfall 6: CUPS Printer Discovery Returns Stale or Missing Results
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| Config system | API keys in config file (Pitfall 1) | Separate secrets from config; use env vars |
-| Config system | Schema changes break upgrades (Pitfall 5) | All fields have defaults, schema_version, migration function |
-| Config system | Config path platform differences (Pitfall 12) | Use `platformdirs` or `~/.claude-teletype/` |
-| Config system | Partial write corruption (Pitfall 13) | Atomic writes with `os.replace()` |
-| Printer profiles | Control codes corrupted by ASCII encoding (Pitfall 4) | Add `write_raw(bytes)` method, store codes as hex strings |
-| Printer profiles | TOML cannot represent raw bytes (Pitfall 14) | Use hex string format, parse with `bytes.fromhex()` |
-| Printer profiles | CR/LF differences between printers (Pitfall 8) | Each profile declares newline mode explicitly |
-| Multi-LLM | Different stream formats (Pitfall 2) | Separate parser per backend, normalize output type |
-| Multi-LLM | Provider switch loses context (Pitfall 3) | Provider change starts new session with warning |
-| Multi-LLM | OpenRouter SSE comments (Pitfall 6) | Handle SSE comment lines in parser |
-| Multi-LLM | Error structure differences (Pitfall 11) | Extend error classifier with structured input |
-| Multi-LLM | OpenAI usage requires opt-in (Pitfall 15) | Set `stream_options.include_usage: true` |
-| TUI settings | Modal screen + worker conflict (Pitfall 7) | Disable settings during streaming, or re-query widgets |
-| TUI settings | Keybinding conflicts (Pitfall 16) | Use ModalScreen, choose non-conflicting key (F2) |
-| Typewriter mode | Shared input handling (Pitfall 10) | Keep typewriter as separate code path from TUI |
-| keyring | Silent failure in headless environments (Pitfall 9) | Use env vars as primary, keyring as optional |
+**What goes wrong:**
+`discover_cups_printers()` (which calls `lpstat -v`) returns an empty list even though a USB printer is physically connected and visible in System Preferences. Or it returns a printer that was previously connected but is now physically disconnected.
 
-## Integration Gotchas Specific to v1.2
+**Why it happens:**
+CUPS maintains its own printer registry in `/etc/cups/printers.conf`. `lpstat -v` reports registered printers, not currently-connected devices. A printer registered months ago still appears even if unplugged. Conversely, a newly-connected USB printer may not appear until CUPS auto-detects it (which can take seconds) or until the user adds it via System Preferences.
 
-| Integration Point | Common Mistake | Correct Approach |
-|-------------------|----------------|------------------|
-| Config + API keys | Storing keys in config.toml | Env vars or .env file; config stores provider choice only |
-| Config + printer profiles | Same TOML file for config and profiles | Profiles can be in same file but control codes use hex string format |
-| Multi-LLM + existing bridge | Modifying bridge.py to support all formats | Keep bridge.py for Claude Code CLI; add new modules for OpenAI/OpenRouter |
-| Multi-LLM + error handling | Extending substring matching for new providers | Add structured error classification (type, code, HTTP status) |
-| Multi-LLM + session management | Allowing provider switch mid-conversation | New provider = new session, with user warning |
-| TUI settings + streaming worker | Recomposing main screen from settings | Settings modify app state only; changes apply on next message |
-| TUI settings + config file | Writing config synchronously during streaming | Atomic writes; never block the event loop |
-| Typewriter mode + TUI | Running typewriter mode inside TeletypeApp | Typewriter mode bypasses TUI entirely (existing --teletype flag) |
-| Printer profiles + existing drivers | Passing hex init codes through write(str) | Use write_raw(bytes) for control codes; write(str) for text only |
+On macOS, CUPS relies on `cups-browsed` and Bonjour/DNSSD for discovery. USB printers are auto-added by `IOKit` notifications, but there is a race condition at startup -- if the app launches faster than CUPS finishes registering a just-plugged device, `lpstat` returns nothing.
 
-## "Changed Assumptions" Checklist
+**How to avoid:**
+- Show CUPS printers AND raw USB devices (via ioreg/pyusb) in the setup TUI. Let the user see what the system detects even if CUPS has not registered it yet.
+- Add a "Refresh" button in the setup TUI that re-runs discovery. Do not assume the first scan is complete.
+- For CUPS printers, verify the printer is actually reachable before marking it as "connected." Use `lpstat -p <name>` to check if CUPS reports it as idle/ready vs. "Not Connected."
+- Filter out non-USB CUPS printers (the existing code already filters by `usb://` URI, which is correct).
+- Consider a brief delay (1-2 seconds) or polling loop at startup before declaring "no printers found."
 
-Things that were true in v1.0/v1.1 but are no longer true in v1.2:
+**Warning signs:**
+- User sees "No printers found" but the printer is plugged in
+- Stale printer entries confuse users ("My old printer shows up but my new one doesn't")
+- Works if user opens System Preferences > Printers first
 
-- [ ] **Single LLM backend:** v1.0-v1.1 only used Claude Code CLI. v1.2 has three backends with different stream formats, error structures, and auth mechanisms.
-- [ ] **No persistent configuration:** v1.0-v1.1 used CLI flags for all settings. v1.2 has a config file that must be loaded, validated, migrated, and saved.
-- [ ] **One printer type:** v1.0-v1.1 assumed generic ASCII output or Juki-specific codes. v1.2 has profiles for multiple printer types with different control code languages.
-- [ ] **Hardcoded init codes:** v1.0-v1.1 Juki codes were constants in JukiPrinterDriver. v1.2 control codes come from config files and must be validated.
-- [ ] **No settings UI:** v1.0-v1.1 had no modal screens. v1.2 adds a settings screen that interacts with the running app state.
-- [ ] **Text-only writes to printer:** v1.0-v1.1 only sent printable ASCII via `write(str)`. v1.2 sends raw byte sequences for control codes.
-- [ ] **Session == Claude Code session:** v1.0-v1.1's session was always a Claude Code `--resume` session. v1.2 sessions may use OpenAI or OpenRouter, which have no persistent session concept.
+**Phase to address:**
+Phase 2 (CUPS printer selection) -- must include refresh capability and status verification
+
+---
+
+## Technical Debt Patterns
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Synchronous subprocess.run for uv sync | Simpler code, no async complexity | Frozen TUI, bad UX | Never in a TUI context |
+| Module-level `import usb.core` with try/except | Clean availability check at import time | Prevents post-install reimport without cache busting | Only if you never plan to install at runtime |
+| String-template TOML generation (current approach) | No extra dependency (tomlkit), comments preserved | Fragile to edge cases, no structural validation | Acceptable for v1.4 if atomic writes and validation are added |
+| Hardcoded `uv sync` command | Works for uv-managed projects | Breaks if user installed via pip, pipx, or system Python | Acceptable if the app is always distributed as a uv project |
+
+## Integration Gotchas
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| pyusb + macOS | Assuming `detach_kernel_driver` works like Linux | Detect platform, default to CUPS on macOS, show diagnostic explaining why USB direct fails |
+| CUPS lpstat | Treating output as "currently connected devices" | Treat as "registered queues" and separately verify connectivity with `lpstat -p` |
+| uv sync from TUI | Running synchronously, not checking return code | Use asyncio subprocess, check returncode, parse stderr for error messages |
+| tomllib round-trip | Expecting comments to survive load/save cycle | Use handwritten template (already done) or tomlkit; never load-modify-save with tomllib |
+| Textual push_screen | Pushing during on_mount synchronously | Use @work + push_screen_wait, or make setup the initial screen with switch_screen to main |
+| sys.modules cache | Importing optional module before install attempt | Use `importlib.util.find_spec()` for availability check, or clear sys.modules after install |
+
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| USB enumeration on every app launch | 1-3 second startup delay while pyusb scans all USB devices | Cache the selected device in config; only enumerate if cached device is missing | Always noticeable, worse with many USB devices |
+| CUPS lpstat subprocess on every launch | 0.5-1 second subprocess spawn | Skip discovery if config has a saved printer and it is still reachable | Adds up on slow systems |
+| Repeated `uv sync` checks | 0.5-2 seconds for uv to verify lockfile even when nothing changed | Only run uv sync when pyusb import actually fails, not speculatively | Every launch |
+| ioreg parsing on non-macOS | Subprocess call fails, wasted time | Guard with `sys.platform == "darwin"` (already done in existing code) | Linux/WSL |
+
+## Security Mistakes
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Running `uv sync` with shell=True | Shell injection if any argument is user-controlled | Always use list form: `["uv", "sync", "--extra", "usb"]` |
+| Suggesting `sudo` for USB access | User runs entire app as root, potential system damage | Never suggest sudo; recommend CUPS path instead |
+| Storing sensitive config (API keys) with world-readable permissions | Other users on system can read OpenAI/OpenRouter keys | Set file permissions to 0o600 on config file after creation: `os.chmod(path, 0o600)` |
+| Running arbitrary subprocess from user-provided config values | Config file could specify malicious commands | Never interpolate config values into subprocess arguments; hardcode the `uv sync` command |
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Showing setup screen every launch | Annoys returning users who already configured their printer | Skip setup if config has a saved printer AND that printer is still available; show "Printer: Juki 6100 via CUPS" in status bar instead |
+| No way to re-enter setup after initial config | User gets a new printer, no way to reconfigure without editing TOML | Add a "Printer Setup" option in settings modal (Ctrl+comma) or a CLI flag like `--setup` |
+| Silent failure when saved printer disappears | User unplugs printer, app silently falls back to NullPrinterDriver, user types a long response that goes nowhere | Show a visible warning: "Configured printer 'Juki_6100' not found. Using simulator mode." with option to re-run setup |
+| Showing raw USB VID:PID without friendly names | User sees "0x1a86:0x7584" and has no idea what it is | Map known VID:PID to friendly names from the profile registry; show "CH341 USB-Parallel Bridge (Juki compatible)" |
+| Auto-installing dependencies without consent | User may not want uv sync running, or may be offline | Always ask: "pyusb is required for USB printing. Install now? (uv sync --extra usb)" with Yes/No |
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **pyusb auto-install:** Does it work when pyusb was NEVER installed before (fresh venv)? Test with `uv sync` (without --extra usb) first, then trigger the install flow.
+- [ ] **USB discovery:** Does it handle the case where libusb backend (C library) is missing even though pyusb (Python package) is installed? Error is `usb.core.NoBackendError`, not `ImportError`.
+- [ ] **CUPS discovery:** Does it handle systems where CUPS is not running (Linux minimal installs)? `lpstat` may not exist.
+- [ ] **Config save:** Does save_config handle the case where CONFIG_DIR does not exist? (It does -- mkdir exists, but verify the setup flow uses it.)
+- [ ] **Config save:** Does it preserve existing custom profiles when saving only the printer selection? (The existing save_config writes ALL fields -- verify custom_profiles survive.)
+- [ ] **Setup skip logic:** Does "printer still connected" check actually verify connectivity, or just check that the config entry exists? A config entry for a disconnected printer should trigger setup.
+- [ ] **Screen lifecycle:** After setup screen dismisses, does the main screen correctly receive focus and process input? Test with rapid key presses during dismiss animation.
+- [ ] **uv availability:** What happens if `uv` is not on PATH? (User installed via pip/pipx instead.) The error message should be clear.
+- [ ] **Offline mode:** What happens when uv sync is attempted but user has no internet? Detect and show "Cannot install pyusb: no network connection."
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Corrupted config file | LOW | Detect TOMLDecodeError on load, rename broken file to .bak, start with defaults, notify user |
+| USB driver claim failure | LOW | Fall back to CUPS automatically, show diagnostic in setup screen |
+| uv sync fails mid-install | MEDIUM | Catch non-zero returncode, show stderr to user, offer retry. Partial installs are handled by uv's lockfile |
+| Stale CUPS printer in config | LOW | On printer open failure, clear saved printer from config, show setup screen |
+| sys.modules cache prevents reimport | LOW | Clear usb.* entries from sys.modules and retry import |
+| Textual screen state corruption | HIGH | Only recoverable by app restart. Prevention (correct lifecycle management) is critical |
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Subprocess blocks event loop | Phase 1 (pyusb auto-install) | TUI remains responsive during install; progress indicator visible |
+| Import cache after install | Phase 1 (pyusb auto-install) | `import usb.core` works immediately after install without app restart |
+| macOS kernel driver conflicts | Phase 2 (USB + CUPS selection) | macOS users see CUPS as primary option; USB direct failures show clear diagnostic |
+| Config file corruption | Phase 3 (config persistence) | Kill -9 during save does not corrupt config; backup file exists |
+| Screen lifecycle issues | Phase 2 (setup TUI screen) | Main screen fully functional after setup dismiss; all keybindings work |
+| CUPS stale results | Phase 2 (CUPS selection) | Refresh button re-scans; disconnected printers shown as unavailable |
+| Silent printer fallback | Phase 2 (setup UX) | Status bar shows printer state; missing printer triggers visible warning |
+| No re-entry to setup | Phase 2 or 3 | `--setup` flag or settings modal option exists for reconfiguration |
+| pyusb without libusb backend | Phase 1 or diagnostic command | NoBackendError caught separately from ImportError with actionable message |
 
 ## Sources
 
-- [OpenAI Chat Streaming API](https://platform.openai.com/docs/api-reference/chat-streaming) -- SSE format, delta structure, `stream_options`, `data: [DONE]` termination
-- [Anthropic Messages Streaming](https://platform.claude.com/docs/en/api/messages-streaming) -- SSE event types, `content_block_delta`, `message_stop`, error events, ping events
-- [OpenRouter Streaming Docs](https://openrouter.ai/docs/api/reference/streaming) -- SSE comment payloads, OpenAI compatibility, mid-stream errors, cancellation limits
-- [Simon Willison - How Streaming LLM APIs Work](https://til.simonwillison.net/llms/streaming-llm-apis) -- SSE format comparison across providers
-- [GitGuardian - Python Secrets Management](https://blog.gitguardian.com/how-to-handle-secrets-in-python/) -- API key storage best practices, .env files, environment variables
-- [Python keyring docs](https://keyring.readthedocs.io/) -- backend architecture, macOS Keychain requirements
-- [keyring macOS headless issue #457](https://github.com/jaraco/keyring/issues/457) -- silent failure without GUI session
-- [Pydantic Settings docs](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) -- BaseSettings, config file loading, validation
-- [TOML 1.0 Specification](https://toml.io/en/v1.0.0) -- no `\xHH` escape support
-- [Python tomllib docs](https://docs.python.org/3/library/tomllib.html) -- TOML 1.0 implementation in stdlib
-- [Textual Screens Guide](https://textual.textualize.io/guide/screens/) -- ModalScreen, push_screen, dismiss, callback pattern
-- [Textual Workers Guide](https://textual.textualize.io/guide/workers/) -- worker lifecycle, DOM node binding, cleanup on screen pop
-- [Textual Reactivity Guide](https://textual.textualize.io/guide/reactivity/) -- reactive attributes for live settings
-- [Epson LQ-590 Printer Settings](https://files.support.epson.com/htmldocs/lq590_/lq590_rf/cp_3.htm) -- auto-CR DIP switch, ESC/P mode behavior
-- [IBM PPDS vs ESC/P Control Codes](https://www.ibm.com/support/pages/list-ibm-ppds-and-epson-escp-control-codes-and-escape-sequences) -- command differences between emulation modes
-- [ESC/P Reference Manual](https://files.support.epson.com/pdf/general/escp2ref.pdf) -- byte parameter ranges including 0x80-0xFF
-- [ESC/P Wikipedia](https://en.wikipedia.org/wiki/ESC/P) -- protocol overview, printer compatibility
+- [Textual Workers documentation](https://textual.textualize.io/guide/workers/) -- async patterns for background tasks
+- [Textual Screens documentation](https://textual.textualize.io/guide/screens/) -- push_screen lifecycle
+- [Textual Discussion #1828](https://github.com/Textualize/textual/discussions/1828) -- blocking API in Textual
+- [Textual Discussion #2035](https://github.com/Textualize/textual/discussions/2035) -- updating screen before push_screen
+- [pyusb Issue #374](https://github.com/pyusb/pyusb/issues/374) -- macOS kernel driver detach
+- [libusb Discussion #1321](https://github.com/libusb/libusb/discussions/1321) -- macOS kernel driver limitations
+- [libusb PR #911](https://github.com/libusb/libusb/pull/911) -- macOS kernel driver detach implementation
+- [pyusb Issue #208](https://github.com/pyusb/pyusb/issues/208) -- macOS access denied errors
+- [Real Python: Python and TOML](https://realpython.com/python-toml/) -- tomllib/tomli-w round-trip limitations
+- [Python Discuss: Optional imports](https://discuss.python.org/t/optional-imports-for-optional-dependencies/104760) -- patterns for optional dependency handling
+- [CUPS lpstat man page](https://www.cups.org/doc/man-lpstat.html) -- lpstat output format
+- [Apple CUPS Issue #756](https://github.com/apple/cups/issues/756) -- CUPS printer recovery issues
+- Existing codebase: `printer.py`, `config.py`, `tui.py`, `settings_screen.py`, `profiles.py`
 
 ---
-*Pitfalls research for: v1.2 configuration system, printer profiles, multi-LLM backends, TUI settings, typewriter mode*
-*Researched: 2026-02-17*
+*Pitfalls research for: Printer Setup TUI (v1.4 milestone) added to existing Claude Teletype app*
+*Researched: 2026-04-02*
