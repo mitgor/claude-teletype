@@ -88,7 +88,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 19-01-PLAN.md -- PrinterSelection dataclass and create_driver_for_selection() factory
+- [x] 19-01-PLAN.md -- PrinterSelection dataclass and create_driver_for_selection() factory
 - [ ] 19-02-PLAN.md -- PrinterSetupScreen widget layout, interactions, and tests
 - [ ] 19-03-PLAN.md -- TUI/CLI integration: wire setup screen into startup flow
 
@@ -130,5 +130,5 @@ Phases execute in numeric order: 18 → 19 → 20
 | 16. Config and Profile Polish | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete    | 2026-04-03 |
-| 19. Printer Setup Screen | v1.4 | 0/3 | Not started | - |
+| 19. Printer Setup Screen | v1.4 | 1/3 | In Progress|  |
 | 20. Config Persistence & Smart Startup | v1.4 | 0/TBD | Not started | - |

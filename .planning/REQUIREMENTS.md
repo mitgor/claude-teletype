@@ -10,9 +10,9 @@ Requirements for the Printer Setup TUI milestone. Each maps to roadmap phases.
 ### Printer Setup Screen
 
 - [ ] **SETUP-01**: User sees a list of all discovered USB devices and CUPS printers on startup
-- [ ] **SETUP-02**: User can choose between USB Direct and CUPS Queue connection methods
+- [x] **SETUP-02**: User can choose between USB Direct and CUPS Queue connection methods
 - [ ] **SETUP-03**: User must select a printer profile (juki/escp/ppds/pcl/generic) for USB devices, with VID:PID auto-suggestion
-- [ ] **SETUP-04**: User can skip printer setup and run in simulator-only mode
+- [x] **SETUP-04**: User can skip printer setup and run in simulator-only mode
 - [ ] **SETUP-05**: User sees discovery progress and connection status messages inline in the setup screen
 
 ### Dependency Management
@@ -54,9 +54,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SETUP-01 | Phase 19 | Pending |
-| SETUP-02 | Phase 19 | Pending |
+| SETUP-02 | Phase 19 | Complete |
 | SETUP-03 | Phase 19 | Pending |
-| SETUP-04 | Phase 19 | Pending |
+| SETUP-04 | Phase 19 | Complete |
 | SETUP-05 | Phase 19 | Pending |
 | DEP-01 | Phase 18 | Complete |
 | DEP-02 | Phase 19 | Pending |
