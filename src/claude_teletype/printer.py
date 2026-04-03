@@ -585,6 +585,49 @@ def discover_all() -> DiscoveryResult:
     return result
 
 
+def match_saved_printer(
+    saved_type: str,
+    saved_id: str,
+    discovery: DiscoveryResult,
+) -> PrinterSelection | None:
+    """Check if a saved printer config matches a currently connected device.
+
+    Returns a PrinterSelection if matched, None if the saved printer is not found.
+    USB devices are matched by VID:PID (hex string like "1234:5678").
+    CUPS printers are matched by queue name.
+    """
+    if not saved_type or saved_type == "skip":
+        return None
+
+    if saved_type == "usb" and saved_id:
+        # Parse VID:PID from saved_id
+        parts = saved_id.split(":")
+        if len(parts) == 2:
+            try:
+                vid = int(parts[0], 16)
+                pid = int(parts[1], 16)
+            except ValueError:
+                return None
+            for i, dev in enumerate(discovery.usb_devices):
+                if dev.vendor_id == vid and dev.product_id == pid:
+                    return PrinterSelection(
+                        connection_type="usb",
+                        device_index=i,
+                        profile_name="generic",
+                    )
+
+    elif saved_type == "cups" and saved_id:
+        for cups_pr in discovery.cups_printers:
+            if cups_pr.name == saved_id:
+                return PrinterSelection(
+                    connection_type="cups",
+                    cups_printer_name=cups_pr.name,
+                    profile_name="generic",
+                )
+
+    return None
+
+
 def create_driver_for_selection(
     selection: PrinterSelection,
     discovery: DiscoveryResult,

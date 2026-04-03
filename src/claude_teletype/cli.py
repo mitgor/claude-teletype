@@ -469,7 +469,7 @@ def main(
 
     # Discover printer: use discover_all() for TUI (setup screen handles selection)
     # or discover_printer() for --no-tui mode (direct selection)
-    from claude_teletype.printer import discover_all, discover_printer
+    from claude_teletype.printer import create_driver_for_selection, discover_all, discover_printer
 
     if effective_no_tui:
         # --no-tui mode: use existing direct discovery (no setup screen)
@@ -484,6 +484,26 @@ def main(
         else:
             discovery = discover_all()
             printer_driver = None  # Setup screen will create the driver
+
+            # Smart startup: check if saved printer is still connected (CFG-02)
+            if config.saved_printer_type and config.saved_printer_type != "skip":
+                from claude_teletype.printer import match_saved_printer
+                saved_match = match_saved_printer(
+                    config.saved_printer_type,
+                    config.saved_printer_id,
+                    discovery,
+                )
+                if saved_match is not None:
+                    # Saved printer found -- create driver, skip setup screen
+                    saved_match.profile_name = config.saved_printer_profile or "generic"
+                    printer_driver = create_driver_for_selection(
+                        saved_match, discovery, all_profiles=all_profiles,
+                    )
+                    discovery = None  # Signal: no setup screen needed
+                    # Also resolve the profile for status bar display
+                    if config.saved_printer_profile and config.saved_printer_profile in all_profiles:
+                        resolved_profile = all_profiles[config.saved_printer_profile]
+                # else: saved printer not found -- discovery stays set, setup screen will show
 
     if effective_no_tui:
         if not prompt:
