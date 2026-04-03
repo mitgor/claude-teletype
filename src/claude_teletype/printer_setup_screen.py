@@ -109,7 +109,13 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
                 yield RadioButton("CUPS Queue", id="radio-cups")
 
             yield Label("Printer Profile:", classes="section-label")
-            yield Select[str]([], id="profile-select", allow_blank=False)
+            sorted_names = sorted(self._all_profiles.keys())
+            yield Select[str](
+                [(name, name) for name in sorted_names],
+                value="generic" if "generic" in self._all_profiles else sorted_names[0],
+                id="profile-select",
+                allow_blank=False,
+            )
 
             with Horizontal(id="install-row"):
                 yield Button("Install USB Support", id="install-btn", variant="warning")
@@ -158,13 +164,6 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
             option_list.add_option(
                 "No printers found. Check connections or install USB support."
             )
-
-        # Populate profile Select
-        profile_select = self.query_one("#profile-select", Select)
-        sorted_names = sorted(self._all_profiles.keys())
-        profile_select.set_options([(name, name) for name in sorted_names])
-        if "generic" in self._all_profiles:
-            profile_select.value = "generic"
 
         # Write diagnostics from discovery
         for msg in self._discovery.diagnostics:
