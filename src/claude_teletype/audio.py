@@ -31,7 +31,10 @@ def make_bell_output() -> Callable[[str], None]:
 
         def _bell_write(char: str) -> None:
             if char == "\n":
-                sd.play(bell, samplerate=sr)
+                try:
+                    sd.play(bell, samplerate=sr)
+                except OSError:
+                    pass
 
         return _bell_write
 
@@ -73,7 +76,10 @@ def make_keystroke_output() -> Callable[[str], None]:
 
         def _click_write(char: str) -> None:
             if char not in ("\n", "\r"):
-                sd.play(click, samplerate=sr)
+                try:
+                    sd.play(click, samplerate=sr)
+                except OSError:
+                    pass
 
         return _click_write
 
