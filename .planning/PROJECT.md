@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A Python CLI tool that streams AI conversation to a physical dot-matrix printer character-by-character via USB-LPT adapter. Supports multiple LLM backends (Claude Code CLI, OpenAI, OpenRouter), configurable printer profiles (Juki, Epson, IBM, HP, custom), and a pure typewriter mode for direct keystroke-to-paper output. When no printer hardware is available, it runs a split-screen terminal simulator. Includes persistent TOML configuration, a TUI settings modal, multi-turn conversations with session persistence, error recovery, and word-wrapped output.
+A Python CLI tool that streams AI conversation to a physical dot-matrix printer character-by-character via USB-LPT adapter. Supports multiple LLM backends (Claude Code CLI, OpenAI, OpenRouter), configurable printer profiles (Juki, Epson, IBM, HP, custom), and a pure typewriter mode for direct keystroke-to-paper output. Features an interactive printer setup screen on startup for device discovery, connection selection, and profile assignment — with in-app pyusb installation and config persistence. When no printer hardware is available, it runs a split-screen terminal simulator. Includes a diagnostic CLI command, persistent TOML configuration, a TUI settings modal, multi-turn conversations with session persistence, error recovery, and word-wrapped output.
 
 ## Core Value
 
@@ -50,6 +50,15 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ Startup warning when system_prompt configured with claude-cli backend (ignored in favor of CLAUDE.md) — v1.3
 - ✓ Backend hot-swap confirmation dialog when switching away from claude-cli (context loss prevention) — v1.3
 
+- ✓ Interactive printer setup screen on startup with USB and CUPS device discovery — v1.4
+- ✓ User selects connection method (USB Direct / CUPS Queue) and printer profile with VID:PID auto-suggestion — v1.4
+- ✓ In-app pyusb installation via async `uv sync --extra usb` with progress indicator — v1.4
+- ✓ Graceful pyusb-missing handling — CUPS-only mode, no crashes — v1.4
+- ✓ Printer selection saved to TOML config with atomic writes — v1.4
+- ✓ Smart startup: setup screen skipped when saved printer still connected (USB by VID:PID, CUPS by queue name) — v1.4
+- ✓ `claude-teletype diagnose` CLI command with structured Rich output — v1.4
+- ✓ Skip/simulator option always available in setup screen — v1.4
+
 ### Active
 
 (None — planning next milestone)
@@ -64,16 +73,18 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.3 shipped (2026-02-20). 3,381 LOC source + 5,709 LOC tests (Python). 430 tests passing.
+**Current state:** v1.4 shipped (2026-04-03). 4,646 LOC source + 6,510 LOC tests (Python). 479 tests passing.
 
-**Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
+**Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile drivers), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), settings_screen.py (TUI settings modal), warnings.py (config conflict detection + startup warnings).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile/USB drivers + discovery dataclasses + driver factory), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), printer_setup_screen.py (interactive printer setup), settings_screen.py (TUI settings modal), diagnose.py (CLI diagnostic command), warnings.py (config conflict detection + startup warnings).
 
 **Known tech debt:**
 - `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
 - Pre-existing test_cli_teletype_passes_no_profile failure (USB auto-detection test)
 - Juki 9100 control codes extrapolated from 6100 (need hardware verification)
+- create_driver_for_selection() for USB re-discovers by class, not by index (single printer assumed)
+- discovery=None sentinel carries two meanings (saved-match and device-override skip)
 
 ## Constraints
 
@@ -112,6 +123,30 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | CLI flag source excluded from config show | show() is a separate Typer subcommand without main's CLI params | ✓ Good |
 | Per-process suppression for startup warnings | Module-level set sufficient; config changes restart code paths | ✓ Good |
 | ConfirmSwapScreen only when leaving claude-cli | API backends have no persistent sessions; only claude-cli has context loss risk | ✓ Good |
+| importlib.util.find_spec over import for pyusb detection | Avoids polluting sys.modules cache, enabling same-session reimport after install | ✓ Good |
+| PrinterSetupScreen as full Screen, not ModalScreen | Setup is a gate (blocks chat), not an overlay; matches TypewriterScreen pattern | ✓ Good |
+| call_after_refresh for deferred screen push | Avoids Textual screen lifecycle races when pushing in on_mount | ✓ Good |
+| Atomic config writes via tempfile + os.replace | Prevents config corruption from mid-write crashes | ✓ Good |
+| USB matching by VID:PID, CUPS by queue name | Bus/address changes on replug; VID:PID and queue names are stable | ✓ Good |
+| discovery=None as skip-setup signal | Reuses existing convention; TUI checks this in _needs_printer_setup | ✓ Good |
+| CR+LF+reinit as single atomic USB transfer | Prevents Juki CH341 bridge from dropping LF byte on word-wrap newlines | ✓ Good |
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd:transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
 
 ---
-*Last updated: 2026-02-20 after v1.3 milestone*
+*Last updated: 2026-04-03 after v1.4 milestone*

@@ -132,4 +132,4 @@ Phases execute in numeric order: 18 → 19 → 20
 | 17. Claude-CLI Warnings | v1.3 | 1/1 | ✓ Complete | 2026-02-20 |
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | Complete    | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 3/3 | Complete    | 2026-04-03 |
-| 20. Config Persistence & Smart Startup | v1.4 | 2/2 | Complete   | 2026-04-03 |
+| 20. Config Persistence & Smart Startup | v1.4 | 2/2 | Complete    | 2026-04-03 |

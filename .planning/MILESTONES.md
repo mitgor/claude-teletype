@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.4 Printer Setup TUI (Shipped: 2026-04-03)
+
+**Phases completed:** 3 phases, 6 plans, 10 tasks
+
+**Key accomplishments:**
+
+- Structured DiscoveryResult dataclass with discover_all() aggregator and Rich-formatted `claude-teletype diagnose` CLI command
+- PrinterSelection dataclass and create_driver_for_selection() factory for typed setup-screen-to-driver conversion
+- Full interactive PrinterSetupScreen with device list, connection method toggle, profile auto-detect, pyusb install worker, and 8 passing tests
+- Wire PrinterSetupScreen into startup: cli.py calls discover_all(), TeletypeApp conditionally pushes setup screen on mount, callback converts selection to live printer driver
+- Saved printer fields on TeletypeConfig with atomic TOML writes and TUI persistence after setup
+- Skip printer setup screen on launch when saved USB/CUPS printer is still connected, via VID:PID and queue-name matching against discovery results
+
+---
+
 ## v1.1 Conversation Mode (Shipped: 2026-02-17)
 
 **Phases:** 5-7 (3 phases, 7 plans)
@@ -7,6 +22,7 @@
 **Code:** +1,655 lines across 11 Python files, 265 tests passing
 
 **Key accomplishments:**
+
 - Multi-turn conversation with session persistence via `--resume` flag
 - Turn-formatted output with "You:"/"Claude:" labels, status bar, and input blocking
 - Error classification system (7 categories) with automatic retry and exponential backoff
@@ -15,11 +31,11 @@
 - Dynamic TUI resize support updates wrap width automatically
 
 **Tech debt accepted:**
+
 - `_chat_async` in cli.py not updated for StreamResult (--no-tui mode crashes at end of response)
 - No test_cli.py for --no-tui code path
 
 ---
-
 
 ## v1.2 Configuration, Profiles, Multi-LLM, Settings (Shipped: 2026-02-17)
 
@@ -28,6 +44,7 @@
 **Code:** +9,483 lines across 52 files, 401 tests passing (3,191 LOC source + 5,349 LOC tests)
 
 **Key accomplishments:**
+
 - Persistent TOML configuration with three-layer merge (file < env vars < CLI flags)
 - Data-driven printer profiles — 5 built-ins (Juki, Epson, IBM, HP, generic), custom TOML profiles, USB auto-detection
 - Multi-LLM backends — Claude Code CLI, OpenAI, OpenRouter with streaming, error handling, and startup validation
@@ -37,17 +54,18 @@
 - Fixed --no-tui mode StreamResult crash from v1.1 tech debt
 
 **Tech debt accepted:**
+
 - IBM PPDS profile keyed as "ppds" not "ibm" (discoverability)
 - `config show` reflects file+env but not CLI flags (Typer architectural constraint)
 - system_prompt silently ignored for claude-cli backend
 - Backend hot-swap loses session_id for claude-cli
 
 **v1.1 debt resolved:**
+
 - `_chat_async` StreamResult crash fixed (Phase 8)
 - `--no-tui` code path now has test coverage
 
 ---
-
 
 ## v1.3 Tech Debt Cleanup (Shipped: 2026-02-20)
 
@@ -56,6 +74,7 @@
 **Code:** +515 lines across 10 files, 430 tests passing (3,381 LOC source + 5,709 LOC tests)
 
 **Key accomplishments:**
+
 - "ibm" alias for PPDS printer profile — `--profile ibm` resolves to PPDS with case-insensitive lookup
 - Annotated `config show` — every setting displays its source (default/file/env) via `resolve_sources()`
 - Startup warning when system_prompt configured with claude-cli backend (shown in both CLI and TUI)
@@ -63,15 +82,16 @@
 - warnings.py module with pure check functions and per-process suppression pattern
 
 **v1.2 debt resolved:**
+
 - IBM PPDS profile now discoverable as "ibm" (Phase 16)
 - `config show` now annotates sources for file and env layers (Phase 16, CLI flags excluded by design)
 - system_prompt conflict warned at startup (Phase 17)
 - Backend hot-swap now requires confirmation when leaving claude-cli (Phase 17)
 
 **Remaining tech debt:**
+
 - `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
 - Pre-existing test_cli_teletype_passes_no_profile failure (USB auto-detection test)
 - Juki 9100 control codes extrapolated from 6100 (need hardware verification)
 
 ---
-
