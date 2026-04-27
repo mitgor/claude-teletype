@@ -112,6 +112,27 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         usb_vendor_id=0x03F0,  # HP Inc
         columns=80,
     ),
+    "oki-3390": PrinterProfile(
+        name="oki-3390",
+        description="OKI Microline 3390 24-pin dot matrix (Epson FX-2 mode, USB)",
+        # ML 3390 ships with selectable emulations (OKI native, IBM PPDS,
+        # Epson FX-2). This profile assumes the printer's front-panel emulation
+        # menu is set to Epson FX-2 — the most common modern factory default
+        # and the closest match to the existing escp profile. If the printer
+        # is set to IBM PPDS instead, use the ppds/ibm profile.
+        init_sequence=b"\x1b@",  # ESC @ (Epson initialize)
+        reset_sequence=b"\x1b@",  # ESC @ (reset on close)
+        line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
+        char_pitch=b"\x1bP",  # ESC P (10 CPI pica)
+        crlf=False,
+        formfeed_on_close=True,
+        usb_vendor_id=0x06BC,  # OKI Data Corp
+        # PID left unset: VID-only match auto-detects any OKI USB printer.
+        # If you have multiple OKI devices and want narrower matching, add
+        # the 3390's specific product ID once verified via `claude-teletype
+        # diagnose` on the live device.
+        columns=80,
+    ),
 }
 
 # IBM alias: same ESC sequences as PPDS, brand name users recognize

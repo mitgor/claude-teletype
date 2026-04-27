@@ -80,9 +80,9 @@ def test_printer_profile_defaults():
 # ---------------------------------------------------------------------------
 
 
-def test_builtin_profiles_has_eight_entries():
-    """BUILTIN_PROFILES has 8 entries: 5 canonical + ibm alias + juki-6100/2200 + juki alias."""
-    assert len(BUILTIN_PROFILES) == 8
+def test_builtin_profiles_has_nine_entries():
+    """BUILTIN_PROFILES has 9 entries: 6 canonical + ibm alias + juki-6100/2200 + juki alias."""
+    assert len(BUILTIN_PROFILES) == 9
 
 
 def test_builtin_profiles_keys():
@@ -90,8 +90,24 @@ def test_builtin_profiles_keys():
     expected = {
         "generic", "escp", "ppds", "pcl", "ibm",
         "juki-6100", "juki-2200", "juki",
+        "oki-3390",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
+
+
+def test_oki_3390_profile_epson_fx2_defaults():
+    """oki-3390 ships with Epson FX-2 ESC sequences and OKI USB VID."""
+    p = BUILTIN_PROFILES["oki-3390"]
+    assert p.name == "oki-3390"
+    assert p.init_sequence == b"\x1b@"          # ESC @ — Epson init
+    assert p.reset_sequence == b"\x1b@"
+    assert p.line_spacing == b"\x1b\x32"         # ESC 2 — 6 LPI
+    assert p.char_pitch == b"\x1bP"              # ESC P — 10 CPI
+    assert p.crlf is False                       # ESC/P uses LF only
+    assert p.formfeed_on_close is True
+    assert p.usb_vendor_id == 0x06BC             # OKI Data Corp
+    assert p.usb_product_id is None              # VID-only auto-detect
+    assert p.columns == 80
 
 
 def test_juki_2200_profile_typewriter_defaults():
