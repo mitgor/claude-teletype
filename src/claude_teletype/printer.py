@@ -61,6 +61,7 @@ class CupsPrinterInfo:
     vendor: str = ""
     model: str = ""
     serial: str = ""
+    enabled: bool = True
 
 
 @dataclass
@@ -383,6 +384,54 @@ def _find_usb_printer(
     return None
 
 
+def kernel_driver_holds_printer(vendor_id: int, product_id: int) -> bool:
+    """True if a host kernel driver is bound to a printer-class interface.
+
+    On macOS the AppleUSBPrinter kext claims printer-class USB devices, which
+    makes pyusb's USB Direct path time out unless the kext is unloaded. The
+    setup screen uses this probe to recommend CUPS only when the conflict is
+    real instead of warning unconditionally on every macOS launch.
+    """
+    try:
+        import usb.core  # type: ignore[import-untyped]
+        import usb.util  # type: ignore[import-untyped]
+    except ImportError:
+        return False
+
+    try:
+        dev = usb.core.find(idVendor=vendor_id, idProduct=product_id)
+    except Exception:
+        return False
+    if dev is None:
+        return False
+
+    held = False
+    try:
+        seen: set[int] = set()
+        for cfg in dev:
+            for intf in cfg:
+                if intf.bInterfaceClass != 7:
+                    continue
+                num = intf.bInterfaceNumber
+                if num in seen:
+                    continue
+                seen.add(num)
+                try:
+                    if dev.is_kernel_driver_active(num):
+                        held = True
+                        break
+                except Exception:
+                    continue
+            if held:
+                break
+    finally:
+        try:
+            usb.util.dispose_resources(dev)
+        except Exception:
+            pass
+    return held
+
+
 def discover_usb_device() -> UsbPrinterDriver | None:
     """Try to open a USB printer class device directly via pyusb.
 
@@ -452,17 +501,33 @@ def discover_macos_usb_printers() -> list[dict]:
     return printers
 
 
-def discover_cups_printers() -> list[dict[str, str]]:
-    """Discover USB printers via CUPS lpstat."""
+def discover_cups_printers() -> list[dict]:
+    """Discover USB printers via CUPS lpstat.
+
+    Calls ``lpstat -p -v`` once to capture both queue state ("printer X
+    disabled since..." / "printer X is idle. enabled since...") and device
+    URIs ("device for X: usb://..."). The "enabled" key on each entry is
+    True unless lpstat reports the queue as disabled — smart-startup uses
+    this to skip dead queues that would silently swallow print jobs.
+    """
     try:
         result = subprocess.run(
-            ["lpstat", "-v"],
+            ["lpstat", "-p", "-v"],
             capture_output=True,
             text=True,
             timeout=5,
         )
     except (subprocess.SubprocessError, FileNotFoundError):
         return []
+
+    # Parse "printer X is idle..." / "printer X disabled since..." lines first
+    # so we know each queue's state by the time we see its device line.
+    state_pattern = re.compile(r"^printer (\S+) (disabled|is \S+)")
+    enabled_by_name: dict[str, bool] = {}
+    for line in result.stdout.splitlines():
+        m = state_pattern.match(line)
+        if m:
+            enabled_by_name[m.group(1)] = m.group(2) != "disabled"
 
     printers = []
     pattern = re.compile(r"device for (\S+):\s+(.+)")
@@ -472,7 +537,11 @@ def discover_cups_printers() -> list[dict[str, str]]:
         if match:
             name, uri = match.group(1), match.group(2).strip()
             if uri.startswith("usb://"):
-                entry: dict[str, str] = {"name": name, "uri": uri}
+                entry: dict = {
+                    "name": name,
+                    "uri": uri,
+                    "enabled": enabled_by_name.get(name, True),
+                }
                 uri_match = usb_uri_pattern.match(uri)
                 if uri_match:
                     vendor_part = uri_match.group(1)
@@ -577,6 +646,7 @@ def discover_all() -> DiscoveryResult:
                     vendor=p.get("vendor", ""),
                     model=p.get("model", ""),
                     serial=p.get("serial", ""),
+                    enabled=p.get("enabled", True),
                 )
             )
     except Exception as e:
@@ -618,7 +688,7 @@ def match_saved_printer(
 
     elif saved_type == "cups" and saved_id:
         for cups_pr in discovery.cups_printers:
-            if cups_pr.name == saved_id:
+            if cups_pr.name == saved_id and cups_pr.enabled:
                 return PrinterSelection(
                     connection_type="cups",
                     cups_printer_name=cups_pr.name,

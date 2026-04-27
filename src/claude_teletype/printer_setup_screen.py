@@ -30,7 +30,11 @@ from textual.widgets import (
     Static,
 )
 
-from claude_teletype.printer import DiscoveryResult, PrinterSelection
+from claude_teletype.printer import (
+    DiscoveryResult,
+    PrinterSelection,
+    kernel_driver_holds_printer,
+)
 
 
 class PrinterSetupScreen(Screen[PrinterSelection | None]):
@@ -211,21 +215,34 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
 
         if entry["type"] == "usb":
             usb_info = entry["usb_info"]
+            radio_usb.disabled = False
+            radio_cups.disabled = False
+            log = self.query_one("#diagnostics-log", Log)
 
-            # macOS default: prefer CUPS over USB Direct
-            if sys.platform == "darwin":
-                radio_usb.disabled = False
-                radio_cups.disabled = False
+            # Probe whether the host kernel driver is actually bound to this
+            # device. On macOS that's the AppleUSBPrinter kext, which makes
+            # USB Direct writes time out — recommend CUPS in that case.
+            kernel_owns = (
+                sys.platform == "darwin"
+                and kernel_driver_holds_printer(
+                    usb_info.vendor_id, usb_info.product_id
+                )
+            )
+
+            if kernel_owns and self._discovery.cups_printers:
                 radio_cups.value = True
-                log = self.query_one("#diagnostics-log", Log)
-                if self._discovery.cups_printers:
-                    log.write_line(
-                        "macOS kernel driver conflict -- use CUPS queue instead"
-                    )
+                log.write_line(
+                    "macOS print driver (AppleUSBPrinter) is using this device "
+                    "— CUPS Queue selected. USB Direct will time out unless "
+                    "the kext is unloaded."
+                )
             else:
-                radio_usb.disabled = False
-                radio_cups.disabled = False
                 radio_usb.value = True
+                if kernel_owns:
+                    log.write_line(
+                        "macOS print driver is using this device; USB Direct "
+                        "may time out. No CUPS queue available — falling back."
+                    )
 
             # Auto-detect profile by VID:PID matching against all_profiles
             matched_profile = self._match_profile_by_vid_pid(

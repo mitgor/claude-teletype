@@ -51,8 +51,8 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         name="generic",
         description="Generic printer, no ESC codes, LF-only newlines",
     ),
-    "juki": PrinterProfile(
-        name="juki",
+    "juki-6100": PrinterProfile(
+        name="juki-6100",
         description="Juki 6100/9100 daisywheel impact printer",
         init_sequence=b"\x1b\x1aI",  # ESC SUB I (full reset)
         line_spacing=b"\x1b\x1e\x09",  # ESC RS 9 (1/6" spacing)
@@ -63,6 +63,18 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         formfeed_on_close=True,
         usb_vendor_id=0x1A86,  # QinHeng Electronics (CH341 USB-to-printer bridge)
         usb_product_id=0x7584,  # Juki 6100 printer interface
+        columns=80,
+    ),
+    "juki-2200": PrinterProfile(
+        name="juki-2200",
+        description="Juki 2200 daisywheel typewriter (LPT/Centronics)",
+        # Plain-ASCII typewriter: no init/reset ESC sequences. CR+LF newlines
+        # are standard for parallel-interface typewriters. No form feed on
+        # close — typewriters don't eject pages. The 2200 shares the CH341
+        # USB-LPT adapter with the 6100 (same VID:PID), so VID:PID is left
+        # unset to avoid hijacking auto-detect; pick this profile explicitly.
+        crlf=True,
+        formfeed_on_close=False,
         columns=80,
     ),
     "escp": PrinterProfile(
@@ -107,6 +119,14 @@ BUILTIN_PROFILES["ibm"] = dataclasses.replace(
     BUILTIN_PROFILES["ppds"],
     name="ibm",
     description="IBM PPDS (alias for ppds profile)",
+)
+
+# Backward-compat alias: "juki" was renamed to "juki-6100" — keep the old
+# name working for existing config files and the deprecated --juki flag.
+BUILTIN_PROFILES["juki"] = dataclasses.replace(
+    BUILTIN_PROFILES["juki-6100"],
+    name="juki",
+    description="Juki 6100 (alias for juki-6100)",
 )
 
 

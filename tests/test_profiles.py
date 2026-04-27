@@ -80,15 +80,40 @@ def test_printer_profile_defaults():
 # ---------------------------------------------------------------------------
 
 
-def test_builtin_profiles_has_six_entries():
-    """BUILTIN_PROFILES contains exactly 6 profiles (including ibm alias)."""
-    assert len(BUILTIN_PROFILES) == 6
+def test_builtin_profiles_has_eight_entries():
+    """BUILTIN_PROFILES has 8 entries: 5 canonical + ibm alias + juki-6100/2200 + juki alias."""
+    assert len(BUILTIN_PROFILES) == 8
 
 
 def test_builtin_profiles_keys():
     """BUILTIN_PROFILES has the expected profile names."""
-    expected = {"generic", "juki", "escp", "ppds", "pcl", "ibm"}
+    expected = {
+        "generic", "escp", "ppds", "pcl", "ibm",
+        "juki-6100", "juki-2200", "juki",
+    }
     assert set(BUILTIN_PROFILES.keys()) == expected
+
+
+def test_juki_2200_profile_typewriter_defaults():
+    """juki-2200 is a plain-ASCII typewriter: no ESC codes, CR+LF, no formfeed."""
+    p = BUILTIN_PROFILES["juki-2200"]
+    assert p.name == "juki-2200"
+    assert p.init_sequence == b""
+    assert p.reset_sequence == b""
+    assert p.crlf is True
+    assert p.reinit_on_newline is False
+    assert p.formfeed_on_close is False
+    assert p.usb_vendor_id is None  # shares CH341 adapter with 6100; pick explicitly
+
+
+def test_juki_alias_resolves_to_6100():
+    """`get_profile("juki")` keeps working as a backward-compat alias for juki-6100."""
+    juki = get_profile("juki")
+    six = get_profile("juki-6100")
+    assert juki.init_sequence == six.init_sequence
+    assert juki.reinit_sequence == six.reinit_sequence
+    assert juki.usb_vendor_id == six.usb_vendor_id
+    assert juki.usb_product_id == six.usb_product_id
 
 
 def test_generic_profile_no_esc_codes():

@@ -261,7 +261,7 @@ def main(
         None,
         "--printer",
         "-p",
-        help="Printer profile name (e.g., juki, escp, ppds/ibm, pcl)",
+        help="Printer profile name (e.g., juki-6100, juki-2200, escp, ppds/ibm, pcl)",
     ),
     juki: bool = typer.Option(
         False,
@@ -289,6 +289,11 @@ def main(
         False,
         "--init-config",
         help="Create config file with defaults",
+    ),
+    setup_printer: bool = typer.Option(
+        False,
+        "--setup-printer",
+        help="Force the printer setup screen on launch (bypass smart-startup)",
     ),
 ) -> None:
     """Send a prompt to Claude and watch the response appear character by character."""
@@ -485,8 +490,13 @@ def main(
             discovery = discover_all()
             printer_driver = None  # Setup screen will create the driver
 
-            # Smart startup: check if saved printer is still connected (CFG-02)
-            if config.saved_printer_type and config.saved_printer_type != "skip":
+            # Smart startup: check if saved printer is still connected (CFG-02).
+            # --setup-printer bypasses this so the user can re-pick a connection.
+            if (
+                not setup_printer
+                and config.saved_printer_type
+                and config.saved_printer_type != "skip"
+            ):
                 from claude_teletype.printer import match_saved_printer
                 saved_match = match_saved_printer(
                     config.saved_printer_type,

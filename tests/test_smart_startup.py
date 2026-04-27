@@ -83,6 +83,39 @@ class TestMatchSavedPrinterCups:
         result = match_saved_printer("cups", "Epson_Dot_Matrix", discovery)
         assert result is None
 
+    def test_cups_disabled_queue_not_matched(self):
+        """Disabled CUPS queues are skipped so smart-startup falls through to setup.
+
+        Regression: a stale CUPS queue ("Unable to send data to printer") was
+        smart-matched by name only, silently routing characters into a dead
+        queue while a working USB Direct device was ignored.
+        """
+        discovery = DiscoveryResult(
+            cups_printers=[
+                CupsPrinterInfo(
+                    name="USB2.0-Print",
+                    uri="usb:///USB2.0-Print",
+                    enabled=False,
+                ),
+            ]
+        )
+        result = match_saved_printer("cups", "USB2.0-Print", discovery)
+        assert result is None
+
+    def test_cups_enabled_queue_still_matched(self):
+        discovery = DiscoveryResult(
+            cups_printers=[
+                CupsPrinterInfo(
+                    name="HP_LaserJet",
+                    uri="usb://HP/LaserJet",
+                    enabled=True,
+                ),
+            ]
+        )
+        result = match_saved_printer("cups", "HP_LaserJet", discovery)
+        assert result is not None
+        assert result.cups_printer_name == "HP_LaserJet"
+
 
 class TestMatchSavedPrinterEdgeCases:
     """match_saved_printer handles empty/skip/missing saved config."""

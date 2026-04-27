@@ -338,6 +338,107 @@ class TestPromptBackwardCompat:
         mock_tui_cls.assert_called_once()
 
 
+class TestSetupPrinterFlag:
+    """--setup-printer forces the printer setup screen, bypassing smart-startup."""
+
+    def test_setup_flag_keeps_discovery_for_setup_screen(self):
+        """With --setup-printer, even a saved-matching printer doesn't skip setup."""
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printer.discover_all"
+        ) as mock_discover, patch(
+            "claude_teletype.tui.TeletypeApp"
+        ) as mock_tui_cls, patch(
+            "claude_teletype.cli.sys"
+        ) as mock_sys:
+            mock_cfg = TeletypeConfig()
+            mock_cfg.saved_printer_type = "cups"
+            mock_cfg.saved_printer_id = "USB2.0-Print"
+            mock_cfg.saved_printer_profile = "juki"
+            mock_env.return_value = mock_cfg
+            mock_merge.return_value = mock_cfg
+            mock_discover.return_value = DiscoveryResult(
+                cups_printers=[
+                    CupsPrinterInfo(
+                        name="USB2.0-Print",
+                        uri="usb:///USB2.0-Print",
+                        enabled=True,
+                    )
+                ]
+            )
+            mock_tui = MagicMock()
+            mock_tui.session_id = None
+            mock_tui_cls.return_value = mock_tui
+            mock_sys.stdin.isatty.return_value = True
+
+            result = runner.invoke(app, ["--setup-printer"])
+
+        assert result.exit_code == 0
+        kwargs = mock_tui_cls.call_args[1]
+        # Setup screen will run only when discovery is non-None
+        assert kwargs["discovery"] is not None
+        assert kwargs["printer"] is None
+
+    def test_no_setup_flag_uses_smart_match(self):
+        """Control: without flag, matching saved CUPS queue routes via smart-startup."""
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printer.discover_all"
+        ) as mock_discover, patch(
+            "claude_teletype.printer.create_driver_for_selection"
+        ) as mock_create, patch(
+            "claude_teletype.tui.TeletypeApp"
+        ) as mock_tui_cls, patch(
+            "claude_teletype.cli.sys"
+        ) as mock_sys:
+            mock_cfg = TeletypeConfig()
+            mock_cfg.saved_printer_type = "cups"
+            mock_cfg.saved_printer_id = "USB2.0-Print"
+            mock_cfg.saved_printer_profile = "juki"
+            mock_env.return_value = mock_cfg
+            mock_merge.return_value = mock_cfg
+            mock_discover.return_value = DiscoveryResult(
+                cups_printers=[
+                    CupsPrinterInfo(
+                        name="USB2.0-Print",
+                        uri="usb:///USB2.0-Print",
+                        enabled=True,
+                    )
+                ]
+            )
+            mock_create.return_value = MagicMock()
+            mock_tui = MagicMock()
+            mock_tui.session_id = None
+            mock_tui_cls.return_value = mock_tui
+            mock_sys.stdin.isatty.return_value = True
+
+            result = runner.invoke(app, [])
+
+        assert result.exit_code == 0
+        kwargs = mock_tui_cls.call_args[1]
+        assert kwargs["discovery"] is None  # Smart-match short-circuited setup screen
+
+
 class TestPrinterFlag:
     """Tests for --printer flag and --juki deprecation."""
 

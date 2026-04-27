@@ -1097,6 +1097,86 @@ def test_verbose_kernel_driver_detach_reported():
 
 
 # ---------------------------------------------------------------------------
+# kernel_driver_holds_printer() probe
+# ---------------------------------------------------------------------------
+
+
+def _build_mocked_usb(*, kernel_active: bool, intf_class: int = 7):
+    """Construct a minimal pyusb-style mock chain for kernel-driver probe tests."""
+    mock_intf = MagicMock()
+    mock_intf.bInterfaceClass = intf_class
+    mock_intf.bInterfaceNumber = 0
+
+    mock_cfg = MagicMock()
+    mock_cfg.__iter__ = MagicMock(return_value=iter([mock_intf]))
+
+    mock_dev = MagicMock()
+    mock_dev.__iter__ = MagicMock(return_value=iter([mock_cfg]))
+    mock_dev.is_kernel_driver_active.return_value = kernel_active
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.find.return_value = mock_dev
+
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+    return mock_usb, mock_usb_core, mock_usb_util
+
+
+def test_kernel_driver_holds_printer_true_when_kext_active():
+    """kernel_driver_holds_printer() returns True when kernel driver is bound."""
+    from claude_teletype.printer import kernel_driver_holds_printer
+
+    mock_usb, mock_core, mock_util = _build_mocked_usb(kernel_active=True)
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_core, "usb.util": mock_util}
+    ):
+        assert kernel_driver_holds_printer(0x1A86, 0x7584) is True
+
+
+def test_kernel_driver_holds_printer_false_when_kext_inactive():
+    """kernel_driver_holds_printer() returns False when no kernel driver is bound."""
+    from claude_teletype.printer import kernel_driver_holds_printer
+
+    mock_usb, mock_core, mock_util = _build_mocked_usb(kernel_active=False)
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_core, "usb.util": mock_util}
+    ):
+        assert kernel_driver_holds_printer(0x1A86, 0x7584) is False
+
+
+def test_kernel_driver_holds_printer_false_for_non_printer_class():
+    """Vendor-specific (non-printer-class) interfaces don't trigger the macOS kext."""
+    from claude_teletype.printer import kernel_driver_holds_printer
+
+    mock_usb, mock_core, mock_util = _build_mocked_usb(
+        kernel_active=True, intf_class=0xFF
+    )
+    with patch.dict(
+        "sys.modules", {"usb": mock_usb, "usb.core": mock_core, "usb.util": mock_util}
+    ):
+        assert kernel_driver_holds_printer(0x1A86, 0x7584) is False
+
+
+def test_kernel_driver_holds_printer_false_when_device_missing():
+    """No matching device → False (no false alarm)."""
+    from claude_teletype.printer import kernel_driver_holds_printer
+
+    mock_usb_core = MagicMock()
+    mock_usb_core.find.return_value = None
+    mock_usb_util = MagicMock()
+    mock_usb = MagicMock()
+    mock_usb.core = mock_usb_core
+    mock_usb.util = mock_usb_util
+    with patch.dict(
+        "sys.modules",
+        {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": mock_usb_util},
+    ):
+        assert kernel_driver_holds_printer(0xDEAD, 0xBEEF) is False
+
+
+# ---------------------------------------------------------------------------
 # discover_macos_usb_printers() tests
 # ---------------------------------------------------------------------------
 
@@ -1200,3 +1280,32 @@ def test_cups_discovery_decodes_percent_encoding(mock_run: MagicMock):
     printers = discover_cups_printers()
     assert printers[0]["vendor"] == "My Vendor"
     assert printers[0]["model"] == "My Model"
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_discovery_marks_disabled_queue(mock_run: MagicMock):
+    """lpstat -p ``disabled`` line marks the queue enabled=False."""
+    mock_run.return_value = MagicMock(
+        stdout=(
+            "printer USB2.0-Print disabled since Tue Feb 17 00:09:26 2026 -\n"
+            "\tUnable to send data to printer.\n"
+            "printer HP_OK is idle.  enabled since Wed Mar  1 12:00:00 2026\n"
+            "device for USB2.0-Print: usb:///USB2.0-Print\n"
+            "device for HP_OK: usb://HP/OK\n"
+        ),
+        returncode=0,
+    )
+    printers = {p["name"]: p for p in discover_cups_printers()}
+    assert printers["USB2.0-Print"]["enabled"] is False
+    assert printers["HP_OK"]["enabled"] is True
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_discovery_defaults_enabled_when_state_missing(mock_run: MagicMock):
+    """When lpstat output has no state line for a queue, default to enabled=True."""
+    mock_run.return_value = MagicMock(
+        stdout="device for MyPrinter: usb://Acme/LaserJet\n",
+        returncode=0,
+    )
+    printers = discover_cups_printers()
+    assert printers[0]["enabled"] is True
