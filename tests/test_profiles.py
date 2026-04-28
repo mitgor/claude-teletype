@@ -11,6 +11,7 @@ from claude_teletype.profiles import (
     auto_detect_profile,
     get_profile,
     load_custom_profiles,
+    resolve_style,
 )
 
 
@@ -514,6 +515,107 @@ def test_load_custom_profiles_style_keys_default_empty_when_absent():
     assert p.italic_off == b""
     assert p.underline_on == b""
     assert p.underline_off == b""
+
+
+# ---------------------------------------------------------------------------
+# resolve_style() fallback chain (CAP-03)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveStyle:
+    """Cover the documented italic→underline→plain and bold→underline→plain chains."""
+
+    # Realistic Epson ESC/P bytes used as fixture data — phase 22 will encode
+    # these into actual built-ins. Using them here makes the tests read like
+    # real-world calls.
+    BOLD_ON = b"\x1bE"
+    BOLD_OFF = b"\x1bF"
+    ITALIC_ON = b"\x1b4"
+    ITALIC_OFF = b"\x1b5"
+    UNDERLINE_ON = b"\x1b-\x01"
+    UNDERLINE_OFF = b"\x1b-\x00"
+
+    def _profile(self, **kwargs) -> PrinterProfile:
+        """Build a minimal PrinterProfile overriding only the fields under test."""
+        return PrinterProfile(name="fixture", **kwargs)
+
+    # --- italic chain ---
+
+    def test_italic_returns_italic_codes_when_set(self):
+        p = self._profile(italic_on=self.ITALIC_ON, italic_off=self.ITALIC_OFF)
+        assert resolve_style(p, "italic") == (self.ITALIC_ON, self.ITALIC_OFF)
+
+    def test_italic_falls_back_to_underline_when_italic_empty(self):
+        p = self._profile(
+            underline_on=self.UNDERLINE_ON, underline_off=self.UNDERLINE_OFF,
+        )
+        assert resolve_style(p, "italic") == (self.UNDERLINE_ON, self.UNDERLINE_OFF)
+
+    def test_italic_returns_plain_when_italic_and_underline_both_empty(self):
+        p = self._profile()
+        assert resolve_style(p, "italic") == (b"", b"")
+
+    def test_italic_wins_over_underline_when_both_set(self):
+        p = self._profile(
+            italic_on=self.ITALIC_ON, italic_off=self.ITALIC_OFF,
+            underline_on=self.UNDERLINE_ON, underline_off=self.UNDERLINE_OFF,
+        )
+        assert resolve_style(p, "italic") == (self.ITALIC_ON, self.ITALIC_OFF)
+
+    # --- bold chain ---
+
+    def test_bold_returns_bold_codes_when_set(self):
+        p = self._profile(bold_on=self.BOLD_ON, bold_off=self.BOLD_OFF)
+        assert resolve_style(p, "bold") == (self.BOLD_ON, self.BOLD_OFF)
+
+    def test_bold_falls_back_to_underline_when_bold_empty(self):
+        p = self._profile(
+            underline_on=self.UNDERLINE_ON, underline_off=self.UNDERLINE_OFF,
+        )
+        assert resolve_style(p, "bold") == (self.UNDERLINE_ON, self.UNDERLINE_OFF)
+
+    def test_bold_returns_plain_when_bold_and_underline_both_empty(self):
+        p = self._profile()
+        assert resolve_style(p, "bold") == (b"", b"")
+
+    def test_bold_wins_over_underline_when_both_set(self):
+        p = self._profile(
+            bold_on=self.BOLD_ON, bold_off=self.BOLD_OFF,
+            underline_on=self.UNDERLINE_ON, underline_off=self.UNDERLINE_OFF,
+        )
+        assert resolve_style(p, "bold") == (self.BOLD_ON, self.BOLD_OFF)
+
+    # --- underline chain (terminal node, no further fallback) ---
+
+    def test_underline_returns_underline_codes_when_set(self):
+        p = self._profile(
+            underline_on=self.UNDERLINE_ON, underline_off=self.UNDERLINE_OFF,
+        )
+        assert resolve_style(p, "underline") == (self.UNDERLINE_ON, self.UNDERLINE_OFF)
+
+    def test_underline_returns_plain_when_underline_empty(self):
+        p = self._profile()
+        assert resolve_style(p, "underline") == (b"", b"")
+
+    def test_underline_does_not_fall_back_to_bold_or_italic(self):
+        """Underline is the terminal node — bold/italic codes do NOT substitute for it."""
+        p = self._profile(
+            bold_on=self.BOLD_ON, bold_off=self.BOLD_OFF,
+            italic_on=self.ITALIC_ON, italic_off=self.ITALIC_OFF,
+        )
+        assert resolve_style(p, "underline") == (b"", b"")
+
+    # --- error handling ---
+
+    def test_unknown_style_raises_valueerror(self):
+        p = self._profile()
+        with pytest.raises(ValueError, match="Unknown style"):
+            resolve_style(p, "strikethrough")
+
+    def test_unknown_style_message_lists_valid_styles(self):
+        p = self._profile()
+        with pytest.raises(ValueError, match="bold.*italic.*underline|italic.*underline|bold"):
+            resolve_style(p, "blink")
 
 
 # ---------------------------------------------------------------------------
