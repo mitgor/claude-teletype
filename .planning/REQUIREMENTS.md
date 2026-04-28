@@ -25,12 +25,12 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 ### Markdown Rendering
 
 - [ ] **MD-01**: Renderer supports bold (`**text**`, `__text__`) and italic (`*text*`, `_text_`) inline emphasis
-- [ ] **MD-02**: Renderer supports ATX headings (`#` through `######`) styled as bold with an extra blank line above
-- [ ] **MD-03**: Renderer supports unordered lists (`-`, `*`, `+`) and ordered lists with stable bullet/number glyphs and indentation for nested levels
-- [ ] **MD-04**: Renderer supports fenced code blocks (```` ``` ````) printed as indented monospace with no inline-emphasis processing inside the block
-- [ ] **MD-05**: Renderer supports blockquotes (`>`) with a visible quote marker prefix on each wrapped line
-- [ ] **MD-06**: Renderer supports GitHub-flavored tables, formatted as ASCII grids that fit within `profile.columns`
-- [ ] **MD-07**: Renderer composes with the existing `WordWrapper` so wrapped lines preserve list indentation and blockquote prefixes
+- [x] **MD-02**: Renderer supports ATX headings (`#` through `######`) styled as bold with an extra blank line above
+- [x] **MD-03**: Renderer supports unordered lists (`-`, `*`, `+`) and ordered lists with stable bullet/number glyphs and indentation for nested levels
+- [x] **MD-04**: Renderer supports fenced code blocks (```` ``` ````) printed as indented monospace with no inline-emphasis processing inside the block
+- [x] **MD-05**: Renderer supports blockquotes (`>`) with a visible quote marker prefix on each wrapped line
+- [x] **MD-06**: Renderer supports GitHub-flavored tables, formatted as ASCII grids that fit within `profile.columns`
+- [x] **MD-07**: Renderer composes with the existing `WordWrapper` so wrapped lines preserve list indentation and blockquote prefixes
 - [x] **MD-08**: Renderer emits the existing CR+LF + reinit pattern on newlines so daisywheel/CH341 printers don't drop bytes
 
 ### Profile Capabilities
@@ -102,12 +102,12 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | CLI-03 | Phase 25 | Pending |
 | CLI-04 | Phase 25 | Pending |
 | MD-01 | Phase 23 | Pending |
-| MD-02 | Phase 23 | Pending |
-| MD-03 | Phase 23 | Pending |
-| MD-04 | Phase 23 | Pending |
-| MD-05 | Phase 23 | Pending |
-| MD-06 | Phase 23 | Pending |
-| MD-07 | Phase 23 | Pending |
+| MD-02 | Phase 23 | Complete |
+| MD-03 | Phase 23 | Complete |
+| MD-04 | Phase 23 | Complete |
+| MD-05 | Phase 23 | Complete |
+| MD-06 | Phase 23 | Complete |
+| MD-07 | Phase 23 | Complete |
 | MD-08 | Phase 23 | Complete |
 | CAP-01 | Phase 21 | Complete |
 | CAP-02 | Phase 21 | Complete |

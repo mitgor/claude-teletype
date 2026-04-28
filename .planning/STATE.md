@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: in-progress
-stopped_at: Completed 23-01-PLAN.md (write_bytes Protocol foundation; MD-08 boundary contract documented in code + tests)
-last_updated: "2026-04-28T20:42:40.658Z"
-last_activity: 2026-04-28 -- 23-01 landed (write_bytes added to PrinterDriver Protocol + 5 drivers; 12 new tests; MD-08 satisfied)
+stopped_at: Completed 23-02-PLAN.md (MarkdownRenderer block-level state machine; MD-02..MD-07 + MD-08 routing all satisfied)
+last_updated: "2026-04-28T20:52:30Z"
+last_activity: 2026-04-28 -- 23-02 landed (MarkdownRenderer block parser; 22 new tests; _render_inline seam ready for 23-03)
 progress:
   total_phases: 9
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 6
-  percent: 75
+  total_plans: 9
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 23 — Streaming Markdown Renderer — **IN PROGRESS** (Wave 1 complete)
+**Current focus:** Phase 23 — Streaming Markdown Renderer — **IN PROGRESS** (Waves 1-2 complete)
 
 ## Current Position
 
-Phase: 23 — Streaming Markdown Renderer — **IN PROGRESS** (1/3 plans complete)
-Plan: 23-02 next (MarkdownRenderer block-level parsing — depends on 23-01's write_bytes seam)
-Status: 23-01 complete (write_bytes on Protocol + 5 drivers; MD-08 boundary asserted in code + tests); ready for Wave 2
-Last activity: 2026-04-28 -- 23-01 landed (write_bytes added to PrinterDriver Protocol + 5 drivers; 12 new tests; MD-08 satisfied)
+Phase: 23 — Streaming Markdown Renderer — **IN PROGRESS** (2/3 plans complete)
+Plan: 23-03 next (Inline emphasis: bold + italic + underline with profile-aware resolve_style — depends on 23-02's _render_inline seam)
+Status: 23-02 complete (MarkdownRenderer block parser; 22 new tests; MD-02..MD-07 + MD-08 satisfied); ready for Wave 3
+Last activity: 2026-04-28 -- 23-02 landed (MarkdownRenderer block parser; 22 new tests; _render_inline seam ready for 23-03)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 36
+- Total plans completed: 37
 - Average duration: 3.3min
-- Total execution time: 2.0 hours
+- Total execution time: 2.1 hours
 
 **Recent plan metrics:**
 
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
-| 21-01 | 2.8min | 2 | 2 | 2026-04-28 |
 | 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
 | 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
 | 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
 | 23-01 | 2.5min | 2 | 2 | 2026-04-28 |
+| 23-02 | 5.1min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -103,6 +103,14 @@ Decisions added in 23-01:
 - MD-08 boundary held in two places: (1) docstring on ProfilePrinterDriver.write_bytes telling renderer to use write('\n') for newlines, (2) `test_write_bytes_does_not_handle_newlines_specially` asserting `b'\n'` passes through verbatim (no CR+LF, no reinit). The contract is owned by the caller — write_bytes will not silently rescue a misuse.
 - CupsPrinterDriver.write_bytes appends the decoded chunk as a single list element (not character-by-character). Preserves the atomicity hint and matches `_flush_line()`'s `"".join()` pattern. Verified by `test_cups_driver_write_bytes_buffers_until_newline` asserting `b"\x1bEhi\x1bF\n"` reaches `lp` as a single subprocess call.
 
+Decisions added in 23-02:
+
+- Trailing empty line from `text.split("\n")` is dropped at `render()` entry. A document ending with `\n` (POSIX convention) splits to `[..., ""]`; the trailing newline is structural delimitation, not a blank-line paragraph. Without the drop, `# Hello\n` would render `\nHello\n\n\n` instead of the spec `\nHello\n\n`. Discovered while writing Task 2's hand-checkable expected strings — landed as a Rule-1 fix commit between Task 1 (feat) and Task 2 (test).
+- Tables render eagerly in `render()` via 2-line look-ahead (header `|` + delimiter `|---|`). Clearer than the alternative flush-time validation; keeps `_dispatch_block_line` free of table state. `_flush_table` kept as a no-op stub for a future streaming-mode renderer that can't peek.
+- Code-block 4-space leading indent is intentionally NOT preserved through WordWrapper. WordWrapper's canonical leading-space-at-column-0 rule (`test_leading_space_dropped`) strips them. Code content survives, but visual indent is lost in the wrap stage. This is documented in the MD-07 integration test rather than fixed in WordWrapper (changing WordWrapper would break its existing contract).
+- `_render_inline` is a separate method emitting chars verbatim through `text_output_fn`. Plan 23-03 swaps just the method body; the 5 call sites (heading text, ulist content, olist content, blockquote content, paragraph content) inherit the inline-emphasis upgrade automatically. `_handle_code_line` deliberately bypasses `_render_inline` (MD-04: literal pass-through inside fences).
+- `style_output_fn` defaults to a no-op lambda. Lets the renderer be unit-tested without a profile/driver — every block test in TestHeadings/TestLists/etc passes only `text_output_fn`. The MD-08 negative test exercises the style channel explicitly to assert no newline byte ever leaks into it.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -111,12 +119,13 @@ None — phase planning starts at Phase 21.
 
 - Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — Phase 22 left Juki bold/italic intentionally empty (CAP-05 conservative-default rule), so the carry-forward concern shrinks to "underline ESC -1/-0 should be exercised on real hardware before claiming Juki underline works end-to-end".
 - Phase 22 left intentionally-empty cells for OKI italic (ESC! mode-bit composite varies by firmware revision) and all three Citizen italics (thermal receipt does not support italic). Documented in 22-CONTEXT.md Deferred Ideas.
-- Phase 23: ASCII table layout under narrow `profile.columns` (e.g. Citizen 42-col thermal) needs a graceful fallback strategy — degenerate wide tables should not crash the renderer. (Carries to 23-02.)
+- Phase 23 narrow-columns: 23-02's `test_table_fits_within_columns` proves the renderer won't crash on Citizen 42-col thermal — but cells get truncated rather than wrapped. Acceptable for v1; in-cell wrap is in `<deferred>`. Closed.
+- Phase 23 code-block visual indent: WordWrapper strips the renderer's 4-space leading indent on code-block lines. Content survives, indent doesn't. Out of scope for v1.5; a renderer-aware tab/non-space prefix could fix it later.
 - Phase 26: per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode can be trusted.
 
 ## Session Continuity
 
-Last session: 2026-04-28T20:42:40.654Z
-Stopped at: Completed 22-01-PLAN.md (built-in profiles encoded; Phase 22 complete; CAP-04 + CAP-05 satisfied)
+Last session: 2026-04-28T20:52:30Z
+Stopped at: Completed 23-02-PLAN.md (MarkdownRenderer block-level state machine; MD-02..MD-07 + MD-08 routing all satisfied)
 Resume file: None
-Next action: Plan Phase 23 (markdown renderer consuming resolve_style on the now-encoded built-ins)
+Next action: Execute Plan 23-03 (Inline emphasis: bold + italic + underline state machine, replacing the `_render_inline` stub with profile-aware `resolve_style` lookups; closes MD-01 and finishes Phase 23)
