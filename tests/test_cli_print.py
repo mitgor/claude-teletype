@@ -529,3 +529,168 @@ class TestPrintCli02PickerMode:
             result = runner.invoke(app, ["print", str(md)])
         assert result.exit_code == 0, result.output
         mock_factory.assert_not_called()
+
+
+class TestPrintCli26SpeedMode:
+    """Plan 26-01: speed_mode parameter routing (FLOW-03, FLOW-04).
+
+    The Phase 25 callers (_print_command_impl, MarkdownPickerApp._on_pick)
+    must keep working unchanged when the new speed_mode kwarg is omitted —
+    that is the regression sentinel. New behaviour: speed_mode='typewriter'
+    invokes per-char delay + bell; speed_mode='instant' chunks style writes.
+    """
+
+    def test_default_speed_mode_is_instant_backcompat(self):
+        """Phase 25 callers pass 4 positional args and inherit instant default."""
+        import inspect
+
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        sig = inspect.signature(_render_markdown_to_driver)
+        speed_mode_param = sig.parameters.get("speed_mode")
+        assert speed_mode_param is not None, (
+            "Phase 26 must add speed_mode parameter without removing it"
+        )
+        assert speed_mode_param.default == "instant", (
+            "speed_mode must default to 'instant' so Phase 25 callers keep working"
+        )
+
+    def test_invalid_speed_mode_returns_1(self, tmp_path):
+        """Defensive: junk speed_mode short-circuits before driver discovery."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "x.md"
+        md.write_text("# hello\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        with patch("claude_teletype.printer.discover_printer") as discover:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None, speed_mode="garbage",
+            )
+            assert rc == 1
+            discover.assert_not_called()
+
+    def test_instant_mode_routes_style_through_chunk_writes(self, tmp_path):
+        """FLOW-04: instant mode splits style writes at profile.buffer_bytes."""
+        from claude_teletype.cli import _render_markdown_to_driver
+        from claude_teletype.profiles import get_profile
+
+        md = tmp_path / "bold.md"
+        md.write_text("**hi**\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        # juki-2200: buffer_bytes=64; empty bold_on falls back to underline
+        # (b"\x1b-\x01" / b"\x1b-\x00") via resolve_style. Each style burst
+        # is 3 bytes — well under chunk_size — so chunk_writes emits exactly
+        # one chunk per call. The relevant assertion is that chunk_writes
+        # was wired into the pipeline at all.
+        profile = get_profile("juki-2200")
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response  # getattr-then-call returns None
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch("claude_teletype.printer.chunk_writes") as chunker:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, profile, speed_mode="instant",
+            )
+            assert rc == 0
+            # chunk_writes called at least once (renderer emits underline ESC seq)
+            assert chunker.call_count >= 1
+            # Each call has driver as arg 0, bytes as arg 1, 64 as arg 2
+            for call in chunker.call_args_list:
+                args, _kwargs = call
+                assert args[0] is mock_driver
+                assert isinstance(args[1], bytes)
+                assert args[2] == 64
+
+    def test_typewriter_mode_invokes_pacer_sleep(self, tmp_path):
+        """FLOW-03: typewriter mode applies per-character time.sleep."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "text.md"
+        md.write_text("hi\n")
+
+        class FakeConfig:
+            device = None
+            delay = 50.0  # 50ms base
+            no_audio = True
+
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch("time.sleep") as mock_sleep:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None, speed_mode="typewriter",
+            )
+            assert rc == 0
+            # Per-char sleep was invoked at least once (one per char emitted).
+            assert mock_sleep.call_count >= 2  # 'h', 'i' minimum
+            # Each sleep is base_delay (0.05s) * multiplier — all > 0.
+            for call in mock_sleep.call_args_list:
+                args, _kwargs = call
+                assert args[0] > 0
+
+    def test_typewriter_mode_no_audio_skips_bell_factory(self, tmp_path):
+        """FLOW-03 + config.no_audio: make_bell_output is NEVER called."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "text.md"
+        md.write_text("hi\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0  # zero to avoid sleep delays
+            no_audio = True
+
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None, speed_mode="typewriter",
+            )
+            assert rc == 0
+            # When no_audio, make_bell_output should NOT be called.
+            bell_factory.assert_not_called()
+
+    def test_typewriter_mode_with_audio_invokes_bell_factory(self, tmp_path):
+        """FLOW-03 + audio enabled: make_bell_output is called once at setup."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "text.md"
+        md.write_text("hi\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = False  # audio ON
+
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
+            bell_factory.return_value = lambda ch: None
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None, speed_mode="typewriter",
+            )
+            assert rc == 0
+            bell_factory.assert_called_once()

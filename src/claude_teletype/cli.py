@@ -227,28 +227,54 @@ def _render_markdown_to_driver(
     config,
     all_profiles: dict,
     resolved_profile,
+    speed_mode: str = "instant",
 ) -> int:
     """Render a markdown file through the configured printer driver chain.
 
     Reused by Plan 25-02's picker-mode launcher (the picker hands a Path
     to this function and exits when it returns).
 
-    Phase 25 contract: NO pacer, NO transcript, NO chat session. Phase 26
-    wires the speed dialog by replacing the WordWrapper output_fn (currently
-    ``driver.write``) with a paced wrapper.
+    Phase 25 contract (default speed_mode="instant"): NO pacer, NO
+    transcript, NO chat session — preserved verbatim so the existing
+    Phase 25 callers keep working unchanged.
+
+    Phase 26 extension (FLOW-03, FLOW-04):
+    - speed_mode="typewriter" routes the text channel through a per-char
+      pacer (same delay multipliers as pacer.classify_char) and plays the
+      audio bell on '\\n' (unless config.no_audio). Sync time.sleep is used
+      so this helper stays sync-only — Plan 25-02's MarkdownPickerApp._on_pick
+      callback is sync, and the locked architecture per CONTEXT.md keeps
+      it that way.
+    - speed_mode="instant" routes the style channel through chunk_writes
+      using profile.buffer_bytes, preventing CH341 USB-LPT byte-fragility
+      on impact printers (Juki/OKI buffer_bytes=64).
 
     Args:
         path: Path to a regular UTF-8 text file (already validated).
         config: Resolved TeletypeConfig (defaults < TOML < env < CLI flags).
         all_profiles: Built-in + custom profile registry (lookup by name).
         resolved_profile: PrinterProfile or None (None = generic).
+        speed_mode: "typewriter" (paced + bell) or "instant" (no pacing,
+            chunked style writes). Defaults to "instant" for Phase 25
+            backward compat — Plan 25-01/25-02 callers keep working.
 
     Returns:
-        Exit code: 0 on success, 1 on read error.
+        Exit code: 0 on success, 1 on read error or invalid speed_mode.
     """
+    import time
+
     from claude_teletype.markdown import MarkdownRenderer
-    from claude_teletype.printer import discover_printer
+    from claude_teletype.pacer import CHAR_DELAYS, classify_char
+    from claude_teletype.printer import chunk_writes, discover_printer
     from claude_teletype.wordwrap import WordWrapper
+
+    if speed_mode not in ("typewriter", "instant"):
+        typer.echo(
+            f"Error: invalid speed_mode {speed_mode!r}; "
+            "expected 'typewriter' or 'instant'",
+            err=True,
+        )
+        return 1
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -268,10 +294,54 @@ def _render_markdown_to_driver(
             if resolved_profile is not None and resolved_profile.columns
             else 80
         )
-        wrapper = WordWrapper(columns, driver.write)
+
+        # Build text + style destinations based on speed_mode.
+        if speed_mode == "typewriter":
+            # FLOW-03: pacer + bell. Reuses pacer.classify_char + CHAR_DELAYS
+            # for delay multipliers identical to the chat path. Sync
+            # time.sleep — this helper runs sync-only per Phase 25 locked
+            # architecture.
+            base_delay = (config.delay or 0.0) / 1000.0
+
+            from claude_teletype.audio import make_bell_output
+
+            bell_fn = (
+                (lambda ch: None)
+                if config.no_audio
+                else make_bell_output()
+            )
+
+            def text_dest(char: str) -> None:
+                driver.write(char)
+                bell_fn(char)
+                if base_delay > 0:
+                    multiplier = CHAR_DELAYS[classify_char(char)]
+                    time.sleep(base_delay * multiplier)
+
+            wrapper = WordWrapper(columns, text_dest)
+            # Style channel: bytes go straight to driver — no chunking
+            # needed in typewriter mode (style bursts are tiny ESC seqs,
+            # always well under any realistic profile.buffer_bytes).
+            style_dest = driver.write_bytes
+        else:
+            # FLOW-04: instant mode. No per-char delay; split style writes
+            # at profile.buffer_bytes to avoid CH341 byte-fragility.
+            wrapper = WordWrapper(columns, driver.write)
+
+            buffer_bytes = (
+                resolved_profile.buffer_bytes
+                if resolved_profile is not None and resolved_profile.buffer_bytes
+                else 256
+            )
+
+            def style_dest(data: bytes) -> None:
+                # chunk_writes raises ValueError on chunk_size<=0; we
+                # guarantee buffer_bytes > 0 above via the conditional.
+                chunk_writes(driver, data, buffer_bytes)
+
         renderer = MarkdownRenderer(
             text_output_fn=wrapper.feed,
-            style_output_fn=driver.write_bytes,
+            style_output_fn=style_dest,
             profile=resolved_profile,
             columns=columns,
         )
