@@ -436,12 +436,12 @@ class TeletypeApp(App):
         entry, no printer state change (PICK-04). Input focus is restored so
         the user can keep typing.
 
-        ``Path``: emit a ``notify()`` toast with the absolute path so the user
-        can confirm the picker handed back what they selected (PICK-01 +
-        PICK-05 end-to-end smoke). Phase 26 will replace this body with the
-        speed dialog + Phase 23's renderer pipeline; the ``Path`` argument
-        shape and the ``_handle_picker_result`` method name are the contract
-        Phase 26 consumes.
+        ``Path`` (Plan 26-03): determine the default speed mode from the
+        active profile's ``instant_output`` flag (FLOW-02), stash the path
+        on ``self._pending_print_path`` so the speed-mode callback can
+        access it, then push ``SpeedModeScreen``. The render + transcript
+        pipeline runs in ``_handle_speed_mode_result`` after the user
+        chooses typewriter/instant or cancels.
         """
         from pathlib import Path
 
@@ -450,10 +450,161 @@ class TeletypeApp(App):
             self.query_one("#prompt", Input).focus()
             return
 
-        # Selection: notify and restore focus. Phase 26 wires real rendering.
         path: Path = result
-        self.notify(f"Selected: {path}")
+        # FLOW-02: default speed-mode follows active profile.instant_output.
+        # Receipt/laser printers (citizen-cts2000) -> 'instant' default;
+        # daisywheel/dot-matrix (juki, oki) -> 'typewriter' default.
+        active_profile = (
+            self._all_profiles.get(self._profile_name)
+            if self._all_profiles
+            else None
+        )
+        default_mode = (
+            "instant"
+            if (
+                active_profile is not None
+                and getattr(active_profile, "instant_output", False)
+            )
+            else "typewriter"
+        )
+
+        # Store the path for the speed-mode callback. This is the cleanest
+        # way to thread context through Textual's screen-callback API
+        # without a closure.
+        self._pending_print_path = path
+
+        from claude_teletype.speed_mode_screen import SpeedModeScreen
+
+        self.push_screen(
+            SpeedModeScreen(default_mode=default_mode),
+            callback=self._handle_speed_mode_result,
+        )
+
+    def _handle_speed_mode_result(self, speed_mode) -> None:
+        """SpeedModeScreen dismiss callback (Plan 26-03).
+
+        ``None``: user cancelled the dialog -> abort print, refocus prompt.
+        ``"typewriter"`` / ``"instant"``: run the render + transcript pipeline.
+        """
+        pending = getattr(self, "_pending_print_path", None)
+        # Always clear so a stale pending path can't leak into the next
+        # dialog cycle.
+        self._pending_print_path = None
+
+        if speed_mode is None or pending is None:
+            self.query_one("#prompt", Input).focus()
+            return
+
+        self._run_print_pipeline(pending, speed_mode)
         self.query_one("#prompt", Input).focus()
+
+    def _run_print_pipeline(self, path, speed_mode: str) -> None:
+        """Execute renderer + transcript fan-out for a printed markdown file.
+
+        Synchronous (matches Plan 25-02's MarkdownPickerApp._on_pick locked
+        choice). Catches all exceptions and surfaces them via notify() so
+        the chat session survives a bad print.
+
+        FLOW-05: ``renderer.close()`` runs in ``finally`` so cancel mid-render
+        leaves the printer style state clean (no leaked bold/italic ESC bytes).
+
+        TXN-01..03: when ``self._transcript_write`` is non-None, the renderer's
+        text channel is fanned out into a parallel collector (TXN-02:
+        plain-text only, no ESC bytes) and ``write_printed_file`` records a
+        "Printed file: <abs path>" header followed by the body (TXN-01).
+        """
+        from claude_teletype.markdown import MarkdownRenderer
+        from claude_teletype.printer import chunk_writes
+        from claude_teletype.transcript import write_printed_file
+        from claude_teletype.wordwrap import WordWrapper
+
+        if self.printer is None or not self.printer.is_connected:
+            self.notify(
+                "No printer connected -- print skipped", severity="warning",
+            )
+            return
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            self.notify(f"Cannot read {path.name}: {exc}", severity="error")
+            return
+
+        profile = (
+            self._all_profiles.get(self._profile_name)
+            if self._all_profiles
+            else None
+        )
+        columns = (
+            profile.columns
+            if profile is not None and profile.columns
+            else 80
+        )
+        buffer_bytes = (
+            profile.buffer_bytes
+            if profile is not None and getattr(profile, "buffer_bytes", None)
+            else 256
+        )
+
+        transcript_buffer: list[str] = []
+
+        if speed_mode == "typewriter":
+            import time
+
+            from claude_teletype.audio import make_bell_output
+            from claude_teletype.pacer import CHAR_DELAYS, classify_char
+
+            base_delay = (self.base_delay_ms or 0.0) / 1000.0
+            bell_fn = (
+                (lambda c: None) if self.no_audio else make_bell_output()
+            )
+
+            def text_dest(char: str) -> None:
+                self.printer.write(char)
+                bell_fn(char)
+                if base_delay > 0:
+                    time.sleep(
+                        base_delay * CHAR_DELAYS[classify_char(char)],
+                    )
+
+            wrapper = WordWrapper(columns, text_dest)
+            style_dest = self.printer.write_bytes
+        else:
+            wrapper = WordWrapper(columns, self.printer.write)
+
+            def style_dest(data: bytes) -> None:
+                chunk_writes(self.printer, data, buffer_bytes)
+
+        # TXN-02 parallel collector: tap the renderer's text channel only.
+        # Style channel never reaches transcript_buffer.
+        def text_with_capture(char: str) -> None:
+            wrapper.feed(char)
+            transcript_buffer.append(char)
+
+        renderer = MarkdownRenderer(
+            text_output_fn=text_with_capture,
+            style_output_fn=style_dest,
+            profile=profile,
+            columns=columns,
+        )
+
+        self.notify(f"Printing {path.name}...")
+        try:
+            renderer.render(text)
+            wrapper.flush()
+            end_response = getattr(self.printer, "end_response", None)
+            if end_response is not None:
+                end_response()
+            # TXN-01 + TXN-03: helper guards None internally
+            write_printed_file(
+                self._transcript_write, path, "".join(transcript_buffer),
+            )
+            self.notify(f"Printed {path.name}")
+        except Exception as exc:  # noqa: BLE001 - print should never crash chat
+            self.notify(f"Print failed: {exc}", severity="error")
+        finally:
+            # FLOW-05: cancel safety -- close any open style spans even on error
+            renderer.close()
 
     def _apply_settings(self, result: dict | None) -> None:
         """Apply changed settings from the SettingsScreen modal.
