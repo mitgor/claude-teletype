@@ -61,7 +61,19 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-(None — planning next milestone)
+## Current Milestone: v1.5 Markdown File Printing
+
+**Goal:** Open and print local Markdown files through the TUI or CLI, rendering bold/italic/headings/lists/code/tables on capability-aware printer profiles, with per-print speed selection.
+
+**Target features:**
+- TUI file picker rooted at cwd (keybinding entry from main session)
+- `claude-teletype print [path]` CLI subcommand
+- Markdown rendering — bold, italic, headings, lists, fenced code, blockquotes, ASCII tables
+- `PrinterProfile` capability fields for bold/italic/underline + style fallback chain
+- Encoded styling for Epson ESC/P, IBM PPDS, HP PCL, and Juki/OKI/Citizen where documented
+- Per-print speed dialog (typewriter pace vs instant)
+- Instant-mode buffer chunking via per-profile `buffer_bytes` field
+- Printed files logged in session transcript
 
 ### Out of Scope
 
@@ -149,4 +161,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-03 after v1.4 milestone*
+*Last updated: 2026-04-28 — v1.5 milestone started*

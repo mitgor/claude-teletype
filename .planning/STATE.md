@@ -1,16 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Printer Setup TUI
-status: verifying
-stopped_at: Completed 20-02-PLAN.md
-last_updated: "2026-04-03T12:59:48.824Z"
-last_activity: 2026-04-03
+milestone: v1.5
+milestone_name: Markdown File Printing
+status: planning
+last_updated: "2026-04-28T19:02:47.360Z"
+last_activity: 2026-04-28
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -25,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 
 ## Current Position
 
-Phase: 20
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-03
-
-Progress: [░░░░░░░░░░] 0%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-28 — Milestone v1.5 started
 
 ## Performance Metrics
 
