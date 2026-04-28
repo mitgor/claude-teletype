@@ -22,6 +22,8 @@ class PrinterDriver(Protocol):
 
     def write(self, char: str) -> None: ...
 
+    def write_bytes(self, data: bytes) -> None: ...
+
     def close(self) -> None: ...
 
 
@@ -33,6 +35,9 @@ class NullPrinterDriver:
         return False
 
     def write(self, char: str) -> None:
+        pass
+
+    def write_bytes(self, data: bytes) -> None:
         pass
 
     def close(self) -> None:
@@ -105,6 +110,16 @@ class FilePrinterDriver:
         except (OSError, ValueError):
             self._connected = False
 
+    def write_bytes(self, data: bytes) -> None:
+        if not self._connected:
+            return
+        if not data:
+            return
+        try:
+            self._fd.write(data)
+        except (OSError, ValueError):
+            self._connected = False
+
     def close(self) -> None:
         if self._fd and not self._fd.closed:
             self._fd.close()
@@ -155,6 +170,16 @@ class CupsPrinterDriver:
         if self._line_buffer and self._connected:
             self._flush_line()
 
+    def write_bytes(self, data: bytes) -> None:
+        if not self._connected:
+            return
+        if not data:
+            return
+        text = data.decode("ascii", errors="replace")
+        self._line_buffer.append(text)
+        if "\n" in text:
+            self._flush_line()
+
     def close(self) -> None:
         if self._line_buffer:
             self._flush_line()
@@ -177,6 +202,16 @@ class UsbPrinterDriver:
             return
         try:
             self._ep_out.write(char.encode("ascii", errors="replace"))
+        except Exception:
+            self._connected = False
+
+    def write_bytes(self, data: bytes) -> None:
+        if not self._connected:
+            return
+        if not data:
+            return
+        try:
+            self._ep_out.write(data)
         except Exception:
             self._connected = False
 
@@ -252,6 +287,23 @@ class ProfilePrinterDriver:
             self._send_raw(newline_data)
         else:
             self._inner.write(char)
+
+    def write_bytes(self, data: bytes) -> None:
+        """Send raw bytes (e.g., ESC style sequences) as a single atomic transfer.
+
+        Used by the markdown renderer's style channel for bold/italic/underline
+        ESC sequences. Bypasses per-character newline handling — the caller is
+        responsible for NOT passing newline byte sequences through this method.
+        Use ``write("\\n")`` for newlines (preserves the atomic CR+LF + reinit
+        pattern required by MD-08).
+        """
+        if not self._inner.is_connected:
+            return
+        if not data:
+            return
+        self._ensure_init()
+        self._has_unflushed_output = True
+        self._send_raw(data)
 
     def swap_profile(self, new_profile: PrinterProfile) -> None:
         """Replace the current profile and mark as uninitialized.
