@@ -95,6 +95,11 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         init_sequence=b"\x1b\x1aI",  # ESC SUB I (full reset)
         line_spacing=b"\x1b\x1e\x09",  # ESC RS 9 (1/6" spacing)
         char_pitch=b"\x1bQ",  # ESC Q (disable proportional)
+        # Daisywheel impact — bold via overstrike requires duplicate-strike per
+        # char (breaks streaming pipeline) so bold stays empty. Italic NOT
+        # SUPPORTED on the daisywheel hardware. Underline IS supported.
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         crlf=True,
         reinit_on_newline=True,
         reinit_sequence=b"\x1b\x1e\x09\x1bQ",  # LINE_SPACING + FIXED_PITCH
@@ -112,6 +117,10 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         # close — typewriters don't eject pages. The 2200 shares the CH341
         # USB-LPT adapter with the 6100 (same VID:PID), so VID:PID is left
         # unset to avoid hijacking auto-detect; pick this profile explicitly.
+        # Plain-ASCII typewriter shares Juki 6100 underline support; bold via
+        # overstrike not supported by streaming pipeline; italic NOT SUPPORTED.
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         crlf=True,
         formfeed_on_close=False,
         columns=80,
@@ -124,6 +133,12 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         reset_sequence=b"\x1b@",  # ESC @ (reset on close)
         line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
         char_pitch=b"\x1bP",  # ESC P (10 CPI pica)
+        bold_on=b"\x1bE",  # ESC E
+        bold_off=b"\x1bF",  # ESC F
+        italic_on=b"\x1b4",  # ESC 4
+        italic_off=b"\x1b5",  # ESC 5
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         crlf=False,
         formfeed_on_close=True,
         usb_vendor_id=0x04B8,  # Seiko Epson Corp
@@ -136,6 +151,12 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         reset_sequence=b"\x1b@",  # ESC @ (reset)
         line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
         char_pitch=b"\x12",  # DC2 (10 CPI default)
+        bold_on=b"\x1bE",  # ESC E
+        bold_off=b"\x1bF",  # ESC F
+        italic_on=b"\x1b%G",  # ESC %G
+        italic_off=b"\x1b%H",  # ESC %H
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         crlf=False,
         formfeed_on_close=True,
         columns=80,
@@ -147,6 +168,12 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         reset_sequence=b"\x1bE",  # ESC E (reset)
         line_spacing=b"\x1b&l6D",  # 6 LPI
         char_pitch=b"\x1b(s10H",  # 10 CPI
+        bold_on=b"\x1b(s3B",  # ESC (s3B
+        bold_off=b"\x1b(s0B",  # ESC (s0B
+        italic_on=b"\x1b(s1S",  # ESC (s1S
+        italic_off=b"\x1b(s0S",  # ESC (s0S
+        underline_on=b"\x1b&dD",  # ESC &dD
+        underline_off=b"\x1b&d@",  # ESC &d@
         crlf=False,
         formfeed_on_close=True,
         usb_vendor_id=0x03F0,  # HP Inc
@@ -164,6 +191,13 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         reset_sequence=b"\x1b@",  # ESC @ (reset on close)
         line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
         char_pitch=b"\x1bP",  # ESC P (10 CPI pica)
+        # Microline command set is a superset of Epson ESC/P. Bold and underline
+        # are stable; italic on the 3390 uses an ESC! mode-bit composite that
+        # varies by firmware revision — leave italic empty rather than fabricate.
+        bold_on=b"\x1bE",  # ESC E (Epson FX-2 bold)
+        bold_off=b"\x1bF",  # ESC F (Epson FX-2 bold off)
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         crlf=False,
         formfeed_on_close=True,
         usb_vendor_id=0x06BC,  # OKI Data Corp
@@ -178,6 +212,12 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         description="Citizen CT-S2000 thermal receipt printer (ESC/POS, USB)",
         init_sequence=b"\x1b@",  # ESC @ — Initialize printer
         reset_sequence=b"\x1b@",  # ESC @ — re-init on close (cut handled per-response)
+        # ESC/POS thermal receipt: bold = ESC E n (n is binary 1/0, NOT ASCII).
+        # Italic NOT SUPPORTED on thermal receipt. Underline supported as ESC - n.
+        bold_on=b"\x1bE\x01",  # ESC E 1 (emphasized on, binary 1)
+        bold_off=b"\x1bE\x00",  # ESC E 0 (emphasized off, binary 0)
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
         # After each completed LLM response: feed 5 lines so the cut clears
         # the print head, then full-cut. The cut also fires on close if the
         # last response wasn't flushed cleanly (cancel/error mid-stream).

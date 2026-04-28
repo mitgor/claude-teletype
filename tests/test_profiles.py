@@ -134,29 +134,6 @@ def test_builtin_profiles_keys():
     assert set(BUILTIN_PROFILES.keys()) == expected
 
 
-def test_builtin_profiles_have_empty_style_codes_in_phase_21():
-    """Phase 21 ships the dataclass shape only; Phase 22 encodes actual style bytes.
-
-    Every built-in MUST have empty bytes for bold/italic/underline in this phase
-    — fabricated codes would print garbage on real hardware. This test is a
-    regression sentinel: when Phase 22 lands and starts populating codes, this
-    test will be updated or removed at that time.
-    """
-    canonical = (
-        "generic", "escp", "ppds", "pcl",
-        "juki-6100", "juki-2200",
-        "oki-3390", "citizen-cts2000",
-    )
-    for name in canonical:
-        p = BUILTIN_PROFILES[name]
-        assert p.bold_on == b"", f"{name} bold_on must be empty in Phase 21"
-        assert p.bold_off == b"", f"{name} bold_off must be empty in Phase 21"
-        assert p.italic_on == b"", f"{name} italic_on must be empty in Phase 21"
-        assert p.italic_off == b"", f"{name} italic_off must be empty in Phase 21"
-        assert p.underline_on == b"", f"{name} underline_on must be empty in Phase 21"
-        assert p.underline_off == b"", f"{name} underline_off must be empty in Phase 21"
-
-
 def test_builtin_profiles_have_positive_buffer_bytes():
     """Every built-in exposes a positive buffer_bytes int for Phase 26's chunker."""
     for name, p in BUILTIN_PROFILES.items():
