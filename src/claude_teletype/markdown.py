@@ -8,9 +8,11 @@ Implements MD-01..MD-08 from REQUIREMENTS.md as a hand-written state machine
 - style_output_fn: raw ESC byte sequences (bold/italic/underline);
   typically wired to ProfilePrinterDriver.write_bytes for atomic transfer.
 
-Block parsing (MD-02..MD-06) is in this module's MarkdownRenderer class;
-inline emphasis (MD-01) is added by Plan 23-03 by replacing the
-``_render_inline`` stub.
+Block parsing (MD-02..MD-06) and inline emphasis (MD-01: bold via
+``**``/``__``, italic via ``*``/``_``) are both implemented in
+MarkdownRenderer. Inline emphasis routes through profile-aware
+``resolve_style`` lookups so each profile picks its native ESC bytes
+(or falls back to underline / plain text per the documented chain).
 
 Newline routing (MD-08): every newline emitted by the renderer goes through
 text_output_fn("\\n"). The renderer NEVER calls style_output_fn(b"\\n").
@@ -23,7 +25,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from claude_teletype.profiles import PrinterProfile
+from claude_teletype.profiles import PrinterProfile, resolve_style
 
 __all__ = ["MarkdownRenderer"]
 
@@ -48,9 +50,14 @@ class MarkdownRenderer:
       transfer. Defaults to a no-op so the renderer can be unit-tested
       without a profile or driver.
 
-    Block-level features (MD-02..MD-06) are implemented here. Inline
-    emphasis (MD-01) is added by Plan 23-03 by replacing the
-    ``_render_inline`` stub method.
+    Block-level features (MD-02..MD-06) and inline emphasis (MD-01:
+    bold, italic) are both implemented here. Inline emphasis is a state
+    machine in ``_render_inline`` that toggles ``_bold_open`` /
+    ``_italic_open`` on greedy ``**``/``__`` and ``*``/``_`` markers and
+    routes on/off bytes through ``_emit_style_on/off`` via
+    ``resolve_style(profile, ...)``. Block-boundary close discipline
+    (``_close_open_styles``) prevents emphasis from leaking across
+    constructs.
 
     Newline routing (MD-08): every newline emitted by the renderer is
     routed through ``text_output_fn("\\n")``. The renderer NEVER passes
@@ -79,6 +86,14 @@ class MarkdownRenderer:
         # Block-state tracking
         self._in_code_block: bool = False
         self._table_buffer: list[str] = []
+        # Inline-emphasis state (Plan 23-03). Tracks whether `_render_inline`
+        # has an open bold or italic span from the markdown source. The
+        # block-boundary close discipline (`_close_open_styles`) clears these
+        # flags before any block-level newline so emphasis cannot leak across
+        # block constructs (heading, list item, blockquote line, paragraph,
+        # code-block enter, end-of-document).
+        self._bold_open: bool = False
+        self._italic_open: bool = False
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -101,6 +116,10 @@ class MarkdownRenderer:
                 i += 1
                 continue
             if _CODE_FENCE.match(line.strip()):
+                # Defensive close on code-block entry: any inline emphasis
+                # left open by a preceding paragraph cannot leak into the
+                # code block (where emphasis is suppressed entirely).
+                self._close_open_styles()
                 self._in_code_block = True
                 i += 1
                 continue
@@ -124,6 +143,9 @@ class MarkdownRenderer:
             self._dispatch_block_line(line)
             i += 1
         self._flush_table()
+        # Document-end safety: close any unclosed emphasis (`**hello` with no
+        # closing `**`) so style mode cannot leak into the next print job.
+        self._close_open_styles()
 
     # ------------------------------------------------------------------
     # Block dispatch
@@ -156,30 +178,46 @@ class MarkdownRenderer:
     # ------------------------------------------------------------------
 
     def _render_heading(self, level: int, text: str) -> None:
-        """ATX heading: blank line above, text (Plan 23-03 wraps in bold), trailing blank line."""
+        """ATX heading: blank line above, bold-wrapped inline text, blank below.
+
+        The heading is wrapped in an OUTER bold pair emitted directly via
+        ``_emit_style_on/off`` — independent of the inline ``_bold_open``
+        state, which tracks bold spans from the markdown source itself.
+        Inline emphasis inside the heading text (`# **Inner Bold**`) toggles
+        `_bold_open` separately; ``_close_open_styles`` then closes any
+        inline-opened spans before the heading's trailing newline.
+        """
         del level  # Reserved for future heading-level differentiation.
         self._emit_text("\n")
-        # Plan 23-03: emit bold style_on bytes here via self._style_output_fn.
+        # Outer heading bold is independent of inline _bold_open state.
+        self._emit_style_on("bold")
         self._render_inline(text)
-        # Plan 23-03: emit bold style_off bytes here via self._style_output_fn.
+        # Close inline emphasis FIRST (so any unclosed `**`/`*` inside the
+        # heading text closes before we close the outer heading bold).
+        self._close_open_styles()
+        # Now close the outer heading bold pair.
+        self._emit_style_off("bold")
         self._emit_text("\n\n")
 
     def _render_ulist_item(self, indent: int, content: str) -> None:
         """Unordered list: re-glyph dash/star/plus to ``*`` with two-space-per-level indent."""
         self._emit_text("  " * indent + "* ")
         self._render_inline(content)
+        self._close_open_styles()
         self._emit_text("\n")
 
     def _render_olist_item(self, indent: int, num: str, content: str) -> None:
         """Ordered list: preserve the source number with two-space-per-level indent."""
         self._emit_text("  " * indent + f"{num}. ")
         self._render_inline(content)
+        self._close_open_styles()
         self._emit_text("\n")
 
     def _render_blockquote_line(self, content: str) -> None:
         """Blockquote: emit ``> `` prefix + content + newline."""
         self._emit_text("> ")
         self._render_inline(content)
+        self._close_open_styles()
         self._emit_text("\n")
 
     def _handle_code_line(self, line: str) -> None:
@@ -201,23 +239,120 @@ class MarkdownRenderer:
             self._emit_text("\n")
             return
         self._render_inline(line)
+        self._close_open_styles()
         self._emit_text("\n")
 
     # ------------------------------------------------------------------
-    # Inline emphasis seam (replaced by Plan 23-03)
+    # Inline emphasis state machine (MD-01)
     # ------------------------------------------------------------------
 
     def _render_inline(self, text: str) -> None:
-        """Stub for Plan 23-03 inline emphasis (bold/italic/underline).
+        """Render an inline span recognising bold (``**``/``__``) and italic (``*``/``_``).
 
-        This plan emits each character verbatim through ``text_output_fn``.
-        Plan 23-03 will replace this method with a state machine that
-        recognises ``**bold**``, ``__bold__``, ``*italic*``, ``_italic_``
-        and emits the corresponding ESC sequences via
-        ``self._style_output_fn`` while keeping plain chars on
-        ``self._text_output_fn``.
+        Greedy two-then-one tokenization: ``**`` and ``__`` toggle bold
+        before the single-char ``*``/``_`` italic toggles. ``***foo***``
+        therefore opens bold, opens italic, emits ``foo``, then the
+        closing ``***`` closes italic, closes bold (state-machine LIFO
+        guarantees pairing because both flags toggle independently).
+
+        Markdown emphasis markers are state-machine tokens — they are
+        consumed and never reach ``text_output_fn``. All other characters
+        flow through ``self._text_output_fn`` one at a time, preserving
+        the per-character streaming contract.
+
+        Style bytes are routed via ``_emit_style_on/off`` which consult
+        ``resolve_style(profile, style)`` so the renderer never branches
+        on profile capabilities itself. When the profile lacks the
+        capability and ``resolve_style`` returns ``(b"", b"")``, the
+        emit is silently skipped and text falls back to plain.
         """
-        self._emit_text(text)
+        i = 0
+        n = len(text)
+        while i < n:
+            # Greedy: ``**`` / ``__`` (bold) wins over single ``*`` / ``_`` (italic).
+            if i + 1 < n and text[i] == "*" and text[i + 1] == "*":
+                self._toggle_bold()
+                i += 2
+                continue
+            if i + 1 < n and text[i] == "_" and text[i + 1] == "_":
+                self._toggle_bold()
+                i += 2
+                continue
+            ch = text[i]
+            if ch == "*" or ch == "_":
+                self._toggle_italic()
+                i += 1
+                continue
+            self._text_output_fn(ch)
+            i += 1
+
+    def _toggle_bold(self) -> None:
+        """Toggle inline bold state — emit on/off bytes per resolve_style."""
+        if self._bold_open:
+            self._emit_style_off("bold")
+            self._bold_open = False
+        else:
+            self._emit_style_on("bold")
+            self._bold_open = True
+
+    def _toggle_italic(self) -> None:
+        """Toggle inline italic state — emit on/off bytes per resolve_style."""
+        if self._italic_open:
+            self._emit_style_off("italic")
+            self._italic_open = False
+        else:
+            self._emit_style_on("italic")
+            self._italic_open = True
+
+    def _emit_style_on(self, style: str) -> None:
+        """Emit ``style``'s on-bytes via the style channel, if non-empty.
+
+        Silently no-ops when ``self._profile is None`` (renderer used
+        without a profile, e.g. unit tests) or when the profile's
+        ``resolve_style`` chain returns ``(b"", b"")`` (capability not
+        supported and no fallback available — falls back to plain text).
+        """
+        if self._profile is None:
+            return
+        on, _off = resolve_style(self._profile, style)
+        if on:
+            self._style_output_fn(on)
+
+    def _emit_style_off(self, style: str) -> None:
+        """Emit ``style``'s off-bytes via the style channel, if non-empty.
+
+        Symmetry safety: ``resolve_style`` returns the matching off pair
+        for whichever capability it picked, so every off emit closes the
+        same capability the corresponding on emit opened — never a
+        cross-capability mix.
+        """
+        if self._profile is None:
+            return
+        _on, off = resolve_style(self._profile, style)
+        if off:
+            self._style_output_fn(off)
+
+    def _close_open_styles(self) -> None:
+        """Force-close any open inline emphasis before crossing a block boundary.
+
+        Called before every newline emit at the end of a block-level
+        construct (heading, list item, blockquote line, paragraph,
+        code-block enter, end-of-document) so bold/italic mode does not
+        leak past the markdown construct that opened it. Critical for
+        printer hardware where style codes persist until explicitly
+        cleared — leaking bold mode across paragraphs would taint the
+        next print job.
+
+        Closes italic before bold so the close order mirrors the typical
+        open order (bold-on, italic-on -> italic-off, bold-off) for
+        nested ``**outer *inner* outer**`` spans.
+        """
+        if self._italic_open:
+            self._emit_style_off("italic")
+            self._italic_open = False
+        if self._bold_open:
+            self._emit_style_off("bold")
+            self._bold_open = False
 
     # ------------------------------------------------------------------
     # Table rendering
