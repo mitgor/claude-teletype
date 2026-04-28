@@ -1,9 +1,14 @@
-"""Tests for streaming markdown renderer (block-level features MD-02..MD-08).
+"""Tests for streaming markdown renderer.
 
-Inline emphasis (MD-01) is added by Plan 23-03 and tested there.
+Block-level features (MD-02..MD-08) landed in Plan 23-02; inline
+emphasis (MD-01: bold + italic with profile-aware ``resolve_style``
+fallback chain) landed in Plan 23-03 and is exercised by the
+``TestInlineEmphasis``, ``TestStyleFallback``, ``TestSymmetrySafety``,
+and ``TestIntegration`` classes at the bottom of this file.
 """
 
 from claude_teletype.markdown import MarkdownRenderer
+from claude_teletype.profiles import get_profile
 from claude_teletype.wordwrap import WordWrapper
 
 
@@ -13,6 +18,28 @@ def _render(text: str, columns: int = 80) -> str:
     renderer = MarkdownRenderer(collected.append, columns=columns)
     renderer.render(text)
     return "".join(collected)
+
+
+def _render_with_profile(
+    text: str,
+    profile_name: str = "escp",
+    columns: int = 80,
+) -> tuple[str, list[bytes]]:
+    """Helper: render ``text`` against a built-in profile and capture both channels.
+
+    Returns ``(joined_text_output, style_calls)`` where ``style_calls`` is
+    the chronological list of byte chunks delivered to ``style_output_fn``.
+    """
+    text_calls: list[str] = []
+    style_calls: list[bytes] = []
+    renderer = MarkdownRenderer(
+        text_calls.append,
+        style_output_fn=style_calls.append,
+        profile=get_profile(profile_name),
+        columns=columns,
+    )
+    renderer.render(text)
+    return "".join(text_calls), style_calls
 
 
 class TestHeadings:
@@ -196,6 +223,232 @@ class TestNewlineRouting:
         # Plan 23-03 may emit style bytes here; this plan's stub emits none.
         # Either way, no style call may contain '\n'.
         for chunk in style_calls:
+            assert b"\n" not in chunk, (
+                f"style channel emitted newline: {chunk!r}"
+            )
+
+
+class TestInlineEmphasis:
+    """MD-01: bold (`**`/`__`) + italic (`*`/`_`) recognition and ESC byte emission."""
+
+    def test_double_asterisk_emits_bold_codes(self) -> None:
+        text, style = _render_with_profile("**bold** here\n")
+        assert "bold" in text
+        # Markers are state-machine tokens, NOT text — `**` does not survive.
+        assert "**" not in text
+        # escp profile: bold_on = ESC E (b"\x1bE"), bold_off = ESC F (b"\x1bF").
+        assert b"\x1bE" in style
+        assert b"\x1bF" in style
+        # bold_on appears before bold_off in the call sequence.
+        assert style.index(b"\x1bE") < style.index(b"\x1bF")
+
+    def test_double_underscore_emits_bold_codes(self) -> None:
+        text, style = _render_with_profile("__bold__\n")
+        assert "bold" in text
+        assert "__" not in text
+        assert b"\x1bE" in style and b"\x1bF" in style
+
+    def test_single_asterisk_emits_italic_codes(self) -> None:
+        text, style = _render_with_profile("*italic* here\n")
+        assert "italic" in text
+        assert "*italic*" not in text
+        # escp profile: italic_on = ESC 4 (b"\x1b4"), italic_off = ESC 5 (b"\x1b5").
+        assert b"\x1b4" in style and b"\x1b5" in style
+        assert style.index(b"\x1b4") < style.index(b"\x1b5")
+
+    def test_single_underscore_emits_italic_codes(self) -> None:
+        text, style = _render_with_profile("_italic_\n")
+        assert "italic" in text
+        assert "_italic_" not in text
+        assert b"\x1b4" in style and b"\x1b5" in style
+
+    def test_emphasis_markers_stripped_from_text(self) -> None:
+        # Pure paragraph (no list/blockquote/table chars) so we can
+        # straightforwardly assert no `*` or `_` survives the state machine.
+        text, _style = _render_with_profile("**a** and *b*\n")
+        assert "a" in text and "b" in text
+        assert text.count("*") == 0
+        assert text.count("_") == 0
+
+    def test_nested_bold_inside_italic(self) -> None:
+        text, style = _render_with_profile("*outer **inner** outer*\n")
+        # Visible text retains spacing around the inner bold span.
+        assert "outer inner outer" in text
+        # Sequence: italic_on, bold_on, bold_off, italic_off (paragraph close
+        # is symmetric — every `*` and `**` toggles its own flag).
+        i_on = style.index(b"\x1b4")
+        b_on = style.index(b"\x1bE")
+        b_off = style.index(b"\x1bF")
+        i_off = style.index(b"\x1b5")
+        assert i_on < b_on < b_off < i_off
+
+    def test_bold_closes_before_line_newline(self) -> None:
+        # `**bold**\n`: paragraph closes the bold span via paired toggle, and
+        # the block-boundary `_close_open_styles()` runs as a no-op (already
+        # closed). One bold-on / one bold-off in the trace.
+        _text, style = _render_with_profile("**bold**\n")
+        assert style.count(b"\x1bE") == 1
+        assert style.count(b"\x1bF") == 1
+
+    def test_unclosed_emphasis_at_eof_closes_defensively(self) -> None:
+        # No closing `**`: the renderer's defensive close at end-of-render
+        # MUST still emit bold_off so the printer doesn't carry bold mode
+        # into the next print job.
+        _text, style = _render_with_profile("**unclosed text")
+        assert style.count(b"\x1bE") == 1
+        assert style.count(b"\x1bF") == 1
+
+
+class TestStyleFallback:
+    """MD-01 fallback chain: bold/italic substitute underline when capability is empty."""
+
+    def test_juki_bold_falls_back_to_underline(self) -> None:
+        # juki-6100: bold_on=b"" italic_on=b"" underline_on=b"\x1b-\x01".
+        # `**bold**` triggers resolve_style("bold") -> underline pair.
+        text, style = _render_with_profile("**bold**\n", profile_name="juki-6100")
+        assert "bold" in text
+        # Underline codes (NOT Epson bold codes) emitted via fallback.
+        assert b"\x1b-\x01" in style
+        assert b"\x1b-\x00" in style
+        # And NOT the Epson bold codes — Juki has no bold_on bytes.
+        assert b"\x1bE" not in style
+        assert b"\x1bF" not in style
+
+    def test_juki_italic_falls_back_to_underline(self) -> None:
+        text, style = _render_with_profile("*italic*\n", profile_name="juki-6100")
+        assert "italic" in text
+        assert b"\x1b-\x01" in style and b"\x1b-\x00" in style
+        # No italic ESC bytes (Juki has no italic_on).
+        assert b"\x1b4" not in style and b"\x1b5" not in style
+
+    def test_generic_emits_no_style_calls(self) -> None:
+        # generic profile has all-empty style codes — resolve_style returns
+        # (b"", b"") for every style; no emit fires.
+        text, style = _render_with_profile(
+            "**bold** and *italic*\n", profile_name="generic"
+        )
+        assert "bold" in text and "italic" in text
+        assert style == []
+
+    def test_no_profile_emits_no_style_calls(self) -> None:
+        # __init__ default profile=None: _emit_style_on/off short-circuit
+        # before consulting resolve_style.
+        text_calls: list[str] = []
+        style_calls: list[bytes] = []
+        r = MarkdownRenderer(
+            text_calls.append, style_output_fn=style_calls.append, profile=None
+        )
+        r.render("**bold** and *italic*\n")
+        assert style_calls == []
+        # Text channel still receives the visible chars.
+        joined = "".join(text_calls)
+        assert "bold" in joined and "italic" in joined
+
+
+class TestSymmetrySafety:
+    """Every style_on emit has a matching style_off — no leaked styles."""
+
+    def test_every_bold_on_has_matching_bold_off(self) -> None:
+        # Three independent bold spans in a single paragraph.
+        _text, style = _render_with_profile(
+            "**one** and **two** and **three**\n"
+        )
+        assert style.count(b"\x1bE") == style.count(b"\x1bF") == 3
+
+    def test_every_italic_on_has_matching_italic_off(self) -> None:
+        _text, style = _render_with_profile(
+            "*one* and *two* and *three*\n"
+        )
+        assert style.count(b"\x1b4") == style.count(b"\x1b5") == 3
+
+    def test_emphasis_in_heading_pairs_correctly(self) -> None:
+        # The heading wraps its content in OUTER bold (1 pair) plus the
+        # inline `**...**` is its own toggled pair (1 pair) — total 2 of
+        # each. Either way, on/off counts MUST match so no bold mode
+        # leaks past the heading.
+        _text, style = _render_with_profile("# **Bold Heading**\n")
+        assert style.count(b"\x1bE") == style.count(b"\x1bF")
+        assert style.count(b"\x1bE") >= 1  # at least the outer heading bold
+
+    def test_unclosed_emphasis_doesnt_leak(self) -> None:
+        # Defensive close at EOF: `**leak attempt` opens bold; renderer
+        # force-closes at end of render so bold mode doesn't leak.
+        _text, style = _render_with_profile("**leak attempt")
+        assert style.count(b"\x1bE") == style.count(b"\x1bF") == 1
+
+
+class TestIntegration:
+    """End-to-end gate proving MD-01..MD-08 compose correctly through the real pipeline."""
+
+    def test_full_markdown_document_through_real_wordwrapper_with_escp_profile(
+        self,
+    ) -> None:
+        sample = (
+            "# Markdown Test\n"
+            "\n"
+            "First paragraph with **bold** and *italic* text.\n"
+            "\n"
+            "- first item with **emphasis**\n"
+            "- second item plain\n"
+            "\n"
+            "> a quote with *italic* span\n"
+            "\n"
+            "```\n"
+            "code with *no italic*\n"
+            "```\n"
+            "\n"
+            "| Col1 | Col2 |\n"
+            "|------|------|\n"
+            "| a    | b    |\n"
+        )
+
+        text_collected: list[str] = []
+        style_collected: list[bytes] = []
+        wrapper = WordWrapper(80, text_collected.append)
+        renderer = MarkdownRenderer(
+            wrapper.feed,
+            style_output_fn=style_collected.append,
+            profile=get_profile("escp"),
+            columns=80,
+        )
+        renderer.render(sample)
+        wrapper.flush()
+        text = "".join(text_collected)
+
+        # ----- Text channel: structural elements survive -----
+        # MD-02 heading: visible text without the leading `#`.
+        assert "Markdown Test" in text
+        # MD-01 marker stripping: paragraph with bold + italic markers.
+        assert "First paragraph with bold and italic text." in text
+        # MD-03 unordered list with `* ` glyph; emphasis markers stripped.
+        assert "* first item with emphasis" in text
+        assert "* second item plain" in text
+        # MD-05 blockquote with italic markers stripped.
+        assert "> a quote with italic span" in text
+        # MD-04 boundary: emphasis inside the code block survives literally.
+        # (Note: the 4-space code-block indent is intentionally stripped by
+        # WordWrapper's leading-space-at-column-0 rule — see 23-02 SUMMARY
+        # decision; the literal `*no italic*` content is what matters here.)
+        assert "code with *no italic*" in text
+        # MD-06 ASCII grid with `+` / `|` / `-` chars and the cell content.
+        assert "Col1" in text and "Col2" in text
+        assert "+" in text and "|" in text
+        # MD-07: WordWrapper kept every line within 80 chars.
+        for line in text.split("\n"):
+            assert len(line) <= 80, f"line {line!r} exceeds 80"
+
+        # ----- Style channel: escp emphasis bytes -----
+        # 3 bold pairs expected: outer heading bold + paragraph `**bold**` +
+        # list-item `**emphasis**`.
+        assert style_collected.count(b"\x1bE") == 3
+        assert style_collected.count(b"\x1bF") == 3
+        # 2 italic pairs expected: paragraph `*italic*` + blockquote
+        # `*italic*`. The `*no italic*` inside the code block must NOT
+        # generate a third pair (MD-04 emphasis-suppression boundary).
+        assert style_collected.count(b"\x1b4") == 2
+        assert style_collected.count(b"\x1b5") == 2
+        # MD-08: no chunk in the style channel ever contains a newline byte.
+        for chunk in style_collected:
             assert b"\n" not in chunk, (
                 f"style channel emitted newline: {chunk!r}"
             )
