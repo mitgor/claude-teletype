@@ -131,7 +131,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 21-01-PLAN.md — Add PrinterProfile style capability fields (bold/italic/underline on/off) and buffer_bytes
+- [x] 21-01-PLAN.md — Add PrinterProfile style capability fields (bold/italic/underline on/off) and buffer_bytes
 - [ ] 21-02-PLAN.md — Extend load_custom_profiles to read the seven new TOML keys
 - [ ] 21-03-PLAN.md — Add resolve_style fallback-chain helper (italic→underline→plain, bold→underline→plain)
 
@@ -222,7 +222,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | ✓ Complete | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 3/3 | ✓ Complete | 2026-04-03 |
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
-| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 0/3 | Planned | — |
+| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 1/3 | In Progress|  |
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/TBD | Not started | — |
 | 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |

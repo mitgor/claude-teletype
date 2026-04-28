@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: executing
-stopped_at: Roadmap created for v1.5 (Phases 21-26)
-last_updated: "2026-04-28T19:39:18.722Z"
-last_activity: 2026-04-28 -- Phase 21 planning complete
+stopped_at: 21-01-PLAN.md complete (capability fields + buffer_bytes)
+last_updated: "2026-04-28T19:46:00Z"
+last_activity: 2026-04-28 -- Phase 21 Plan 01 complete (capability fields landed)
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -26,17 +26,23 @@ See: .planning/PROJECT.md (updated 2026-04-28)
 ## Current Position
 
 Phase: 21 — Profile Capability Fields & Custom-TOML Support
-Plan: —
-Status: Ready to execute
-Last activity: 2026-04-28 -- Phase 21 planning complete
+Plan: 21-02 (next — custom-TOML loader for new fields)
+Status: 21-01 complete; ready to execute 21-02
+Last activity: 2026-04-28 -- Phase 21 Plan 01 complete (capability fields landed)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 32
+- Total plans completed: 33
 - Average duration: 3.3min
-- Total execution time: 1.8 hours
+- Total execution time: 1.9 hours
+
+**Recent plan metrics:**
+
+| Plan | Duration | Tasks | Files | Completed |
+|------|----------|-------|-------|-----------|
+| 21-01 | 2.8min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -62,6 +68,12 @@ Carry-forward from v1.4 still in force for v1.5:
 - `dataclasses.replace` is the supported way to alias profiles (preserves frozen immutability of `PrinterProfile`).
 - Custom-TOML profiles use `bytes.fromhex()` decoding for byte fields and `int(..., 16)` for VID/PID — Phase 21 must mirror this convention for the new `bold_on`/`italic_on`/`underline_on` and integer `buffer_bytes` fields.
 
+Decisions added in 21-01:
+
+- Empty bytes (b"") is the sentinel for absent style capability — the markdown renderer's fallback chain (italic→underline→plain, bold→underline→plain, lands in 21-03) reads that state to decide whether to substitute underline or plain text.
+- buffer_bytes default 256 is conservative for unknown hardware; per-profile overrides apply real-world tuning (CH341 byte-fragility=64, thermal=128) without scattering hardware knowledge in conditional code. Applied values: juki-6100=64, juki-2200=64, juki alias inherits 64, citizen-cts2000=128, others=256.
+- Style codes (bold/italic/underline) intentionally LEFT EMPTY on every built-in profile in Plan 21-01; Phase 22 encodes verified per-family sequences. Sentinel test `test_builtin_profiles_have_empty_style_codes_in_phase_21` enforces this and will be updated/removed in Phase 22.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -76,6 +88,6 @@ None — phase planning starts at Phase 21.
 ## Session Continuity
 
 Last session: 2026-04-28
-Stopped at: Roadmap created for v1.5 (Phases 21-26)
+Stopped at: Completed 21-01-PLAN.md (capability fields + buffer_bytes)
 Resume file: None
-Next action: `/gsd-plan-phase 21` to break Phase 21 into plans
+Next action: Execute 21-02-PLAN.md (custom-TOML loader for new fields)
