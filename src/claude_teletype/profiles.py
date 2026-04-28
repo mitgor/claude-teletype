@@ -35,8 +35,22 @@ class PrinterProfile:
     reinit_on_newline: bool = False
     reinit_sequence: bytes = b""
 
+    # End-of-response sequence — sent after each completed LLM response
+    # (and on close if the response wasn't flushed cleanly). Empty for
+    # printers that don't need a per-response separator. Receipt printers
+    # use this for paper feed + cut so each response is its own receipt.
+    end_of_response_sequence: bytes = b""
+
     # Form feed on close
     formfeed_on_close: bool = True
+
+    # Skip per-character typewriter pacing for this printer. Daisywheel
+    # impact printers benefit from the animation (and physically can't
+    # outrun it anyway); thermal receipt and laser printers are line- or
+    # job-buffered, so the artificial delay just adds latency with no
+    # mechanical justification. Setting True forces zero-delay output for
+    # both the receipt and the on-screen TUI mirror.
+    instant_output: bool = False
 
     # USB auto-detection (optional)
     usb_vendor_id: int | None = None
@@ -133,6 +147,26 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         # diagnose` on the live device.
         columns=80,
     ),
+    "citizen-cts2000": PrinterProfile(
+        name="citizen-cts2000",
+        description="Citizen CT-S2000 thermal receipt printer (ESC/POS, USB)",
+        init_sequence=b"\x1b@",  # ESC @ — Initialize printer
+        reset_sequence=b"\x1b@",  # ESC @ — re-init on close (cut handled per-response)
+        # After each completed LLM response: feed 5 lines so the cut clears
+        # the print head, then full-cut. The cut also fires on close if the
+        # last response wasn't flushed cleanly (cancel/error mid-stream).
+        end_of_response_sequence=b"\x1bd\x05\x1dV\x00",  # ESC d 5 + GS V 0
+        crlf=False,                             # ESC/POS uses LF only
+        formfeed_on_close=False,                # receipt printers ignore \f
+        instant_output=True,                    # thermal: no per-char pacing
+        # Live CT-S2000 units enumerate as 0x2730:0x2002 (USB Vendor Name
+        # "CITIZEN", product string "Thermal Printer") — verified via ioreg.
+        # The "official" Citizen Systems Japan VID 0x1d90 is reserved for a
+        # different product line and doesn't apply to the CT-S series.
+        usb_vendor_id=0x2730,
+        usb_product_id=0x2002,
+        columns=42,                             # Font A on 80mm thermal paper
+    ),
 }
 
 # IBM alias: same ESC sequences as PPDS, brand name users recognize
@@ -193,7 +227,11 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
             crlf=data.get("crlf", False),
             reinit_on_newline=data.get("reinit_on_newline", False),
             reinit_sequence=bytes.fromhex(data.get("reinit_sequence", "")),
+            end_of_response_sequence=bytes.fromhex(
+                data.get("end_of_response_sequence", "")
+            ),
             formfeed_on_close=data.get("formfeed_on_close", True),
+            instant_output=data.get("instant_output", False),
             usb_vendor_id=(
                 int(data["usb_vendor_id"], 16)
                 if "usb_vendor_id" in data

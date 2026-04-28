@@ -145,6 +145,16 @@ class CupsPrinterDriver:
         except (subprocess.SubprocessError, OSError):
             self._connected = False
 
+    def flush(self) -> None:
+        """Force-flush the line buffer even without a trailing newline.
+
+        Needed for ESC sequences (paper cut, init/reset) that have no \\n
+        terminator — without this they would sit in the buffer until the
+        next text line arrived, and per-response cuts would never fire.
+        """
+        if self._line_buffer and self._connected:
+            self._flush_line()
+
     def close(self) -> None:
         if self._line_buffer:
             self._flush_line()
@@ -193,6 +203,10 @@ class ProfilePrinterDriver:
         self._inner = inner
         self._profile = profile
         self._initialized = False
+        # Tracks whether content has been written since the last
+        # end_response() / close() so we don't cut blank paper if flush is
+        # called twice (e.g. cancel + error paths both calling _flush_printer).
+        self._has_unflushed_output = False
 
     def _send_raw(self, data: bytes) -> None:
         """Send raw bytes through the inner driver as a single write.
@@ -223,6 +237,7 @@ class ProfilePrinterDriver:
         if not self._inner.is_connected:
             return
         self._ensure_init()
+        self._has_unflushed_output = True
         if char == "\n":
             # Send CR+LF+reinit as a single atomic transfer.
             # Fragmented USB transfers cause the Juki 6100 (CH341 bridge)
@@ -246,8 +261,33 @@ class ProfilePrinterDriver:
         self._profile = new_profile
         self._initialized = False
 
+    def end_response(self) -> None:
+        """Emit the profile's end-of-response sequence (e.g. paper cut).
+
+        No-op when the profile has no end_of_response_sequence, when the
+        printer has not been initialized, when the inner driver is
+        disconnected, or when no content has been written since the last
+        end_response (avoids cutting blank paper on duplicate flush calls).
+        """
+        if not self._initialized or not self._inner.is_connected:
+            return
+        if not self._has_unflushed_output:
+            return
+        if self._profile.end_of_response_sequence:
+            self._send_raw(self._profile.end_of_response_sequence)
+            # Drivers that batch by line (CupsPrinterDriver) leave the
+            # cut bytes stuck in the buffer because the sequence has no
+            # \n. Force a flush so the bytes actually reach the printer.
+            inner_flush = getattr(self._inner, "flush", None)
+            if inner_flush is not None:
+                inner_flush()
+        self._has_unflushed_output = False
+
     def close(self) -> None:
         if self._initialized and self._inner.is_connected:
+            # If the last response wasn't flushed cleanly (forceful exit
+            # mid-stream), cut the partial output before resetting.
+            self.end_response()
             if self._profile.formfeed_on_close:
                 self._inner.write("\f")
             if self._profile.reset_sequence:
@@ -837,8 +877,18 @@ def make_printer_output(
             wrapper.feed(char)
 
     def printer_flush() -> None:
-        if not disconnected:
-            wrapper.flush()
+        nonlocal disconnected
+        if disconnected:
+            return
+        wrapper.flush()
+        # Per-response hook: lets profile-aware drivers emit a separator
+        # (e.g. receipt printer paper cut) at end of each LLM response.
+        end = getattr(driver, "end_response", None)
+        if end is not None:
+            try:
+                end()
+            except OSError:
+                disconnected = True
 
     printer_write.flush = printer_flush  # type: ignore[attr-defined]
 

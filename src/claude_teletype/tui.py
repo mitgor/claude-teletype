@@ -735,9 +735,18 @@ class TeletypeApp(App):
                         self._update_status()
                     else:
                         has_text = True
+                        # Receipt/laser profiles set instant_output=True to
+                        # skip the typewriter pacing — line-buffered hardware
+                        # gains nothing from per-char delays.
+                        active_profile = self._all_profiles.get(self._profile_name)
+                        delay_ms = (
+                            0.0
+                            if active_profile is not None and active_profile.instant_output
+                            else self.base_delay_ms
+                        )
                         await pace_characters(
                             item,
-                            base_delay_ms=self.base_delay_ms,
+                            base_delay_ms=delay_ms,
                             output_fn=output_fn,
                         )
 

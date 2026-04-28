@@ -69,7 +69,9 @@ def test_printer_profile_defaults():
     assert profile.crlf is False
     assert profile.reinit_on_newline is False
     assert profile.reinit_sequence == b""
+    assert profile.end_of_response_sequence == b""
     assert profile.formfeed_on_close is True
+    assert profile.instant_output is False
     assert profile.usb_vendor_id is None
     assert profile.usb_product_id is None
     assert profile.columns == 80
@@ -80,9 +82,9 @@ def test_printer_profile_defaults():
 # ---------------------------------------------------------------------------
 
 
-def test_builtin_profiles_has_nine_entries():
-    """BUILTIN_PROFILES has 9 entries: 6 canonical + ibm alias + juki-6100/2200 + juki alias."""
-    assert len(BUILTIN_PROFILES) == 9
+def test_builtin_profiles_has_ten_entries():
+    """BUILTIN_PROFILES has 10 entries: 7 canonical + ibm alias + juki-6100/2200 + juki alias."""
+    assert len(BUILTIN_PROFILES) == 10
 
 
 def test_builtin_profiles_keys():
@@ -91,6 +93,7 @@ def test_builtin_profiles_keys():
         "generic", "escp", "ppds", "pcl", "ibm",
         "juki-6100", "juki-2200", "juki",
         "oki-3390",
+        "citizen-cts2000",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
 
@@ -108,6 +111,23 @@ def test_oki_3390_profile_epson_fx2_defaults():
     assert p.usb_vendor_id == 0x06BC             # OKI Data Corp
     assert p.usb_product_id is None              # VID-only auto-detect
     assert p.columns == 80
+
+
+def test_citizen_cts2000_profile_escpos_defaults():
+    """citizen-cts2000 ships with ESC/POS init, LF-only newlines, feed+cut per response."""
+    p = BUILTIN_PROFILES["citizen-cts2000"]
+    assert p.name == "citizen-cts2000"
+    assert p.init_sequence == b"\x1b@"                          # ESC @ — initialize
+    assert p.reset_sequence == b"\x1b@"                         # ESC @ — re-init on close
+    assert p.end_of_response_sequence == b"\x1bd\x05\x1dV\x00"  # ESC d 5 + GS V 0
+    assert p.line_spacing == b""                                # use printer default
+    assert p.char_pitch == b""                                  # use printer default
+    assert p.crlf is False                                      # ESC/POS uses LF only
+    assert p.formfeed_on_close is False                         # receipt printers ignore \f
+    assert p.instant_output is True                             # thermal: skip per-char pacing
+    assert p.usb_vendor_id == 0x2730                            # CITIZEN (live ioreg VID)
+    assert p.usb_product_id == 0x2002                           # CT-S2000 PID
+    assert p.columns == 42                                      # Font A on 80mm thermal paper
 
 
 def test_juki_2200_profile_typewriter_defaults():
@@ -316,7 +336,9 @@ def test_load_custom_profiles_all_fields():
                     "crlf": True,
                     "reinit_on_newline": True,
                     "reinit_sequence": "1b321b50",
+                    "end_of_response_sequence": "1b64051d5600",
                     "formfeed_on_close": False,
+                    "instant_output": True,
                     "usb_vendor_id": "04b8",
                     "usb_product_id": "0202",
                     "columns": 132,
@@ -334,7 +356,9 @@ def test_load_custom_profiles_all_fields():
     assert p.crlf is True
     assert p.reinit_on_newline is True
     assert p.reinit_sequence == b"\x1b\x32\x1bP"
+    assert p.end_of_response_sequence == b"\x1bd\x05\x1dV\x00"
     assert p.formfeed_on_close is False
+    assert p.instant_output is True
     assert p.usb_vendor_id == 0x04B8
     assert p.usb_product_id == 0x0202
     assert p.columns == 132

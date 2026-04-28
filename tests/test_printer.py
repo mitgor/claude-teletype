@@ -242,6 +242,28 @@ def test_make_printer_output_degrades_on_error():
     assert driver.write.call_count == 1
 
 
+def test_make_printer_output_flush_calls_end_response():
+    """printer_write.flush() invokes driver.end_response() for cut-aware drivers."""
+    driver = MagicMock(spec=ProfilePrinterDriver)
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    output_fn("A")
+    output_fn.flush()
+
+    driver.end_response.assert_called_once()
+
+
+def test_make_printer_output_flush_tolerates_driver_without_end_response():
+    """printer_write.flush() does not crash when driver lacks end_response."""
+    driver = MagicMock(spec=["is_connected", "write", "close"])
+    driver.is_connected = True
+    output_fn = make_printer_output(driver)
+
+    output_fn("A")
+    output_fn.flush()  # must not raise
+
+
 def test_make_printer_output_compatible_with_make_output_fn(tmp_path: Path):
     """Printer output_fn works with make_output_fn multiplexer."""
     from claude_teletype.output import make_output_fn
@@ -699,6 +721,162 @@ class TestProfilePrinterDriver:
 
         ppd.write("A")
         inner.write.assert_not_called()
+
+    def test_end_response_flushes_cups_line_buffer(self):
+        """Cut sequences contain no \\n — must force-flush CUPS line buffer.
+
+        Regression: earlier the cut bytes were appended to CupsPrinterDriver's
+        line buffer but never reached lp because the buffer only flushed on \\n.
+        """
+        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
+            cups = CupsPrinterDriver("test_queue")
+            profile = PrinterProfile(
+                name="receipt",
+                init_sequence=b"\x1b@",
+                end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+            )
+            ppd = ProfilePrinterDriver(cups, profile)
+
+            ppd.write("H")
+            ppd.write("i")
+            ppd.write("\n")
+            ppd.end_response()
+
+            sent_to_lp = b"".join(
+                c.kwargs.get("input", b"") for c in mock_run.call_args_list
+            )
+            assert b"\x1d\x56\x00" in sent_to_lp  # cut bytes reached lp
+
+    def test_cups_driver_flush_emits_partial_line(self):
+        """CupsPrinterDriver.flush() emits the buffered line even without \\n."""
+        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
+            cups = CupsPrinterDriver("test_queue")
+            cups.write("X")
+            cups.write("Y")
+            assert mock_run.call_count == 0  # not yet flushed
+            cups.flush()
+            assert mock_run.call_count == 1
+            assert mock_run.call_args.kwargs["input"] == b"XY"
+
+    def test_cups_driver_flush_noop_when_buffer_empty(self):
+        """CupsPrinterDriver.flush() with empty buffer does nothing."""
+        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+            cups = CupsPrinterDriver("test_queue")
+            cups.flush()
+            assert mock_run.call_count == 0
+
+    def test_end_response_emits_sequence_after_writes(self):
+        """end_response() sends profile.end_of_response_sequence after content writes."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="receipt",
+            init_sequence=b"\x1b@",
+            end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("H")
+        ppd.write("i")
+        ppd.end_response()
+
+        raw = _collect_raw(inner)
+        assert raw.endswith(b"\x1bd\x05\x1dV\x00")
+
+    def test_end_response_noop_without_writes(self):
+        """end_response() is a no-op when nothing has been written (no blank cut)."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="receipt",
+            end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.end_response()
+
+        inner.write.assert_not_called()
+
+    def test_end_response_idempotent(self):
+        """Calling end_response() twice in a row only cuts once."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="receipt",
+            end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.write("X")
+        ppd.end_response()
+        first = inner.write.call_count
+        ppd.end_response()  # second call: no new writes since last end_response
+        assert inner.write.call_count == first
+
+    def test_end_response_noop_without_sequence(self):
+        """end_response() is a no-op when profile has no end_of_response_sequence."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="impact")  # no end_of_response_sequence
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+        ppd._has_unflushed_output = True
+
+        ppd.end_response()
+
+        # No additional write should have been triggered for the empty sequence
+        inner.write.assert_not_called()
+
+    def test_close_cuts_partial_response(self):
+        """close() emits end_of_response_sequence if last response wasn't flushed."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="receipt",
+            init_sequence=b"\x1b@",
+            reset_sequence=b"\x1b@",
+            end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+            formfeed_on_close=False,
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("partial")
+        ppd.close()
+
+        raw = _collect_raw(inner)
+        # Cut sequence should appear before the final reset
+        cut_idx = raw.find(b"\x1bd\x05\x1dV\x00")
+        reset_idx = raw.rfind(b"\x1b@")
+        assert cut_idx != -1
+        assert reset_idx > cut_idx
+
+    def test_close_skips_cut_when_already_flushed(self):
+        """close() does not double-cut when end_response was already called."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="receipt",
+            init_sequence=b"\x1b@",
+            reset_sequence=b"\x1b@",
+            end_of_response_sequence=b"\x1bd\x05\x1dV\x00",
+            formfeed_on_close=False,
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write("done")
+        ppd.end_response()  # already cut
+        before_close = _collect_raw(inner)
+        cuts_before = before_close.count(b"\x1bd\x05\x1dV\x00")
+
+        ppd.close()
+        after_close = _collect_raw(inner)
+        cuts_after = after_close.count(b"\x1bd\x05\x1dV\x00")
+
+        assert cuts_before == 1
+        assert cuts_after == 1  # close did not add a second cut
 
     def test_discover_printer_with_profile(self, tmp_path):
         """discover_printer(profile=...) wraps with ProfilePrinterDriver."""
