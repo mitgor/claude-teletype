@@ -69,7 +69,7 @@
 - [x] **Phase 22: Encoded Style Sequences for Built-In Profiles** - Verified bold/italic/underline byte sequences for Epson ESC/P, IBM PPDS, HP PCL, Juki, OKI, and Citizen built-ins (completed 2026-04-28)
 - [x] **Phase 23: Streaming Markdown Renderer** - Block-and-inline renderer that consumes profile capabilities, composes with `WordWrapper`, and preserves the CR+LF + reinit atomic newline pattern (completed 2026-04-28)
 - [x] **Phase 24: TUI File Picker** - Markdown file picker rooted at cwd, launched from the main session via a keybinding, with cancel-back-to-chat semantics (completed 2026-04-28)
-- [ ] **Phase 25: `claude-teletype print` CLI Subcommand** - One-shot print path with and without an explicit file argument, honoring all existing config layers
+- [x] **Phase 25: `claude-teletype print` CLI Subcommand** - One-shot print path with and without an explicit file argument, honoring all existing config layers (completed 2026-04-28)
 - [ ] **Phase 26: Speed Dialog, Buffer Chunking, Cancel & Transcript Integration** - Per-print speed dialog, instant-mode `buffer_bytes` chunking, safe cancel semantics, and transcript fan-out for printed files
 
 ## Phase Details
@@ -197,7 +197,7 @@ Plans:
 
 Plans:
 - [x] 25-01-PLAN.md -- `print <path>` Typer subcommand + _render_markdown_to_driver helper; CliRunner tests for CLI-01, CLI-03, CLI-04
-- [ ] 25-02-PLAN.md -- No-path picker-mode: minimal MarkdownPickerApp launches FilePickerScreen and routes selection through the Plan 25-01 helper; CliRunner tests for CLI-02
+- [x] 25-02-PLAN.md -- No-path picker-mode: minimal MarkdownPickerApp launches FilePickerScreen and routes selection through the Plan 25-01 helper; CliRunner tests for CLI-02
 
 ### Phase 26: Speed Dialog, Buffer Chunking, Cancel & Transcript Integration
 **Goal**: Each markdown print job opens with a speed-mode dialog whose default reflects the active profile, instant mode chunks writes at the profile's `buffer_bytes` boundary, the user can cancel mid-print without crashing or stranding open style codes, and printed files appear in the active session transcript as plain text
@@ -242,5 +242,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
 | 23. Streaming Markdown Renderer | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 24. TUI File Picker | v1.5 | 2/2 | Complete   | 2026-04-28 |
-| 25. `claude-teletype print` CLI Subcommand | v1.5 | 1/2 | In Progress|  |
+| 25. `claude-teletype print` CLI Subcommand | v1.5 | 2/2 | Complete   | 2026-04-28 |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |

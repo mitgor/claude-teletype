@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: Phase 25 Wave 1 closed. CLI-01/03/04 all satisfied. `claude-teletype print <path>` Typer subcommand wired with full config-layer chain (defaults < TOML < env < CLI flags), profile resolution mirroring main(), path validation with clean errors, and reusable `_render_markdown_to_driver` helper Plan 25-02 will call from the picker callback. 20 new CliRunner tests + 626 baseline = 646 project tests green. Phase 25-02 (no-path picker mode) unblocked.
-stopped_at: Completed 25-01-PLAN.md (print Typer subcommand + _print_command_impl + _render_markdown_to_driver; CLI-01/03/04 closed; 626 baseline + 20 new = 646 tests green)
-last_updated: "2026-04-28T21:49:49Z"
-last_activity: 2026-04-28 -- 25-01 landed (@app.command("print") + _print_command_impl + _render_markdown_to_driver; CLI-01/03/04 closed; 20 new tests = 646 total green)
+status: Phase 25 COMPLETE. CLI-01/02/03/04 all satisfied. `claude-teletype print <path>` (Plan 25-01) + `claude-teletype print` no-arg picker-mode launcher (Plan 25-02) both shipped. Closure-factory `_make_markdown_picker_app` builds a minimal MarkdownPickerApp(App) that pushes Phase 24's FilePickerScreen on mount and routes the dismiss callback through Plan 25-01's `_render_markdown_to_driver` (Path arm) or exits cleanly (None arm). Sibling helper `_print_command_impl_picker` shares `_resolve_print_context` with the explicit-path branch. 7 new CliRunner+unit tests in TestPrintCli02PickerMode; full project: 646 -> 653 tests green.
+stopped_at: Completed 25-02-PLAN.md (Phase 25 closed; CLI-02 satisfied; picker-mode launcher + 7 new tests = 653 total green)
+last_updated: "2026-04-29T00:00:00Z"
+last_activity: 2026-04-29 -- 25-02 landed (_make_markdown_picker_app + _print_command_impl_picker + _resolve_print_context shared resolver + Path|None dispatch in print_md; CLI-02 closed; 7 new tests = 653 total green; Phase 25 COMPLETE)
 progress:
   total_phases: 9
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 25 — claude-teletype print CLI Subcommand — Wave 1 **COMPLETE** (1/2 plans). Phase 25-02 (no-path picker mode) next; reuses `_render_markdown_to_driver` from picker callback. Phase 26 (speed dialog + render pipeline) follows.
+**Current focus:** Phase 25 — claude-teletype print CLI Subcommand — **COMPLETE** (2/2 plans). All four CLI requirements (CLI-01..CLI-04) closed. Phase 26 (speed dialog + render pipeline) is next; the chat-session entry (`tui.py::_handle_picker_result`) and the CLI-print no-path entry (`MarkdownPickerApp._on_pick`) are the two clean integration points Phase 26 inherits.
 
 ## Current Position
 
-Phase: 25 — claude-teletype print CLI Subcommand — Wave 1 **COMPLETE** (1/2 plans)
-Plan: 25-02 next (no-path picker mode; minimal Textual wrapper around FilePickerScreen calls `_render_markdown_to_driver` on selection)
-Status: Phase 25 Wave 1 closed. CLI-01/03/04 all satisfied. `claude-teletype print <path>` Typer subcommand wired with full config-layer chain (defaults < TOML < env < CLI flags), profile resolution mirroring main(), path validation with clean errors, and reusable `_render_markdown_to_driver` helper Plan 25-02 will call from the picker callback. 20 new CliRunner tests + 626 baseline = 646 project tests green.
-Last activity: 2026-04-28 -- 25-01 landed (@app.command("print") + _print_command_impl + _render_markdown_to_driver; CLI-01/03/04 closed; 20 new tests = 646 total green)
+Phase: 25 — claude-teletype print CLI Subcommand — **COMPLETE** (2/2 plans)
+Plan: Phase 26 next (speed dialog + render pipeline)
+Status: Phase 25 fully closed. CLI-01/02/03/04 all satisfied. Plan 25-01 shipped explicit-path mode (`claude-teletype print <path>`) with full config-layer chain (defaults < TOML < env < CLI flags), profile resolution, path validation, and reusable `_render_markdown_to_driver` helper. Plan 25-02 shipped no-arg picker mode: closure-factory `_make_markdown_picker_app` builds a minimal MarkdownPickerApp that pushes Phase 24's FilePickerScreen and routes the dismiss callback through Plan 25-01's helper or exits cleanly. Shared `_resolve_print_context` between branches. 27 tests in test_cli_print.py (20 from 25-01 + 7 from 25-02), full project 626 -> 653 tests green.
+Last activity: 2026-04-29 -- 25-02 landed (_make_markdown_picker_app + _print_command_impl_picker + _resolve_print_context shared resolver + Path|None dispatch in print_md; CLI-02 closed; 7 new tests = 653 total green; Phase 25 COMPLETE)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 41
+- Total plans completed: 42
 - Average duration: 3.4min
 - Total execution time: 2.5 hours
 
@@ -42,11 +42,11 @@ Last activity: 2026-04-28 -- 25-01 landed (@app.command("print") + _print_comman
 
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
-| 23-02 | 5.1min | 2 | 2 | 2026-04-28 |
 | 23-03 | 4.1min | 2 | 2 | 2026-04-28 |
 | 24-01 | 3.4min | 2 | 2 | 2026-04-28 |
 | 24-02 | 4.2min | 2 | 2 | 2026-04-28 |
 | 25-01 | 8.6min | 2 | 2 | 2026-04-28 |
+| 25-02 | 3.6min | 2 | 2 | 2026-04-29 |
 
 **By Milestone:**
 
@@ -153,6 +153,16 @@ Decisions added in 25-01:
 - `getattr(driver, "end_response", None)` duck-test pattern for the 5 driver implementations: only `ProfilePrinterDriver` and `JukiPrinterDriver` implement `end_response()` (per-response paper cut on receipt printers). NullPrinterDriver, FilePrinterDriver, CupsPrinterDriver, UsbPrinterDriver don't. The getattr guard keeps the helper usable across all five without isinstance branching.
 - `wrapper.flush()` placement: AFTER `renderer.render(text)` and BEFORE `driver.end_response()`. WordWrapper buffers the last word until `flush()`; without this, documents that don't end in whitespace would lose their trailing token. Locked by `test_print_calls_wrapper_flush_after_render` and `test_render_helper_call_order`.
 
+Decisions added in 25-02:
+
+- Closure-factory `_make_markdown_picker_app(config, all_profiles, resolved_profile, root)` rather than a constructor-arg App subclass. Captures the resolved print context as closure variables in the factory; the nested `class MarkdownPickerApp(App)` reads them by name. Keeps the App's `__init__` minimal (`super().__init__(); self._exit_code = 0`) and avoids overriding Textual's constructor signature. Pattern locked for future one-shot Textual launchers (confirmation dialogs, settings-edit apps): use a `_make_*_app()` factory + closure rather than threading args through `__init__`.
+- `_resolve_print_context(delay, device, printer)` shared resolver extracted from `_print_command_impl` body. Both Typer branches (explicit path AND no-arg picker) now call it; on unknown-profile error returns `(None, None, None)` so callers detect failure uniformly without raising. Plan 25-01's `_render_markdown_to_driver` signature stays untouched -- the refactor only relocated code. Pattern: when sibling Typer branches share resolution but diverge in what they do AFTER, extract a `_resolve_<thing>_context()` helper that returns the resolved tuple OR a sentinel on error. Avoids the alternative of raising typer.Exit from inside the resolver, which makes unit-testing harder.
+- `Path | None` (modern union) over `Optional[Path]` in `print_md`. Plan recommended `Optional` but ruff's UP045 lint prefers the modern syntax; Typer 0.23.1 handles both identically. Verified: `--help` shows `[PATH]` for the optional arg, dispatch fires correctly when path is omitted. Adjustment NOT counted as deviation -- following project lint preferences per `<project_context>` rules.
+- App._exit_code attribute idiom for return-code propagation. The picker callback stores `_render_markdown_to_driver`'s return value on the app instance; the caller reads it via `getattr(picker_app, "_exit_code", 0)` after `.run()` returns. Mirrors the existing `TeletypeApp.session_id` pattern (set during `.run()`, read after). Pattern locked for one-shot Textual apps that need richer return-code semantics than `App.exit(result=...)` provides.
+- Synchronous render inside `_on_pick` (NOT in a worker). Phase 25's print is non-paced -- file I/O + USB write fast enough that picker-dismiss → render → app.exit() is imperceptible. Phase 26 will need to refactor into a Textual worker when pacing lands so a speed dialog can run between dismiss and render-start. Locked in a docstring comment for future Phase 26 reference.
+- Test option (a) (patch `app_inst.push_screen` BEFORE calling `app_inst.on_mount()`) worked first try for `test_picker_app_on_mount_pushes_filepicker`. Plan offered three test strategies (a: patch-pre-call, b: Pilot, c: inspect.getsource grep); option (a) succeeded because on_mount() only calls self.push_screen, which is now the mock -- Textual's compositor isn't touched. Bonus: the test asserts (1) push_screen called, (2) first positional arg is a real FilePickerScreen instance, AND (3) callback kwarg is the bound `_on_pick` method. Richer assertions than option (c) would have produced.
+- Test patches the FACTORY (`claude_teletype.cli._make_markdown_picker_app`) at the dispatch level, AND patches `claude_teletype.cli._render_markdown_to_driver` directly for the callback unit tests. The factory IS the cli-side surface; the closure-captured `_render_markdown_to_driver` reference is patched at the cli module path because the factory's nested `class MarkdownPickerApp` body resolves the name through the cli module namespace, not through textual or file_picker_screen.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -167,7 +177,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28T21:49:49Z
-Stopped at: Completed 25-01-PLAN.md (print Typer subcommand + _print_command_impl + _render_markdown_to_driver; CLI-01/03/04 closed; 626 baseline + 20 new = 646 tests green)
+Last session: 2026-04-29T00:00:00Z
+Stopped at: Completed 25-02-PLAN.md (Phase 25 closed; CLI-02 satisfied; picker-mode launcher + 7 new tests = 653 total green)
 Resume file: None
-Next action: Execute Plan 25-02 (no-path picker mode — `claude-teletype print` without a path argument launches a minimal Textual wrapper around FilePickerScreen and routes the selected path through `_render_markdown_to_driver`, then exits. Helper contract locked: `_render_markdown_to_driver(path, config, all_profiles, resolved_profile) -> int`.)
+Next action: Plan Phase 26 (speed dialog + render pipeline). Inherits two clean integration points: (1) chat-session entry `tui.py::_handle_picker_result` (still emits Phase 24 smoke `notify`; replace with paced render); (2) CLI-print no-path entry `MarkdownPickerApp._on_pick` (already calls `_render_markdown_to_driver` synchronously; either refactor into a Textual worker so a speed dialog can run between picker dismiss and render start, OR replace `_render_markdown_to_driver` with a paced variant respecting `config.delay`). Both are inside `cli.py` / `tui.py`; no cross-file risk. Locked Phase 25 contracts: `_render_markdown_to_driver(path, config, all_profiles, resolved_profile) -> int` (used at two call sites), `_resolve_print_context(delay, device, printer) -> (config, all_profiles, resolved_profile)`, `_make_markdown_picker_app(config, all_profiles, resolved_profile, root) -> MarkdownPickerApp` factory.
