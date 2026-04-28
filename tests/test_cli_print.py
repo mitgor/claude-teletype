@@ -1,9 +1,10 @@
-"""Tests for `claude-teletype print` subcommand (CLI-01, CLI-03, CLI-04).
+"""Tests for `claude-teletype print` subcommand (CLI-01..CLI-04).
 
 The print subcommand renders a markdown file in one shot through
-MarkdownRenderer + WordWrapper + ProfilePrinterDriver. Phase 25 owns the
-explicit-path entrypoint; Phase 26 will reuse the ``_render_markdown_to_driver``
-helper from a picker callback.
+MarkdownRenderer + WordWrapper + ProfilePrinterDriver. Phase 25-01 owns the
+explicit-path entrypoint; Phase 25-02 adds the no-path picker-mode launcher
+that pushes Phase 24's FilePickerScreen and routes the result through
+``_render_markdown_to_driver``.
 
 These tests use Typer's CliRunner (same pattern as tests/test_cli.py).
 
@@ -11,7 +12,10 @@ Patch-target convention: ``_render_markdown_to_driver`` imports its narrow
 deps (``MarkdownRenderer``, ``WordWrapper``, ``discover_printer``) LOCALLY
 inside the function body. Patches must therefore target the SOURCE modules
 (e.g., ``claude_teletype.printer.discover_printer``), NOT
-``claude_teletype.cli.discover_printer``.
+``claude_teletype.cli.discover_printer``. The picker factory
+``_make_markdown_picker_app`` is patched at ``claude_teletype.cli.``
+because the dispatch in ``print_md`` resolves it through the cli module
+namespace.
 """
 
 from unittest.mock import MagicMock, patch
@@ -372,3 +376,156 @@ class TestNoRegression:
     def test_diagnose_command_still_registered(self):
         result = runner.invoke(app, ["diagnose", "--help"])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# CLI-02: no-path picker mode
+# ---------------------------------------------------------------------------
+
+
+class TestPrintCli02PickerMode:
+    """`claude-teletype print` with no path launches a minimal picker app (CLI-02).
+
+    The dispatch path: print_md sees path=None -> calls
+    _print_command_impl_picker -> resolves config + profile via the shared
+    _resolve_print_context -> builds a MarkdownPickerApp via the factory ->
+    runs it. The factory and its returned app are mocked here to avoid
+    spinning a real terminal in CI; the picker callback's runtime behavior
+    is unit-tested via direct calls below.
+    """
+
+    def test_print_no_path_invokes_picker_app(self):
+        """No-path dispatch builds the picker app and calls .run() on it."""
+        with patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+        ) as mock_factory:
+            mock_app = MagicMock()
+            mock_app._exit_code = 0
+            mock_factory.return_value = mock_app
+            result = runner.invoke(app, ["print"])
+        assert result.exit_code == 0, result.output
+        mock_factory.assert_called_once()
+        mock_app.run.assert_called_once()
+
+    def test_print_no_path_does_not_call_render_directly(self):
+        """The render helper is invoked from inside the picker callback, NOT
+        from the dispatch. We mock App.run as a no-op so the callback never
+        fires; render must not have been called from the dispatch path."""
+        with patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+        ) as mock_factory, patch(
+            "claude_teletype.cli._render_markdown_to_driver",
+        ) as mock_render:
+            mock_app = MagicMock()
+            mock_app._exit_code = 0
+            mock_factory.return_value = mock_app
+            result = runner.invoke(app, ["print"])
+        assert result.exit_code == 0, result.output
+        mock_render.assert_not_called()
+
+    def test_picker_app_on_mount_pushes_filepicker(self):
+        """Direct unit test: on_mount must push a FilePickerScreen."""
+        from claude_teletype.cli import _make_markdown_picker_app
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.file_picker_screen import FilePickerScreen
+
+        app_inst = _make_markdown_picker_app(
+            config=TeletypeConfig(),
+            all_profiles={},
+            resolved_profile=None,
+            root=None,
+        )
+        with patch.object(app_inst, "push_screen") as mock_push:
+            app_inst.on_mount()
+        mock_push.assert_called_once()
+        # First positional arg should be a FilePickerScreen instance
+        pushed_screen = mock_push.call_args.args[0]
+        assert isinstance(pushed_screen, FilePickerScreen)
+        # Callback kwarg should be the app's _on_pick handler
+        assert mock_push.call_args.kwargs.get("callback") == app_inst._on_pick
+
+    def test_picker_callback_path_calls_render_helper(self, tmp_path):
+        """Path arm: callback calls _render_markdown_to_driver and exits."""
+        from claude_teletype.cli import _make_markdown_picker_app
+        from claude_teletype.config import TeletypeConfig
+
+        cfg = TeletypeConfig()
+        app_inst = _make_markdown_picker_app(
+            config=cfg,
+            all_profiles={},
+            resolved_profile=None,
+            root=None,
+        )
+        md = tmp_path / "doc.md"
+        md.write_text("# Hi\n")
+
+        with patch(
+            "claude_teletype.cli._render_markdown_to_driver",
+            return_value=0,
+        ) as mock_render, patch.object(app_inst, "exit") as mock_exit:
+            app_inst._on_pick(md)
+
+        mock_render.assert_called_once()
+        call_args = mock_render.call_args
+        # First positional arg is the path
+        assert call_args.args[0] == md
+        # Config + all_profiles + resolved_profile passed through (closure
+        # capture from the factory).
+        assert call_args.args[1] is cfg
+        mock_exit.assert_called_once()
+        assert app_inst._exit_code == 0
+
+    def test_picker_callback_none_skips_render(self):
+        """None arm: cancel = no render, exit 0."""
+        from claude_teletype.cli import _make_markdown_picker_app
+        from claude_teletype.config import TeletypeConfig
+
+        app_inst = _make_markdown_picker_app(
+            config=TeletypeConfig(),
+            all_profiles={},
+            resolved_profile=None,
+            root=None,
+        )
+        with patch(
+            "claude_teletype.cli._render_markdown_to_driver",
+        ) as mock_render, patch.object(app_inst, "exit") as mock_exit:
+            app_inst._on_pick(None)
+        mock_render.assert_not_called()
+        mock_exit.assert_called_once()
+        assert app_inst._exit_code == 0
+
+    def test_picker_callback_propagates_render_exit_code(self, tmp_path):
+        """Render helper non-zero return propagates to _exit_code."""
+        from claude_teletype.cli import _make_markdown_picker_app
+        from claude_teletype.config import TeletypeConfig
+
+        app_inst = _make_markdown_picker_app(
+            config=TeletypeConfig(),
+            all_profiles={},
+            resolved_profile=None,
+            root=None,
+        )
+        md = tmp_path / "doc.md"
+        md.write_text("text")
+        with patch(
+            "claude_teletype.cli._render_markdown_to_driver",
+            return_value=1,
+        ), patch.object(app_inst, "exit"):
+            app_inst._on_pick(md)
+        assert app_inst._exit_code == 1
+
+    def test_print_with_path_does_not_invoke_picker(self, tmp_path):
+        """Regression: explicit-path branch never reaches the picker factory."""
+        md = _write_md(tmp_path)
+        with patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+        ) as mock_factory, patch(
+            "claude_teletype.printer.discover_printer",
+        ) as mock_disc, patch(
+            "claude_teletype.markdown.MarkdownRenderer",
+        ) as mock_renderer_cls:
+            mock_disc.return_value = _make_mock_driver()
+            mock_renderer_cls.return_value = MagicMock()
+            result = runner.invoke(app, ["print", str(md)])
+        assert result.exit_code == 0, result.output
+        mock_factory.assert_not_called()
