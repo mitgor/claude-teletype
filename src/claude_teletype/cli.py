@@ -222,6 +222,195 @@ def diagnose() -> None:
     run_diagnose()
 
 
+def _render_markdown_to_driver(
+    path: Path,
+    config,
+    all_profiles: dict,
+    resolved_profile,
+) -> int:
+    """Render a markdown file through the configured printer driver chain.
+
+    Reused by Plan 25-02's picker-mode launcher (the picker hands a Path
+    to this function and exits when it returns).
+
+    Phase 25 contract: NO pacer, NO transcript, NO chat session. Phase 26
+    wires the speed dialog by replacing the WordWrapper output_fn (currently
+    ``driver.write``) with a paced wrapper.
+
+    Args:
+        path: Path to a regular UTF-8 text file (already validated).
+        config: Resolved TeletypeConfig (defaults < TOML < env < CLI flags).
+        all_profiles: Built-in + custom profile registry (lookup by name).
+        resolved_profile: PrinterProfile or None (None = generic).
+
+    Returns:
+        Exit code: 0 on success, 1 on read error.
+    """
+    from claude_teletype.markdown import MarkdownRenderer
+    from claude_teletype.printer import discover_printer
+    from claude_teletype.wordwrap import WordWrapper
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        typer.echo(f"Error: cannot read {path}: {e}", err=True)
+        return 1
+
+    driver = discover_printer(
+        device_override=config.device,
+        profile=resolved_profile,
+    )
+    try:
+        # Columns: profile.columns when present, else 80 (matches
+        # MarkdownRenderer's own fallback inside __init__).
+        columns = (
+            resolved_profile.columns
+            if resolved_profile is not None and resolved_profile.columns
+            else 80
+        )
+        wrapper = WordWrapper(columns, driver.write)
+        renderer = MarkdownRenderer(
+            text_output_fn=wrapper.feed,
+            style_output_fn=driver.write_bytes,
+            profile=resolved_profile,
+            columns=columns,
+        )
+        renderer.render(text)
+        # WordWrapper buffers the last word until flush() -- without this,
+        # documents that don't end in whitespace would lose their trailing
+        # token. flush() must run BEFORE end_response() so the cut/paper-eject
+        # happens after every visible character has reached the driver.
+        wrapper.flush()
+        # ProfilePrinterDriver has end_response (per-response paper cut on
+        # receipt printers). Plain drivers don't. Use getattr-then-call so
+        # this helper works across all driver implementations.
+        end_response = getattr(driver, "end_response", None)
+        if end_response is not None:
+            end_response()
+    finally:
+        # close() runs in finally so partial-render exceptions still close
+        # the device handle cleanly.
+        driver.close()
+
+    return 0
+
+
+def _print_command_impl(
+    path: Path,
+    delay: float | None,
+    device: str | None,
+    printer: str | None,
+) -> int:
+    """Resolve config + profile, validate path, then render to driver.
+
+    Returns the exit code: 0 on success, 1 on path validation failure or any
+    clean error. Per Phase 25 CONTEXT.md decisions:
+
+    - Honors TOML < env < CLI flag chain (CLI-03)
+    - Non-zero exit on missing or non-regular file (CLI-04)
+    - No pacer (Phase 26 wires the speed dialog)
+    - No transcript (Phase 26 territory)
+    """
+    # Path validation (CLI-04). Use absolute path in error messages so users
+    # see exactly what we tried to read.
+    try:
+        resolved_path = path.expanduser().resolve()
+    except OSError as e:
+        typer.echo(f"Error: cannot resolve path {path!r}: {e}", err=True)
+        return 1
+    if not resolved_path.exists():
+        typer.echo(f"Error: file not found: {resolved_path}", err=True)
+        return 1
+    if not resolved_path.is_file():
+        typer.echo(
+            f"Error: not a regular file: {resolved_path}",
+            err=True,
+        )
+        return 1
+
+    # Config: defaults < TOML < env < CLI flags. Same chain as main() per
+    # D-02 (CLI-03 requirement). delay is accepted but currently unused for
+    # rendering -- merging it still proves the env/CLI layer was applied.
+    config = load_config()
+    config = apply_env_overrides(config)
+    config = merge_cli_flags(config, delay=delay, device=device)
+
+    # Profile resolution -- mirrors main() lines ~325-371 (per D-03).
+    from claude_teletype.profiles import (
+        BUILTIN_PROFILES,
+        PrinterProfile,
+        auto_detect_profile,
+        load_custom_profiles,
+    )
+
+    custom_profiles_dict = (
+        load_custom_profiles({"printer": {"profiles": config.custom_profiles}})
+        if config.custom_profiles
+        else {}
+    )
+    all_profiles = dict(BUILTIN_PROFILES)
+    all_profiles.update(custom_profiles_dict)
+
+    resolved_profile: PrinterProfile | None = None
+    if printer is not None:
+        key = printer.lower().strip()
+        if key not in all_profiles:
+            available = ", ".join(sorted(all_profiles))
+            typer.echo(
+                f"Error: unknown printer profile {printer!r}. "
+                f"Available: {available}",
+                err=True,
+            )
+            return 1
+        resolved_profile = all_profiles[key]
+    elif config.printer_profile and config.printer_profile != "generic":
+        key = config.printer_profile.lower().strip()
+        if key in all_profiles:
+            resolved_profile = all_profiles[key]
+    else:
+        detected = auto_detect_profile(
+            extra_profiles=custom_profiles_dict or None,
+        )
+        if detected is not None:
+            resolved_profile = detected
+
+    return _render_markdown_to_driver(
+        resolved_path, config, all_profiles, resolved_profile,
+    )
+
+
+@app.command("print")
+def print_md(
+    path: Path = typer.Argument(
+        ...,
+        exists=False,  # we validate manually so we can give a clean error
+        help="Path to a Markdown (or UTF-8 text) file to print.",
+    ),
+    delay: float = typer.Option(
+        None,
+        "--delay",
+        "-d",
+        help=(
+            "Base delay between characters (Phase 25 ignores this; "
+            "Phase 26 wires the speed dialog)."
+        ),
+    ),
+    device: str = typer.Option(
+        None,
+        "--device",
+        help="Printer device path (e.g., /dev/usb/lp0)",
+    ),
+    printer: str = typer.Option(
+        None,
+        "--printer",
+        "-p",
+        help="Printer profile name (e.g., juki-6100, escp, ppds, pcl).",
+    ),
+) -> None:
+    """Print a Markdown file in one shot, honoring all config layers."""
+    raise typer.Exit(_print_command_impl(path, delay, device, printer))
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
