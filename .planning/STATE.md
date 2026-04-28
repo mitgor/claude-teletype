@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: "Plan 26-02 closed FLOW-05 renderer-side. MarkdownRenderer.close() public abort hook landed in src/claude_teletype/markdown.py — thin wrapper delegating 1:1 to existing _close_open_styles (Phase 23 single source of truth preserved); idempotent; profile=None safe; class docstring extended with 'Cancel safety' paragraph. 9 new tests in TestRendererCancelSafety (RED→GREEN gate); 0 regressions: 675 -> 684 green. Plan 26-03 unblocked: cancel keybinding handler in tui.py can now call renderer.close() + driver.end_response() with confidence."
-stopped_at: Completed 26-02-PLAN.md (Wave 2 of Phase 26; FLOW-05 renderer-side closed; MarkdownRenderer.close() public abort hook; 9 new tests = 684 total green; Plan 26-03 unblocked)
-last_updated: "2026-04-28T22:35:08Z"
-last_activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort hook delegating to _close_open_styles; class docstring "Cancel safety" paragraph documents FLOW-05 contract; 9 new tests = 684 total green)
+status: "v1.5 milestone COMPLETE. Plan 26-03 closed Phase 26 with 4 atomic commits (2 RED + 2 GREEN per TDD discipline). transcript.write_printed_file helper landed (TXN-01..03); _render_markdown_to_driver gained transcript_write parameter via parallel-collector pattern (TXN-02 byte-cleanliness by construction); _print_command_impl auto-builds transcript writer when config.transcript_dir is set; tui.py _handle_picker_result Path arm replaced with SpeedModeScreen + _handle_speed_mode_result + _run_print_pipeline pipeline; renderer.close() in finally locks FLOW-05 cancel safety end-to-end. 16 new pilot/unit tests = 700 total green (684 -> 700, zero regressions). All 8 Phase 26 requirements (FLOW-01..05 + TXN-01..03) traced to passing tests. v1.5 markdown printing user journey end-to-end functional from CLI direct, CLI picker-mode, and TUI ctrl+o entry points."
+stopped_at: Completed 26-03-PLAN.md (Phase 26 done; v1.5 milestone COMPLETE; transcript pipeline + tui.py picker callback replacement + FLOW-05 cancel-safety wiring; 16 new tests = 700 total green; all 8 Phase 26 requirements green)
+last_updated: "2026-04-28T22:53:00Z"
+last_activity: 2026-04-28 -- 26-03 landed (write_printed_file + transcript_write parameter + tui.py SpeedModeScreen pipeline + _run_print_pipeline finally:renderer.close(); 4 atomic commits baf4de3/8c2123f/ad0663a/e5b0cd5; 700 total green; v1.5 COMPLETE)
 progress:
   total_phases: 9
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 14
-  completed_plans: 13
-  percent: 93
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (2/3 plans). Plan 26-01 closed FLOW-01..04 (speed dialog modal, buffer chunking helper, dual-mode rendering pipeline). Plan 26-02 closed FLOW-05 renderer-side (MarkdownRenderer.close() public abort hook). Plan 26-03 next (TXN-01..03 transcript wiring + tui.py/cli.py SpeedModeScreen integration + cancel keybinding wiring).
+**Current focus:** v1.5 milestone (Markdown File Printing) — **COMPLETE** (Phases 21..26 all done). Plan 26-03 closed Phase 26 with the speed-dialog -> renderer -> transcript pipeline wired into tui.py (replaces Phase 24 notify() stub) + transcript.write_printed_file helper + FLOW-05 cancel-safety try/finally renderer.close() integration. All 8 Phase 26 requirements green; 700 total tests pass. v1.6 direction TBD (deferred candidates: pause/resume mid-print, speed-mode persisted in config, print queue, page-numbering option).
 
 ## Current Position
 
-Phase: 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (2/3 plans)
-Plan: 26-03 next (write_printed_file helper + tui.py picker→speed-dialog→renderer→transcript pipeline + cancel keybinding wiring; TXN-01..03 + FLOW-05 closure)
-Status: Plan 26-02 closed FLOW-05 renderer-side. MarkdownRenderer.close() public abort hook landed in src/claude_teletype/markdown.py — thin wrapper delegating 1:1 to existing _close_open_styles (Phase 23 single source of truth preserved); idempotent; profile=None safe; class docstring extended with "Cancel safety" paragraph documenting the FLOW-05 contract. 9 new tests in TestRendererCancelSafety (RED commit a0fd705 → GREEN commit 938eb1d gate); 0 regressions: 675 -> 684 green. Phase 23's 39 baseline tests untouched and green; Phase 25's 27-test regression sentinel preserved. Plan 26-03 unblocked: cancel keybinding handler in tui.py can call renderer.close() + driver.end_response() with confidence (LIFO close order matches the seven existing block-boundary close sites; resolve_style fallback chain consistent with the rest of the renderer).
-Last activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort hook; thin wrapper around _close_open_styles; class docstring "Cancel safety" paragraph documents FLOW-05 contract; 9 new TestRendererCancelSafety tests = 684 total green)
+Phase: 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **COMPLETE** (3/3 plans)
+Plan: 26-03 done. v1.5 milestone closed. Awaiting v1.6 planning.
+Status: v1.5 milestone COMPLETE. Plan 26-03 closed Phase 26 with 4 atomic commits (2 RED + 2 GREEN per TDD discipline). transcript.write_printed_file helper landed (TXN-01..03); _render_markdown_to_driver gained transcript_write parameter via parallel-collector pattern (TXN-02 byte-cleanliness by construction); _print_command_impl auto-builds transcript writer when config.transcript_dir is set; tui.py _handle_picker_result Path arm replaced with SpeedModeScreen + _handle_speed_mode_result + _run_print_pipeline pipeline; renderer.close() in finally locks FLOW-05 cancel safety end-to-end. 16 new pilot/unit tests = 700 total green (684 -> 700, zero regressions). All 8 Phase 26 requirements (FLOW-01..05 + TXN-01..03) traced to passing tests. v1.5 markdown printing user journey end-to-end functional from CLI direct, CLI picker-mode, and TUI ctrl+o entry points.
+Last activity: 2026-04-28 -- 26-03 landed (write_printed_file + transcript_write parameter + tui.py SpeedModeScreen pipeline + _run_print_pipeline finally:renderer.close(); 4 atomic commits baf4de3/8c2123f/ad0663a/e5b0cd5; 700 total green; v1.5 COMPLETE)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Last activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort
 | 25-02 | 3.6min | 2 | 2 | 2026-04-29 |
 | 26-01 | 5.9min | 2 | 6 | 2026-04-28 |
 | 26-02 | 4.0min | 1 | 2 | 2026-04-28 |
+| 26-03 | 7.2min | 2 | 6 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -59,7 +60,7 @@ Last activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort
 | v1.2 Config/Profiles/LLM/Settings | 8 | 13 | 57min | 2026-02-14 → 2026-02-17 |
 | v1.3 Tech Debt Cleanup | 2 | 2 | 8min | 2026-02-20 |
 | v1.4 Printer Setup TUI | 3 | 6 | 15min | 2026-04-03 |
-| v1.5 Markdown File Printing | 6 | TBD | — | In progress |
+| v1.5 Markdown File Printing | 6 | 14 | ~3hr | 2026-04-28 (COMPLETE) |
 
 ## Accumulated Context
 

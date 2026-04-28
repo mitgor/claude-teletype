@@ -48,13 +48,13 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 - [x] **FLOW-02**: Dialog default selection follows `profile.instant_output` for the active printer profile
 - [x] **FLOW-03**: Typewriter mode reuses the existing character pacer and audio pipeline so pacing matches conversation streaming
 - [x] **FLOW-04**: Instant mode chunks writes at `profile.buffer_bytes` boundaries to prevent buffer overruns on impact printers
-- [ ] **FLOW-05**: User can cancel an in-progress print job from the TUI without crashing the app or leaving the printer in a bad style state (style codes always closed on cancel)
+- [x] **FLOW-05**: User can cancel an in-progress print job from the TUI without crashing the app or leaving the printer in a bad style state (style codes always closed on cancel)
 
 ### Transcript Integration
 
-- [ ] **TXN-01**: Each printed markdown file appears in the active session transcript as a "Printed file: `<path>`" entry followed by the plain-text rendered body
-- [ ] **TXN-02**: Transcript entries for printed files do not contain raw printer ESC sequences (text only)
-- [ ] **TXN-03**: Printing a file with no active conversation session creates no transcript file (transcript stays optional, matching existing behavior)
+- [x] **TXN-01**: Each printed markdown file appears in the active session transcript as a "Printed file: `<path>`" entry followed by the plain-text rendered body
+- [x] **TXN-02**: Transcript entries for printed files do not contain raw printer ESC sequences (text only)
+- [x] **TXN-03**: Printing a file with no active conversation session creates no transcript file (transcript stays optional, matching existing behavior)
 
 ## Future Requirements
 
@@ -119,10 +119,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | FLOW-02 | Phase 26 | Complete |
 | FLOW-03 | Phase 26 | Complete |
 | FLOW-04 | Phase 26 | Complete |
-| FLOW-05 | Phase 26 | Pending |
-| TXN-01 | Phase 26 | Pending |
-| TXN-02 | Phase 26 | Pending |
-| TXN-03 | Phase 26 | Pending |
+| FLOW-05 | Phase 26 | Complete |
+| TXN-01 | Phase 26 | Complete |
+| TXN-02 | Phase 26 | Complete |
+| TXN-03 | Phase 26 | Complete |
 
 **Coverage:** 31/31 requirements mapped ✓
 
