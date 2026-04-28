@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: planning
-stopped_at: Completed 22-01-PLAN.md (built-in profiles encoded; Phase 22 complete; CAP-04 + CAP-05 satisfied)
-last_updated: "2026-04-28T20:19:27Z"
-last_activity: 2026-04-28 -- Phase 22 complete (style sequences encoded on built-ins; CAP-04 + CAP-05 satisfied)
+status: in-progress
+stopped_at: Completed 23-01-PLAN.md (write_bytes Protocol foundation; MD-08 boundary contract documented in code + tests)
+last_updated: "2026-04-28T20:42:40.658Z"
+last_activity: 2026-04-28 -- 23-01 landed (write_bytes added to PrinterDriver Protocol + 5 drivers; 12 new tests; MD-08 satisfied)
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 6
+  percent: 75
 ---
 
 # Project State
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 22 — Encoded Style Sequences for Built-In Profiles — **COMPLETE**
+**Current focus:** Phase 23 — Streaming Markdown Renderer — **IN PROGRESS** (Wave 1 complete)
 
 ## Current Position
 
-Phase: 22 — Encoded Style Sequences for Built-In Profiles — **COMPLETE**
-Plan: Phase 23 next (markdown renderer consuming resolve_style on the now-encoded built-ins)
-Status: Phase 22 complete (CAP-04 + CAP-05 satisfied); CAP-01..06 all satisfied; ready for Phase 23 planning
-Last activity: 2026-04-28 -- Phase 22 complete (style sequences encoded on built-ins; CAP-04 + CAP-05 satisfied)
+Phase: 23 — Streaming Markdown Renderer — **IN PROGRESS** (1/3 plans complete)
+Plan: 23-02 next (MarkdownRenderer block-level parsing — depends on 23-01's write_bytes seam)
+Status: 23-01 complete (write_bytes on Protocol + 5 drivers; MD-08 boundary asserted in code + tests); ready for Wave 2
+Last activity: 2026-04-28 -- 23-01 landed (write_bytes added to PrinterDriver Protocol + 5 drivers; 12 new tests; MD-08 satisfied)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 35
+- Total plans completed: 36
 - Average duration: 3.3min
 - Total execution time: 2.0 hours
 
@@ -46,6 +46,7 @@ Last activity: 2026-04-28 -- Phase 22 complete (style sequences encoded on built
 | 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
 | 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
 | 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
+| 23-01 | 2.5min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -95,6 +96,13 @@ Decisions added in 22-01:
 - Removed the Phase 21 sentinel `test_builtin_profiles_have_empty_style_codes_in_phase_21` rather than rewriting it — its stated purpose explicitly anticipated removal once Phase 22 landed. Replacement is strictly stronger: TestStyleCodesPerProfile asserts exact byte literals per cell + paired-symmetry sentinel asserts the structural invariant (non-empty `*_on` implies non-empty `*_off`) closing Phase 21 REVIEW IN-05 carry-forward.
 - Aliases (ibm, juki) are NOT separately encoded — they pick up codes through the existing `dataclasses.replace` pattern. Two explicit alias-inheritance tests verify this works after the encoding edit.
 
+Decisions added in 23-01:
+
+- write_bytes is a public Protocol method (not an adapter wrapper). Keeps the dual-channel seam visible at the type-checker layer so renderer code accepts any `PrinterDriver` and the Protocol enforces the contract. Adapter approach would have hidden the seam behind a wrapper class and complicated downstream injection.
+- ProfilePrinterDriver.write_bytes empty-bytes guard fires BEFORE _ensure_init(). `write_bytes(b"")` is a true no-op that does not initialize the printer — protects against the renderer's `resolve_style` returning `(b"", b"")` and accidentally booting hardware on every plain-text run.
+- MD-08 boundary held in two places: (1) docstring on ProfilePrinterDriver.write_bytes telling renderer to use write('\n') for newlines, (2) `test_write_bytes_does_not_handle_newlines_specially` asserting `b'\n'` passes through verbatim (no CR+LF, no reinit). The contract is owned by the caller — write_bytes will not silently rescue a misuse.
+- CupsPrinterDriver.write_bytes appends the decoded chunk as a single list element (not character-by-character). Preserves the atomicity hint and matches `_flush_line()`'s `"".join()` pattern. Verified by `test_cups_driver_write_bytes_buffers_until_newline` asserting `b"\x1bEhi\x1bF\n"` reaches `lp` as a single subprocess call.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -103,12 +111,12 @@ None — phase planning starts at Phase 21.
 
 - Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — Phase 22 left Juki bold/italic intentionally empty (CAP-05 conservative-default rule), so the carry-forward concern shrinks to "underline ESC -1/-0 should be exercised on real hardware before claiming Juki underline works end-to-end".
 - Phase 22 left intentionally-empty cells for OKI italic (ESC! mode-bit composite varies by firmware revision) and all three Citizen italics (thermal receipt does not support italic). Documented in 22-CONTEXT.md Deferred Ideas.
-- Phase 23: ASCII table layout under narrow `profile.columns` (e.g. Citizen 42-col thermal) needs a graceful fallback strategy — degenerate wide tables should not crash the renderer.
+- Phase 23: ASCII table layout under narrow `profile.columns` (e.g. Citizen 42-col thermal) needs a graceful fallback strategy — degenerate wide tables should not crash the renderer. (Carries to 23-02.)
 - Phase 26: per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode can be trusted.
 
 ## Session Continuity
 
-Last session: 2026-04-28T20:19:27Z
+Last session: 2026-04-28T20:42:40.654Z
 Stopped at: Completed 22-01-PLAN.md (built-in profiles encoded; Phase 22 complete; CAP-04 + CAP-05 satisfied)
 Resume file: None
 Next action: Plan Phase 23 (markdown renderer consuming resolve_style on the now-encoded built-ins)

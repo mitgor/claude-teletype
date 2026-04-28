@@ -31,7 +31,7 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 - [ ] **MD-05**: Renderer supports blockquotes (`>`) with a visible quote marker prefix on each wrapped line
 - [ ] **MD-06**: Renderer supports GitHub-flavored tables, formatted as ASCII grids that fit within `profile.columns`
 - [ ] **MD-07**: Renderer composes with the existing `WordWrapper` so wrapped lines preserve list indentation and blockquote prefixes
-- [ ] **MD-08**: Renderer emits the existing CR+LF + reinit pattern on newlines so daisywheel/CH341 printers don't drop bytes
+- [x] **MD-08**: Renderer emits the existing CR+LF + reinit pattern on newlines so daisywheel/CH341 printers don't drop bytes
 
 ### Profile Capabilities
 
@@ -108,7 +108,7 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | MD-05 | Phase 23 | Pending |
 | MD-06 | Phase 23 | Pending |
 | MD-07 | Phase 23 | Pending |
-| MD-08 | Phase 23 | Pending |
+| MD-08 | Phase 23 | Complete |
 | CAP-01 | Phase 21 | Complete |
 | CAP-02 | Phase 21 | Complete |
 | CAP-03 | Phase 21 | Complete |
