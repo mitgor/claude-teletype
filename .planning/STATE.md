@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: in-progress
-stopped_at: Completed 23-02-PLAN.md (MarkdownRenderer block-level state machine; MD-02..MD-07 + MD-08 routing all satisfied)
-last_updated: "2026-04-28T20:52:30Z"
-last_activity: 2026-04-28 -- 23-02 landed (MarkdownRenderer block parser; 22 new tests; _render_inline seam ready for 23-03)
+stopped_at: Completed 23-03-PLAN.md (Inline emphasis state machine; MD-01 + MD-07 closed; Phase 23 complete — MD-01..MD-08 all green)
+last_updated: "2026-04-28T20:59:56Z"
+last_activity: 2026-04-28 -- 23-03 landed (inline emphasis bold/italic state machine; 17 new tests; MD-01 closed; Phase 23 complete)
 progress:
   total_phases: 9
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 23 — Streaming Markdown Renderer — **IN PROGRESS** (Waves 1-2 complete)
+**Current focus:** Phase 23 — Streaming Markdown Renderer — **COMPLETE** (3/3 plans)
 
 ## Current Position
 
-Phase: 23 — Streaming Markdown Renderer — **IN PROGRESS** (2/3 plans complete)
-Plan: 23-03 next (Inline emphasis: bold + italic + underline with profile-aware resolve_style — depends on 23-02's _render_inline seam)
-Status: 23-02 complete (MarkdownRenderer block parser; 22 new tests; MD-02..MD-07 + MD-08 satisfied); ready for Wave 3
-Last activity: 2026-04-28 -- 23-02 landed (MarkdownRenderer block parser; 22 new tests; _render_inline seam ready for 23-03)
+Phase: 23 — Streaming Markdown Renderer — **COMPLETE** (3/3 plans)
+Plan: Phase 24 next (TUI file picker — markdown renderer is now ready as a downstream consumer)
+Status: Phase 23 closed. MD-01..MD-08 all satisfied. MarkdownRenderer fully tested through real WordWrapper(80) + real escp profile (39 markdown tests, 605 project tests, all green).
+Last activity: 2026-04-28 -- 23-03 landed (inline emphasis bold/italic state machine; 17 new tests; MD-01 closed; Phase 23 complete)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 37
+- Total plans completed: 38
 - Average duration: 3.3min
-- Total execution time: 2.1 hours
+- Total execution time: 2.2 hours
 
 **Recent plan metrics:**
 
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
-| 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
 | 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
 | 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
 | 23-01 | 2.5min | 2 | 2 | 2026-04-28 |
 | 23-02 | 5.1min | 2 | 2 | 2026-04-28 |
+| 23-03 | 4.1min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -111,21 +111,29 @@ Decisions added in 23-02:
 - `_render_inline` is a separate method emitting chars verbatim through `text_output_fn`. Plan 23-03 swaps just the method body; the 5 call sites (heading text, ulist content, olist content, blockquote content, paragraph content) inherit the inline-emphasis upgrade automatically. `_handle_code_line` deliberately bypasses `_render_inline` (MD-04: literal pass-through inside fences).
 - `style_output_fn` defaults to a no-op lambda. Lets the renderer be unit-tested without a profile/driver — every block test in TestHeadings/TestLists/etc passes only `text_output_fn`. The MD-08 negative test exercises the style channel explicitly to assert no newline byte ever leaks into it.
 
+Decisions added in 23-03:
+
+- Heading wraps inline span in an OUTER bold pair via direct `_emit_style_on/off("bold")` calls — independent of inline `_bold_open` state. `_close_open_styles` closes inner spans BEFORE the outer `_emit_style_off("bold")` so the LIFO order is natural. `# **Inner**` produces 2 bold-on / 2 bold-off pairs (outer + inner) — symmetry verified by `test_emphasis_in_heading_pairs_correctly`.
+- Greedy two-then-one tokenization for emphasis markers in `_render_inline`: `**`/`__` checked before `*`/`_`. `***foo***` parses as bold-on, italic-on, foo, italic-off, bold-off (4 emits); no special-cased triple-marker token needed.
+- Markdown emphasis markers are state-machine tokens, NOT text. The `*`/`_` characters are consumed by the toggle path and never reach `text_output_fn`. Pure-paragraph tests assert `text.count('*') == 0 and text.count('_') == 0` after rendering.
+- `_close_open_styles()` invoked from 7 sites: heading (close-before-outer-bold-off), ulist, olist, blockquote, paragraph, code-block-enter (defensive — emphasis is suppressed inside code fences per MD-04), end-of-render (defensive close for unclosed `**hello`). Italic closes BEFORE bold to mirror the natural LIFO open order for nested `**outer *inner* outer**` spans.
+- `resolve_style` consulted at every emit; `(b"", b"")` returns silently no-op via `if on:` / `if off:` guards — text falls back to plain without renderer-side branching. `_profile is None` short-circuit makes the renderer unit-testable without a profile.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
 
 ### Blockers/Concerns
 
-- Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — Phase 22 left Juki bold/italic intentionally empty (CAP-05 conservative-default rule), so the carry-forward concern shrinks to "underline ESC -1/-0 should be exercised on real hardware before claiming Juki underline works end-to-end".
+- Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — Phase 22 left Juki bold/italic intentionally empty (CAP-05 conservative-default rule), so the carry-forward concern shrinks to "underline ESC -1/-0 should be exercised on real hardware before claiming Juki underline works end-to-end". 23-03 wires the fallback chain end-to-end (juki bold/italic → underline ESC -1/-0 verified by TestStyleFallback) — the on-hardware verification of underline itself remains the open item.
 - Phase 22 left intentionally-empty cells for OKI italic (ESC! mode-bit composite varies by firmware revision) and all three Citizen italics (thermal receipt does not support italic). Documented in 22-CONTEXT.md Deferred Ideas.
 - Phase 23 narrow-columns: 23-02's `test_table_fits_within_columns` proves the renderer won't crash on Citizen 42-col thermal — but cells get truncated rather than wrapped. Acceptable for v1; in-cell wrap is in `<deferred>`. Closed.
-- Phase 23 code-block visual indent: WordWrapper strips the renderer's 4-space leading indent on code-block lines. Content survives, indent doesn't. Out of scope for v1.5; a renderer-aware tab/non-space prefix could fix it later.
+- Phase 23 code-block visual indent: WordWrapper strips the renderer's 4-space leading indent on code-block lines. Content survives, indent doesn't. Out of scope for v1.5; a renderer-aware tab/non-space prefix could fix it later. 23-03's TestIntegration documents this nuance via the `code with *no italic*` substring assertion (no leading-space prefix asserted).
 - Phase 26: per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode can be trusted.
 
 ## Session Continuity
 
-Last session: 2026-04-28T20:52:30Z
-Stopped at: Completed 23-02-PLAN.md (MarkdownRenderer block-level state machine; MD-02..MD-07 + MD-08 routing all satisfied)
+Last session: 2026-04-28T20:59:56Z
+Stopped at: Completed 23-03-PLAN.md (Inline emphasis state machine; MD-01 + MD-07 closed; Phase 23 complete — MD-01..MD-08 all green)
 Resume file: None
-Next action: Execute Plan 23-03 (Inline emphasis: bold + italic + underline state machine, replacing the `_render_inline` stub with profile-aware `resolve_style` lookups; closes MD-01 and finishes Phase 23)
+Next action: Execute Phase 24 (TUI file picker — markdown renderer is now ready as a downstream consumer; integrates with WordWrapper(80) + ProfilePrinterDriver via the dual-channel `text_output_fn`/`style_output_fn` interface)

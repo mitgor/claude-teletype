@@ -24,7 +24,7 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 
 ### Markdown Rendering
 
-- [ ] **MD-01**: Renderer supports bold (`**text**`, `__text__`) and italic (`*text*`, `_text_`) inline emphasis
+- [x] **MD-01**: Renderer supports bold (`**text**`, `__text__`) and italic (`*text*`, `_text_`) inline emphasis
 - [x] **MD-02**: Renderer supports ATX headings (`#` through `######`) styled as bold with an extra blank line above
 - [x] **MD-03**: Renderer supports unordered lists (`-`, `*`, `+`) and ordered lists with stable bullet/number glyphs and indentation for nested levels
 - [x] **MD-04**: Renderer supports fenced code blocks (```` ``` ````) printed as indented monospace with no inline-emphasis processing inside the block
@@ -101,7 +101,7 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | CLI-02 | Phase 25 | Pending |
 | CLI-03 | Phase 25 | Pending |
 | CLI-04 | Phase 25 | Pending |
-| MD-01 | Phase 23 | Pending |
+| MD-01 | Phase 23 | Complete |
 | MD-02 | Phase 23 | Complete |
 | MD-03 | Phase 23 | Complete |
 | MD-04 | Phase 23 | Complete |
