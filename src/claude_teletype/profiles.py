@@ -287,6 +287,67 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
     return profiles
 
 
+def resolve_style(
+    profile: PrinterProfile,
+    style: str,
+) -> tuple[bytes, bytes]:
+    """Return the (on_bytes, off_bytes) the renderer should emit for ``style``.
+
+    Applies the documented fallback chain so the markdown renderer (Phase 23)
+    can ask "what should I emit for italic?" without branching on profile
+    capabilities itself. Empty-byte returns mean "emit plain text" — the
+    renderer treats `(b"", b"")` as a no-op and just writes the text.
+
+    Fallback chain:
+
+    - ``italic`` -> italic codes if non-empty, else underline codes if
+      non-empty, else ``(b"", b"")``. Italic typewriters are rare on
+      impact printers; underline is the closest visual stand-in on Epson
+      ESC/P, IBM PPDS, and similar families.
+    - ``bold`` -> bold codes if non-empty, else underline codes if
+      non-empty, else ``(b"", b"")``. Same reasoning: a printer without
+      a bold sequence still has underline on most ESC/P-family hardware.
+    - ``underline`` -> underline codes if non-empty, else ``(b"", b"")``.
+      No further fallback — underline is the terminal node of the chain.
+
+    A pair is "non-empty" when its ``_on`` byte string is non-empty. The
+    ``_off`` companion travels with it — the function does NOT mix-and-
+    match across capabilities, so the renderer can always trust that the
+    returned ``off_bytes`` closes whatever the returned ``on_bytes``
+    opened.
+
+    Args:
+        profile: The active ``PrinterProfile`` (built-in or custom).
+        style: One of ``"bold"``, ``"italic"``, ``"underline"``.
+
+    Returns:
+        A ``(on_bytes, off_bytes)`` tuple. ``(b"", b"")`` means the
+        renderer should emit plain text with no styling.
+
+    Raises:
+        ValueError: If ``style`` is not one of the three supported names.
+    """
+    if style == "italic":
+        if profile.italic_on:
+            return (profile.italic_on, profile.italic_off)
+        if profile.underline_on:
+            return (profile.underline_on, profile.underline_off)
+        return (b"", b"")
+    if style == "bold":
+        if profile.bold_on:
+            return (profile.bold_on, profile.bold_off)
+        if profile.underline_on:
+            return (profile.underline_on, profile.underline_off)
+        return (b"", b"")
+    if style == "underline":
+        if profile.underline_on:
+            return (profile.underline_on, profile.underline_off)
+        return (b"", b"")
+    raise ValueError(
+        f"Unknown style: {style!r}. Expected 'bold', 'italic', or 'underline'."
+    )
+
+
 USB_PRINTER_CLASS = 7
 
 
