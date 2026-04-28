@@ -37,7 +37,7 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 
 - [x] **CAP-01**: `PrinterProfile` exposes `bold_on`, `bold_off`, `italic_on`, `italic_off`, `underline_on`, `underline_off` byte fields (empty bytes = capability not supported)
 - [x] **CAP-02**: `PrinterProfile` exposes a `buffer_bytes` integer field (default chosen per profile family) used to chunk writes in instant mode
-- [ ] **CAP-03**: Renderer applies a documented fallback chain: italic → underline → plain when italic codes are absent; bold → underline → plain when bold codes are absent
+- [x] **CAP-03**: Renderer applies a documented fallback chain: italic → underline → plain when italic codes are absent; bold → underline → plain when bold codes are absent
 - [ ] **CAP-04**: Built-in Epson ESC/P, IBM PPDS, and HP PCL profiles ship with verified bold and italic sequences encoded
 - [ ] **CAP-05**: Built-in Juki, OKI, and Citizen profiles ship with whatever bold sequences are documented for the family; absent capabilities are left as empty bytes (no incorrect codes)
 - [x] **CAP-06**: Custom TOML profiles can declare bold/italic/underline byte sequences and `buffer_bytes` using the same field names
@@ -111,7 +111,7 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | MD-08 | Phase 23 | Pending |
 | CAP-01 | Phase 21 | Complete |
 | CAP-02 | Phase 21 | Complete |
-| CAP-03 | Phase 21 | Pending |
+| CAP-03 | Phase 21 | Complete |
 | CAP-04 | Phase 22 | Pending |
 | CAP-05 | Phase 22 | Pending |
 | CAP-06 | Phase 21 | Complete |

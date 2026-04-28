@@ -65,7 +65,7 @@
 
 **Milestone Goal:** Open and print local Markdown files through the TUI or CLI, rendering bold/italic/headings/lists/code/tables on capability-aware printer profiles, with per-print speed selection.
 
-- [ ] **Phase 21: Profile Capability Fields & Custom-TOML Support** - Extend `PrinterProfile` with style byte fields, fallback chain, and `buffer_bytes`; route the same fields through custom-TOML loader
+- [x] **Phase 21: Profile Capability Fields & Custom-TOML Support** - Extend `PrinterProfile` with style byte fields, fallback chain, and `buffer_bytes`; route the same fields through custom-TOML loader (completed 2026-04-28)
 - [ ] **Phase 22: Encoded Style Sequences for Built-In Profiles** - Verified bold/italic/underline byte sequences for Epson ESC/P, IBM PPDS, HP PCL, Juki, OKI, and Citizen built-ins
 - [ ] **Phase 23: Streaming Markdown Renderer** - Block-and-inline renderer that consumes profile capabilities, composes with `WordWrapper`, and preserves the CR+LF + reinit atomic newline pattern
 - [ ] **Phase 24: TUI File Picker** - Markdown file picker rooted at cwd, launched from the main session via a keybinding, with cancel-back-to-chat semantics
@@ -133,7 +133,7 @@ Plans:
 Plans:
 - [x] 21-01-PLAN.md — Add PrinterProfile style capability fields (bold/italic/underline on/off) and buffer_bytes
 - [x] 21-02-PLAN.md — Extend load_custom_profiles to read the seven new TOML keys
-- [ ] 21-03-PLAN.md — Add resolve_style fallback-chain helper (italic→underline→plain, bold→underline→plain)
+- [x] 21-03-PLAN.md — Add resolve_style fallback-chain helper (italic→underline→plain, bold→underline→plain)
 
 ### Phase 22: Encoded Style Sequences for Built-In Profiles
 **Goal**: Each built-in profile ships with the bold/italic/underline byte sequences that real hardware actually accepts, so users on Epson, IBM PPDS, HP PCL, Juki, OKI, and Citizen printers see styled output without writing custom-TOML
@@ -222,7 +222,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | ✓ Complete | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 3/3 | ✓ Complete | 2026-04-03 |
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
-| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 2/3 | In Progress|  |
+| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/TBD | Not started | — |
 | 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |

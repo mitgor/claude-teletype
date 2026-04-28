@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: executing
-stopped_at: Completed 21-02-PLAN.md (custom-TOML loader for new fields)
-last_updated: "2026-04-28T19:51:00Z"
-last_activity: 2026-04-28 -- Phase 21 Plan 02 complete (custom-TOML loader extended)
+stopped_at: Completed 21-03-PLAN.md (resolve_style helper, Phase 21 complete)
+last_updated: "2026-04-28T19:56:30Z"
+last_activity: 2026-04-28 -- Phase 21 complete (resolve_style helper landed; CAP-01/02/03/06 done)
 progress:
   total_phases: 9
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -25,16 +25,16 @@ See: .planning/PROJECT.md (updated 2026-04-28)
 
 ## Current Position
 
-Phase: 21 — Profile Capability Fields & Custom-TOML Support
-Plan: 21-03 (next — resolve_style helper for fallback chain)
-Status: 21-02 complete; ready to execute 21-03
-Last activity: 2026-04-28 -- Phase 21 Plan 02 complete (custom-TOML loader extended)
+Phase: 21 — Profile Capability Fields & Custom-TOML Support — **COMPLETE**
+Plan: Phase 22 next (encode verified bold/italic/underline byte sequences into built-in profiles for CAP-04/CAP-05)
+Status: Phase 21 complete (CAP-01, CAP-02, CAP-03, CAP-06 satisfied); ready for Phase 22 planning
+Last activity: 2026-04-28 -- Phase 21 complete (resolve_style helper landed; CAP-03 satisfied)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 33
+- Total plans completed: 34
 - Average duration: 3.3min
 - Total execution time: 1.9 hours
 
@@ -44,6 +44,7 @@ Last activity: 2026-04-28 -- Phase 21 Plan 02 complete (custom-TOML loader exten
 |------|----------|-------|-------|-----------|
 | 21-01 | 2.8min | 2 | 2 | 2026-04-28 |
 | 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
+| 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -80,6 +81,12 @@ Decisions added in 21-02:
 - buffer_bytes is a plain int in TOML, NOT a hex string — distinct from usb_vendor_id/usb_product_id which use int(x, 16) because they are USB identifiers. buffer_bytes is a count of bytes, so plain int is the natural type. The loader docstring documents this distinction explicitly so future contributors don't unify the three TOML decoding patterns into one.
 - Three TOML decoding conventions coexist cleanly in load_custom_profiles: (1) bytes.fromhex(data.get(KEY, "")) for raw byte sequences with empty default, (2) int(data[KEY], 16) if KEY in data else None for hex-encoded USB IDs with None sentinel, (3) data.get(KEY, default) for plain ints/bools/strings.
 
+Decisions added in 21-03:
+
+- resolve_style is a free function in profiles.py (not a method on PrinterProfile) — keeps the dataclass purely data and avoids coupling the data shape to fallback logic that may evolve independently. Renderer imports it via `from claude_teletype.profiles import resolve_style`.
+- Underline is the terminal node of the fallback chain — bold and italic fall back to underline, but underline does NOT substitute bold or italic. Rationale: underline is universally supported on impact printers; if a printer lacks underline too, the renderer emits plain text rather than fabricating a substitute that may print garbage.
+- Italic wins over underline when both are set; bold wins over underline when both are set. The fallback chain only fires when the primary capability is empty — no precedence ambiguity for profile authors who declare both.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -93,7 +100,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28T19:51:00Z
-Stopped at: Completed 21-02-PLAN.md (custom-TOML loader for new fields)
+Last session: 2026-04-28T19:56:30Z
+Stopped at: Completed 21-03-PLAN.md (resolve_style helper, Phase 21 complete)
 Resume file: None
-Next action: Execute 21-03-PLAN.md (resolve_style helper for fallback chain)
+Next action: Plan Phase 22 (encode bold/italic/underline byte sequences into built-in profiles for CAP-04 and CAP-05)
