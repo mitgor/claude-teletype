@@ -816,6 +816,43 @@ class TestStyleCodesPerProfile:
         assert p.underline_off == b""
 
 
+def test_builtin_profiles_paired_style_symmetry():
+    """Every non-empty *_on byte field MUST have a non-empty *_off companion.
+
+    A profile shipping `bold_on` without `bold_off` would leak the bold mode
+    after a span ended — the renderer writes the on-bytes but has nothing to
+    close the span with, so subsequent text prints in bold until the next
+    init. Phase 21 REVIEW IN-05 flagged this; Phase 22 encodes codes on
+    built-ins; this test prevents future encoding edits from introducing
+    orphaned style-on codes.
+
+    Both directions are checked: non-empty on -> non-empty off (mode-leakage
+    prevention) AND non-empty off -> non-empty on (no orphan close codes
+    that fire without a corresponding open).
+    """
+    style_pairs = (
+        ("bold_on", "bold_off"),
+        ("italic_on", "italic_off"),
+        ("underline_on", "underline_off"),
+    )
+    for name, p in BUILTIN_PROFILES.items():
+        for on_field, off_field in style_pairs:
+            on_bytes = getattr(p, on_field)
+            off_bytes = getattr(p, off_field)
+            if on_bytes:
+                assert off_bytes, (
+                    f"{name}.{on_field} is non-empty but {off_field} is empty "
+                    f"— this would leak the {on_field.replace('_on', '')} mode "
+                    f"after spans close. See Phase 21 REVIEW IN-05."
+                )
+            if off_bytes:
+                assert on_bytes, (
+                    f"{name}.{off_field} is non-empty but {on_field} is empty "
+                    f"— off-codes without on-codes would fire without ever "
+                    f"opening the corresponding mode."
+                )
+
+
 # ---------------------------------------------------------------------------
 # auto_detect_profile()
 # ---------------------------------------------------------------------------
