@@ -250,6 +250,18 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
 
     profiles: dict[str, PrinterProfile] = {}
     for name, data in custom_profiles.items():
+        # Validate buffer_bytes: must be a positive int. Reject str (would
+        # crash Phase 26 chunker arithmetic), bool (truthy ints that don't
+        # represent real byte counts), and zero/negative (would cause infinite
+        # loops or zero-byte writes downstream). Built-in profiles enforce
+        # this same invariant via test_builtin_profiles_have_positive_buffer_bytes;
+        # custom profiles need it more, since the input is foreign.
+        buf = data.get("buffer_bytes", 256)
+        if not isinstance(buf, int) or isinstance(buf, bool) or buf <= 0:
+            raise ValueError(
+                f"Profile {name!r}: buffer_bytes must be a positive integer, "
+                f"got {buf!r}"
+            )
         profiles[name] = PrinterProfile(
             name=name,
             description=data.get("description", ""),
@@ -282,7 +294,7 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
                 else None
             ),
             columns=data.get("columns", 80),
-            buffer_bytes=data.get("buffer_bytes", 256),
+            buffer_bytes=buf,
         )
     return profiles
 

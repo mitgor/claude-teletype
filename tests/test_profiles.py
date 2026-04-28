@@ -498,6 +498,58 @@ def test_load_custom_profiles_buffer_bytes_default_256_when_absent():
     assert result["bare"].buffer_bytes == 256
 
 
+def test_load_custom_profiles_buffer_bytes_rejects_zero():
+    """buffer_bytes = 0 is rejected — Phase 26 chunker would loop forever."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bad": {"buffer_bytes": 0}
+            }
+        }
+    }
+    with pytest.raises(ValueError, match=r"buffer_bytes must be a positive integer"):
+        load_custom_profiles(raw)
+
+
+def test_load_custom_profiles_buffer_bytes_rejects_negative():
+    """buffer_bytes = -64 is rejected — only positive integers are valid."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bad": {"buffer_bytes": -64}
+            }
+        }
+    }
+    with pytest.raises(ValueError, match=r"buffer_bytes must be a positive integer"):
+        load_custom_profiles(raw)
+
+
+def test_load_custom_profiles_buffer_bytes_rejects_non_int():
+    """buffer_bytes = "256" (string) is rejected — would crash chunker arithmetic."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bad": {"buffer_bytes": "256"}
+            }
+        }
+    }
+    with pytest.raises(ValueError, match=r"buffer_bytes must be a positive integer"):
+        load_custom_profiles(raw)
+
+
+def test_load_custom_profiles_buffer_bytes_rejects_bool():
+    """buffer_bytes = True is rejected — bool is an int subclass but not a real byte count."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bad": {"buffer_bytes": True}
+            }
+        }
+    }
+    with pytest.raises(ValueError, match=r"buffer_bytes must be a positive integer"):
+        load_custom_profiles(raw)
+
+
 def test_load_custom_profiles_style_keys_default_empty_when_absent():
     """All six style keys default to empty bytes when absent from TOML."""
     raw = {
