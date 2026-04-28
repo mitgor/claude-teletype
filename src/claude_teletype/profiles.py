@@ -237,6 +237,12 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
     USB VID/PID are parsed as hex strings (e.g., "04b8" -> 0x04B8).
     Missing optional fields get defaults (empty bytes, False, etc.).
 
+    Style capability fields (bold_on/off, italic_on/off, underline_on/off)
+    are hex-encoded byte strings — same convention as init/reset/line_spacing.
+    buffer_bytes is a plain integer (count of bytes), NOT a hex string —
+    distinct from usb_vendor_id and usb_product_id which ARE hex strings
+    because they are USB identifiers, not byte counts.
+
     Returns an empty dict if no profiles section exists.
     """
     printer_section = raw_toml.get("printer", {})
@@ -251,6 +257,12 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
             reset_sequence=bytes.fromhex(data.get("reset", "")),
             line_spacing=bytes.fromhex(data.get("line_spacing", "")),
             char_pitch=bytes.fromhex(data.get("char_pitch", "")),
+            bold_on=bytes.fromhex(data.get("bold_on", "")),
+            bold_off=bytes.fromhex(data.get("bold_off", "")),
+            italic_on=bytes.fromhex(data.get("italic_on", "")),
+            italic_off=bytes.fromhex(data.get("italic_off", "")),
+            underline_on=bytes.fromhex(data.get("underline_on", "")),
+            underline_off=bytes.fromhex(data.get("underline_off", "")),
             crlf=data.get("crlf", False),
             reinit_on_newline=data.get("reinit_on_newline", False),
             reinit_sequence=bytes.fromhex(data.get("reinit_sequence", "")),
@@ -270,6 +282,7 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
                 else None
             ),
             columns=data.get("columns", 80),
+            buffer_bytes=data.get("buffer_bytes", 256),
         )
     return profiles
 
