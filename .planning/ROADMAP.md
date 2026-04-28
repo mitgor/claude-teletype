@@ -144,7 +144,10 @@ Plans:
   2. User on the `ppds` (IBM) and `pcl` (HP) profiles sees the corresponding bold and italic sequences emitted with each style verified against the printer family's published reference manual
   3. User on the `juki-6100`, `juki-2200`, `oki-3390`, and `citizen-cts2000` profiles sees whichever style codes are documented for that family populated; any style the family does not support is left as empty bytes (no fabricated codes that would print garbage)
   4. `claude-teletype diagnose` (or an equivalent inspection path) shows for each profile which style capabilities are populated vs. empty, so users can see at a glance what to expect on their printer
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 22-01-PLAN.md — Encode bold/italic/underline ESC sequences on built-in profiles, remove Phase 21 sentinel, add per-profile + paired-symmetry tests
 
 ### Phase 23: Streaming Markdown Renderer
 **Goal**: A streaming renderer turns markdown text into a sequence of `(plain_char, optional_style_bytes)` events that compose with the existing `WordWrapper` and `ProfilePrinterDriver` newline pattern — so wrapped lines preserve list indentation, blockquote prefixes, and the atomic CR+LF + reinit transfer
@@ -223,7 +226,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 19. Printer Setup Screen | v1.4 | 3/3 | ✓ Complete | 2026-04-03 |
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
 | 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 3/3 | Complete   | 2026-04-28 |
-| 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/TBD | Not started | — |
+| 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/1 | Not started | — |
 | 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/TBD | Not started | — |
