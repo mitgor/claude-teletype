@@ -3,6 +3,11 @@
 Built-in profiles for Juki, Epson ESC/P, IBM PPDS, HP PCL, and generic.
 Custom profiles loaded from TOML config [printer.profiles.*] tables.
 USB auto-detection by VID:PID matching against profile registry.
+
+Style capability fields (bold/italic/underline on/off) follow a documented
+fallback chain consumed by the markdown renderer: italic falls back to
+underline, bold falls back to underline, and underline falls back to plain
+text when codes are empty. See ``resolve_style`` for the chain.
 """
 
 from __future__ import annotations
@@ -27,6 +32,18 @@ class PrinterProfile:
     reset_sequence: bytes = b""
     line_spacing: bytes = b""
     char_pitch: bytes = b""
+
+    # Inline style capabilities. Empty bytes = capability not supported;
+    # the markdown renderer's fallback chain (italic -> underline -> plain,
+    # bold -> underline -> plain) consults the empty/non-empty state.
+    # Phase 22 will encode the actual byte values per printer family;
+    # Phase 21 ships only the dataclass shape with empty defaults.
+    bold_on: bytes = b""
+    bold_off: bytes = b""
+    italic_on: bytes = b""
+    italic_off: bytes = b""
+    underline_on: bytes = b""
+    underline_off: bytes = b""
 
     # Newline strategy
     crlf: bool = False
@@ -59,6 +76,13 @@ class PrinterProfile:
     # Paper width in columns (for word wrap)
     columns: int = 80
 
+    # Instant-mode write chunk size. Phase 26's instant-mode chunker
+    # writes at this byte boundary to prevent buffer overruns on
+    # impact printers (Juki/CH341 in particular). 256 is a safe default
+    # for unknown hardware; receipt printers can safely go smaller and
+    # USB-bulk printers can safely go larger.
+    buffer_bytes: int = 256
+
 
 BUILTIN_PROFILES: dict[str, PrinterProfile] = {
     "generic": PrinterProfile(
@@ -78,6 +102,7 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         usb_vendor_id=0x1A86,  # QinHeng Electronics (CH341 USB-to-printer bridge)
         usb_product_id=0x7584,  # Juki 6100 printer interface
         columns=80,
+        buffer_bytes=64,  # CH341 USB-LPT bridge is byte-fragile — small chunks
     ),
     "juki-2200": PrinterProfile(
         name="juki-2200",
@@ -90,6 +115,7 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         crlf=True,
         formfeed_on_close=False,
         columns=80,
+        buffer_bytes=64,  # same CH341 adapter as 6100
     ),
     "escp": PrinterProfile(
         name="escp",
@@ -166,6 +192,7 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         usb_vendor_id=0x2730,
         usb_product_id=0x2002,
         columns=42,                             # Font A on 80mm thermal paper
+        buffer_bytes=128,                       # 80mm receipt buffer is ~512B; modest chunks
     ),
 }
 
