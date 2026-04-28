@@ -228,6 +228,7 @@ def _render_markdown_to_driver(
     all_profiles: dict,
     resolved_profile,
     speed_mode: str = "instant",
+    transcript_write=None,
 ) -> int:
     """Render a markdown file through the configured printer driver chain.
 
@@ -249,6 +250,15 @@ def _render_markdown_to_driver(
       using profile.buffer_bytes, preventing CH341 USB-LPT byte-fragility
       on impact printers (Juki/OKI buffer_bytes=64).
 
+    Phase 26 Plan 03 extension (TXN-01, TXN-02, TXN-03): when
+    ``transcript_write`` is provided, the renderer's text channel is fanned
+    out into a list collector; after a successful render the captured
+    plain-text body is written via ``transcript.write_printed_file``. Style
+    ESC bytes are NOT captured (TXN-02 byte-cleanliness — the parallel
+    collector taps ONLY the renderer's text_output_fn, never the
+    style_output_fn). When ``transcript_write`` is None, no transcript
+    entry is created (TXN-03).
+
     Args:
         path: Path to a regular UTF-8 text file (already validated).
         config: Resolved TeletypeConfig (defaults < TOML < env < CLI flags).
@@ -257,6 +267,11 @@ def _render_markdown_to_driver(
         speed_mode: "typewriter" (paced + bell) or "instant" (no pacing,
             chunked style writes). Defaults to "instant" for Phase 25
             backward compat — Plan 25-01/25-02 callers keep working.
+        transcript_write: Optional per-character transcript writer. When
+            provided, the rendered plain-text body is fanned out via this
+            callable in addition to the printer; after a successful render,
+            ``write_printed_file`` is called once with the joined body.
+            Defaults to None (Phase 25 backward compat — no transcript fan-out).
 
     Returns:
         Exit code: 0 on success, 1 on read error or invalid speed_mode.
@@ -266,6 +281,7 @@ def _render_markdown_to_driver(
     from claude_teletype.markdown import MarkdownRenderer
     from claude_teletype.pacer import CHAR_DELAYS, classify_char
     from claude_teletype.printer import chunk_writes, discover_printer
+    from claude_teletype.transcript import write_printed_file
     from claude_teletype.wordwrap import WordWrapper
 
     if speed_mode not in ("typewriter", "instant"):
@@ -286,6 +302,12 @@ def _render_markdown_to_driver(
         device_override=config.device,
         profile=resolved_profile,
     )
+
+    # Plan 26-03 (TXN-02): parallel collector captures the renderer's
+    # text channel for the transcript. Initialised even when transcript
+    # is unused — appending to a list with no consumer is cheap.
+    transcript_buffer: list[str] = []
+
     try:
         # Columns: profile.columns when present, else 80 (matches
         # MarkdownRenderer's own fallback inside __init__).
@@ -339,8 +361,20 @@ def _render_markdown_to_driver(
                 # guarantee buffer_bytes > 0 above via the conditional.
                 chunk_writes(driver, data, buffer_bytes)
 
+        # Plan 26-03: text channel fan-out for transcript.
+        # When transcript_write is provided, text_dest_with_capture writes
+        # to BOTH the wrapper (-> printer) AND the transcript buffer.
+        # Style channel is NOT routed through the buffer (TXN-02).
+        if transcript_write is not None:
+            def text_dest_with_capture(char: str) -> None:
+                wrapper.feed(char)
+                transcript_buffer.append(char)
+            renderer_text_fn = text_dest_with_capture
+        else:
+            renderer_text_fn = wrapper.feed
+
         renderer = MarkdownRenderer(
-            text_output_fn=wrapper.feed,
+            text_output_fn=renderer_text_fn,
             style_output_fn=style_dest,
             profile=resolved_profile,
             columns=columns,
@@ -357,6 +391,14 @@ def _render_markdown_to_driver(
         end_response = getattr(driver, "end_response", None)
         if end_response is not None:
             end_response()
+
+        # Plan 26-03 (TXN-01): write transcript entry after successful render.
+        # write_printed_file guards None internally (TXN-03), but we only
+        # reach this branch when transcript_write is non-None anyway.
+        if transcript_write is not None:
+            write_printed_file(
+                transcript_write, path, "".join(transcript_buffer),
+            )
     finally:
         # close() runs in finally so partial-render exceptions still close
         # the device handle cleanly.
@@ -471,9 +513,27 @@ def _print_command_impl(
         # _resolve_print_context already emitted the error message.
         return 1
 
-    return _render_markdown_to_driver(
-        resolved_path, config, all_profiles, resolved_profile,
-    )
+    # Plan 26-03 (TXN-01 CLI side): if a transcript directory is configured,
+    # build a transcript writer and pass it to the renderer so a "Printed
+    # file: <path>\n<body>\n" entry is appended to the session transcript.
+    # No transcript_dir = None writer = TXN-03 no-op inside write_printed_file.
+    transcript_write_fn = None
+    transcript_close_fn = None
+    if config.transcript_dir:
+        from claude_teletype.transcript import make_transcript_output
+
+        transcript_write_fn, transcript_close_fn = make_transcript_output(
+            Path(config.transcript_dir),
+        )
+
+    try:
+        return _render_markdown_to_driver(
+            resolved_path, config, all_profiles, resolved_profile,
+            transcript_write=transcript_write_fn,
+        )
+    finally:
+        if transcript_close_fn is not None:
+            transcript_close_fn()
 
 
 def _make_markdown_picker_app(

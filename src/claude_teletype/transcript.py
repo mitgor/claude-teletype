@@ -48,3 +48,46 @@ def make_transcript_output(
             fh.close()
 
     return write_fn, close_fn
+
+
+def write_printed_file(
+    write_fn: Callable[[str], None] | None,
+    path: Path,
+    body: str,
+) -> None:
+    """Append a 'Printed file: ...' entry to the active session transcript.
+
+    Phase 26 (TXN-01..TXN-03): wired into the TUI picker -> renderer ->
+    transcript pipeline AND the CLI print -> renderer -> transcript
+    pipeline. The header line records exactly which file was printed
+    (absolute path resolved via Path(path).resolve()), followed by the
+    rendered plain-text body.
+
+    TXN-02: callers must pass a plain-text body — style ESC bytes are
+    filtered upstream by routing the renderer's text channel through a
+    parallel collector and feeding ONLY the collected text here. This
+    function does NOT inspect the body content for ESC bytes; it
+    streams whatever it receives.
+
+    TXN-03: write_fn=None is a defensive no-op so callers (TUI chat
+    session with no transcript_dir, CLI print without a transcript)
+    can pass through without conditional checks at every call site.
+
+    Args:
+        write_fn: Per-character writer (matches make_transcript_output's
+            contract). None = no transcript configured -> no-op.
+        path: The printed file's path. Always rendered as absolute resolved.
+        body: The plain-text rendered body (post-MarkdownRenderer text channel).
+
+    Returns:
+        None. Writes through write_fn synchronously, char by char.
+    """
+    if write_fn is None:
+        return
+    abs_path = Path(path).resolve()
+    header = f"Printed file: {abs_path}\n"
+    for ch in header:
+        write_fn(ch)
+    for ch in body:
+        write_fn(ch)
+    write_fn("\n")
