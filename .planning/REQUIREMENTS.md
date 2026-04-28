@@ -17,10 +17,10 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 
 ### CLI Subcommand
 
-- [ ] **CLI-01**: User can run `claude-teletype print <path>` to print a markdown file in one shot without entering the chat TUI
+- [x] **CLI-01**: User can run `claude-teletype print <path>` to print a markdown file in one shot without entering the chat TUI
 - [ ] **CLI-02**: User can run `claude-teletype print` with no path to launch the file picker, then exit after printing
-- [ ] **CLI-03**: `claude-teletype print` honors all existing config layers (TOML, env, CLI flags) for printer profile, delay, audio, and saved-printer matching
-- [ ] **CLI-04**: `claude-teletype print` exits with a non-zero status and a clear error when the path doesn't exist or isn't a regular file
+- [x] **CLI-03**: `claude-teletype print` honors all existing config layers (TOML, env, CLI flags) for printer profile, delay, audio, and saved-printer matching
+- [x] **CLI-04**: `claude-teletype print` exits with a non-zero status and a clear error when the path doesn't exist or isn't a regular file
 
 ### Markdown Rendering
 
@@ -97,10 +97,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | PICK-03 | Phase 24 | Complete |
 | PICK-04 | Phase 24 | Complete |
 | PICK-05 | Phase 24 | Complete |
-| CLI-01 | Phase 25 | Pending |
+| CLI-01 | Phase 25 | Complete |
 | CLI-02 | Phase 25 | Pending |
-| CLI-03 | Phase 25 | Pending |
-| CLI-04 | Phase 25 | Pending |
+| CLI-03 | Phase 25 | Complete |
+| CLI-04 | Phase 25 | Complete |
 | MD-01 | Phase 23 | Complete |
 | MD-02 | Phase 23 | Complete |
 | MD-03 | Phase 23 | Complete |

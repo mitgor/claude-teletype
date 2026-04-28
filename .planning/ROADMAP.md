@@ -196,7 +196,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 25-01-PLAN.md -- `print <path>` Typer subcommand + _render_markdown_to_driver helper; CliRunner tests for CLI-01, CLI-03, CLI-04
+- [x] 25-01-PLAN.md -- `print <path>` Typer subcommand + _render_markdown_to_driver helper; CliRunner tests for CLI-01, CLI-03, CLI-04
 - [ ] 25-02-PLAN.md -- No-path picker-mode: minimal MarkdownPickerApp launches FilePickerScreen and routes selection through the Plan 25-01 helper; CliRunner tests for CLI-02
 
 ### Phase 26: Speed Dialog, Buffer Chunking, Cancel & Transcript Integration
@@ -242,5 +242,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
 | 23. Streaming Markdown Renderer | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 24. TUI File Picker | v1.5 | 2/2 | Complete   | 2026-04-28 |
-| 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/2 | Not started | — |
+| 25. `claude-teletype print` CLI Subcommand | v1.5 | 1/2 | In Progress|  |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |
