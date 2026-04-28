@@ -648,6 +648,175 @@ class TestResolveStyle:
 
 
 # ---------------------------------------------------------------------------
+# Built-in profile style codes (Phase 22, CAP-04 + CAP-05)
+# ---------------------------------------------------------------------------
+
+
+class TestStyleCodesPerProfile:
+    """Walk the Phase 22 encoding table cell-by-cell.
+
+    Positive assertions confirm the exact bytes encoded for each verified
+    capability. Negative assertions confirm intentionally-unsupported
+    capabilities ARE empty bytes (not "missing" tests — they document the
+    CAP-05 deferral pattern: Juki/OKI/Citizen italic, Juki bold).
+    """
+
+    # --- Epson ESC/P (escp) — CAP-04 ---
+
+    def test_escp_bold_codes(self):
+        p = BUILTIN_PROFILES["escp"]
+        assert p.bold_on == b"\x1bE"
+        assert p.bold_off == b"\x1bF"
+
+    def test_escp_italic_codes(self):
+        p = BUILTIN_PROFILES["escp"]
+        assert p.italic_on == b"\x1b4"
+        assert p.italic_off == b"\x1b5"
+
+    def test_escp_underline_codes(self):
+        p = BUILTIN_PROFILES["escp"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    # --- IBM PPDS (ppds, alias ibm) — CAP-04 ---
+
+    def test_ppds_bold_codes(self):
+        p = BUILTIN_PROFILES["ppds"]
+        assert p.bold_on == b"\x1bE"
+        assert p.bold_off == b"\x1bF"
+
+    def test_ppds_italic_codes(self):
+        p = BUILTIN_PROFILES["ppds"]
+        assert p.italic_on == b"\x1b%G"
+        assert p.italic_off == b"\x1b%H"
+
+    def test_ppds_underline_codes(self):
+        p = BUILTIN_PROFILES["ppds"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    def test_ibm_alias_inherits_ppds_style_codes(self):
+        """The ibm alias picks up newly-encoded ppds codes via dataclasses.replace."""
+        ibm = BUILTIN_PROFILES["ibm"]
+        ppds = BUILTIN_PROFILES["ppds"]
+        assert ibm.bold_on == ppds.bold_on == b"\x1bE"
+        assert ibm.italic_on == ppds.italic_on == b"\x1b%G"
+        assert ibm.underline_on == ppds.underline_on == b"\x1b-\x01"
+
+    # --- HP PCL (pcl) — CAP-04 ---
+
+    def test_pcl_bold_codes(self):
+        p = BUILTIN_PROFILES["pcl"]
+        assert p.bold_on == b"\x1b(s3B"
+        assert p.bold_off == b"\x1b(s0B"
+
+    def test_pcl_italic_codes(self):
+        p = BUILTIN_PROFILES["pcl"]
+        assert p.italic_on == b"\x1b(s1S"
+        assert p.italic_off == b"\x1b(s0S"
+
+    def test_pcl_underline_codes(self):
+        p = BUILTIN_PROFILES["pcl"]
+        assert p.underline_on == b"\x1b&dD"
+        assert p.underline_off == b"\x1b&d@"
+
+    # --- Juki 6100 (juki-6100, alias juki) — CAP-05 ---
+
+    def test_juki_6100_underline_only(self):
+        """Juki daisywheel: underline supported, bold/italic NOT SUPPORTED (deferred per CAP-05)."""
+        p = BUILTIN_PROFILES["juki-6100"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    def test_juki_6100_bold_intentionally_empty(self):
+        """Bold via overstrike is not a one-shot ESC sequence — pipeline limitation, deferred."""
+        p = BUILTIN_PROFILES["juki-6100"]
+        assert p.bold_on == b""
+        assert p.bold_off == b""
+
+    def test_juki_6100_italic_intentionally_empty(self):
+        """No italic daisywheel installed — hardware limitation."""
+        p = BUILTIN_PROFILES["juki-6100"]
+        assert p.italic_on == b""
+        assert p.italic_off == b""
+
+    def test_juki_alias_inherits_6100_underline_codes(self):
+        """The juki alias picks up newly-encoded juki-6100 underline via dataclasses.replace."""
+        juki = BUILTIN_PROFILES["juki"]
+        six = BUILTIN_PROFILES["juki-6100"]
+        assert juki.underline_on == six.underline_on == b"\x1b-\x01"
+        assert juki.underline_off == six.underline_off == b"\x1b-\x00"
+        assert juki.bold_on == b""
+        assert juki.italic_on == b""
+
+    # --- Juki 2200 (juki-2200) — CAP-05 ---
+
+    def test_juki_2200_underline_only(self):
+        p = BUILTIN_PROFILES["juki-2200"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    def test_juki_2200_bold_intentionally_empty(self):
+        p = BUILTIN_PROFILES["juki-2200"]
+        assert p.bold_on == b""
+        assert p.bold_off == b""
+
+    def test_juki_2200_italic_intentionally_empty(self):
+        p = BUILTIN_PROFILES["juki-2200"]
+        assert p.italic_on == b""
+        assert p.italic_off == b""
+
+    # --- OKI Microline 3390 (oki-3390) — CAP-05 ---
+
+    def test_oki_3390_bold_codes(self):
+        p = BUILTIN_PROFILES["oki-3390"]
+        assert p.bold_on == b"\x1bE"
+        assert p.bold_off == b"\x1bF"
+
+    def test_oki_3390_underline_codes(self):
+        p = BUILTIN_PROFILES["oki-3390"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    def test_oki_3390_italic_intentionally_empty(self):
+        """OKI italic uses ESC! mode-bit composite — vendor-specific, deferred per CAP-05."""
+        p = BUILTIN_PROFILES["oki-3390"]
+        assert p.italic_on == b""
+        assert p.italic_off == b""
+
+    # --- Citizen CT-S2000 (citizen-cts2000) — CAP-05 ---
+
+    def test_citizen_cts2000_bold_codes(self):
+        """Citizen ESC/POS bold = ESC E n where n is BINARY 1/0 (NOT ASCII '1'/'0')."""
+        p = BUILTIN_PROFILES["citizen-cts2000"]
+        assert p.bold_on == b"\x1bE\x01"
+        assert p.bold_off == b"\x1bE\x00"
+
+    def test_citizen_cts2000_underline_codes(self):
+        p = BUILTIN_PROFILES["citizen-cts2000"]
+        assert p.underline_on == b"\x1b-\x01"
+        assert p.underline_off == b"\x1b-\x00"
+
+    def test_citizen_cts2000_italic_intentionally_empty(self):
+        """Italic NOT SUPPORTED on thermal receipt printers."""
+        p = BUILTIN_PROFILES["citizen-cts2000"]
+        assert p.italic_on == b""
+        assert p.italic_off == b""
+
+    # --- Generic (no-op baseline) — CAP-05 ---
+
+    def test_generic_all_style_fields_empty(self):
+        """Generic profile is the no-op baseline — every style field is empty."""
+        p = BUILTIN_PROFILES["generic"]
+        assert p.bold_on == b""
+        assert p.bold_off == b""
+        assert p.italic_on == b""
+        assert p.italic_off == b""
+        assert p.underline_on == b""
+        assert p.underline_off == b""
+
+
+# ---------------------------------------------------------------------------
 # auto_detect_profile()
 # ---------------------------------------------------------------------------
 
