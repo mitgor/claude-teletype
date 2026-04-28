@@ -128,7 +128,12 @@ Plans:
   2. A user dropping a `[printer.profiles.my-printer]` block in `config.toml` with hex-encoded `bold_on`, `italic_on`, `underline_on`, etc. and an integer `buffer_bytes` sees those fields populate on `claude-teletype config show` (or via `load_custom_profiles`) without errors
   3. A renderer caller asking the profile "what should I emit for italic?" gets back italic codes when present, falls back to underline codes when italic is empty but underline is set, and falls back to plain text when both are empty — same chain for bold → underline → plain
   4. All existing v1.4 tests continue to pass (no regressions in profile loading, USB auto-detect, smart-startup matching, or `ProfilePrinterDriver` newline handling)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 21-01-PLAN.md — Add PrinterProfile style capability fields (bold/italic/underline on/off) and buffer_bytes
+- [ ] 21-02-PLAN.md — Extend load_custom_profiles to read the seven new TOML keys
+- [ ] 21-03-PLAN.md — Add resolve_style fallback-chain helper (italic→underline→plain, bold→underline→plain)
 
 ### Phase 22: Encoded Style Sequences for Built-In Profiles
 **Goal**: Each built-in profile ships with the bold/italic/underline byte sequences that real hardware actually accepts, so users on Epson, IBM PPDS, HP PCL, Juki, OKI, and Citizen printers see styled output without writing custom-TOML
@@ -217,7 +222,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 18. Discovery Data Layer & Diagnostics | v1.4 | 1/1 | ✓ Complete | 2026-04-03 |
 | 19. Printer Setup Screen | v1.4 | 3/3 | ✓ Complete | 2026-04-03 |
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
-| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 0/TBD | Not started | — |
+| 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 0/3 | Planned | — |
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/TBD | Not started | — |
 | 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |

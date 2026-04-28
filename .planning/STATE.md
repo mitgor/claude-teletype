@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: planning
-last_updated: "2026-04-28T19:02:47.360Z"
-last_activity: 2026-04-28
+status: executing
+stopped_at: Roadmap created for v1.5 (Phases 21-26)
+last_updated: "2026-04-28T19:39:18.722Z"
+last_activity: 2026-04-28 -- Phase 21 planning complete
 progress:
-  total_phases: 6
+  total_phases: 9
   completed_phases: 0
-  total_plans: 0
+  total_plans: 3
   completed_plans: 0
   percent: 0
 ---
@@ -26,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-28)
 
 Phase: 21 — Profile Capability Fields & Custom-TOML Support
 Plan: —
-Status: Defining requirements → Planning
-Last activity: 2026-04-28 — v1.5 roadmap created (Phases 21-26)
+Status: Ready to execute
+Last activity: 2026-04-28 -- Phase 21 planning complete
 
 ## Performance Metrics
 
@@ -56,6 +57,7 @@ All decisions logged in PROJECT.md Key Decisions table (24 entries).
 v1.3 decisions archived in MILESTONES.md.
 
 Carry-forward from v1.4 still in force for v1.5:
+
 - CR+LF+reinit must remain a single atomic USB transfer for newlines (Juki/CH341 drops fragmented LF). The markdown renderer must compose with `ProfilePrinterDriver.write` for `\n` rather than re-implementing the newline path.
 - `dataclasses.replace` is the supported way to alias profiles (preserves frozen immutability of `PrinterProfile`).
 - Custom-TOML profiles use `bytes.fromhex()` decoding for byte fields and `int(..., 16)` for VID/PID — Phase 21 must mirror this convention for the new `bold_on`/`italic_on`/`underline_on` and integer `buffer_bytes` fields.
