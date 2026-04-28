@@ -159,7 +159,12 @@ Plans:
   3. User rendering a fenced code block (```` ``` ````) sees its contents printed verbatim with no inline-emphasis processing — `*not italic*` stays as literal `*not italic*` inside the block
   4. User rendering a GitHub-flavored table sees an ASCII grid that fits within `profile.columns` (column widths chosen from cell content, gracefully truncated when a row would otherwise overflow)
   5. User watching the printer through a sample document sees newlines emit the existing CR+LF + reinit atomic transfer (Juki/CH341 still prints every line) — verified by reusing `ProfilePrinterDriver.write` for `\n` rather than re-implementing newline handling
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — Add write_bytes(data: bytes) to PrinterDriver Protocol and all five driver implementations
+- [ ] 23-02-PLAN.md — Implement MarkdownRenderer block-level parser (headings, lists, code, blockquote, table) composing with WordWrapper
+- [ ] 23-03-PLAN.md — Add inline emphasis (bold/italic) via resolve_style fallback chain plus canonical MD-01..MD-08 integration test
 
 ### Phase 24: TUI File Picker
 **Goal**: Users in the main chat session press a keybinding, browse markdown files starting from the cwd, see the resolved path of the highlighted file, and either pick one to print or cancel back to the chat
@@ -227,7 +232,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
 | 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
-| 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
+| 23. Streaming Markdown Renderer | v1.5 | 0/3 | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/TBD | Not started | — |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |
