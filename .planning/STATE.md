@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: executing
-stopped_at: 21-01-PLAN.md complete (capability fields + buffer_bytes)
-last_updated: "2026-04-28T19:46:00Z"
-last_activity: 2026-04-28 -- Phase 21 Plan 01 complete (capability fields landed)
+stopped_at: Completed 21-02-PLAN.md (custom-TOML loader for new fields)
+last_updated: "2026-04-28T19:51:00Z"
+last_activity: 2026-04-28 -- Phase 21 Plan 02 complete (custom-TOML loader extended)
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-28)
 ## Current Position
 
 Phase: 21 — Profile Capability Fields & Custom-TOML Support
-Plan: 21-02 (next — custom-TOML loader for new fields)
-Status: 21-01 complete; ready to execute 21-02
-Last activity: 2026-04-28 -- Phase 21 Plan 01 complete (capability fields landed)
+Plan: 21-03 (next — resolve_style helper for fallback chain)
+Status: 21-02 complete; ready to execute 21-03
+Last activity: 2026-04-28 -- Phase 21 Plan 02 complete (custom-TOML loader extended)
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Last activity: 2026-04-28 -- Phase 21 Plan 01 complete (capability fields landed
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
 | 21-01 | 2.8min | 2 | 2 | 2026-04-28 |
+| 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -74,6 +75,11 @@ Decisions added in 21-01:
 - buffer_bytes default 256 is conservative for unknown hardware; per-profile overrides apply real-world tuning (CH341 byte-fragility=64, thermal=128) without scattering hardware knowledge in conditional code. Applied values: juki-6100=64, juki-2200=64, juki alias inherits 64, citizen-cts2000=128, others=256.
 - Style codes (bold/italic/underline) intentionally LEFT EMPTY on every built-in profile in Plan 21-01; Phase 22 encodes verified per-family sequences. Sentinel test `test_builtin_profiles_have_empty_style_codes_in_phase_21` enforces this and will be updated/removed in Phase 22.
 
+Decisions added in 21-02:
+
+- buffer_bytes is a plain int in TOML, NOT a hex string — distinct from usb_vendor_id/usb_product_id which use int(x, 16) because they are USB identifiers. buffer_bytes is a count of bytes, so plain int is the natural type. The loader docstring documents this distinction explicitly so future contributors don't unify the three TOML decoding patterns into one.
+- Three TOML decoding conventions coexist cleanly in load_custom_profiles: (1) bytes.fromhex(data.get(KEY, "")) for raw byte sequences with empty default, (2) int(data[KEY], 16) if KEY in data else None for hex-encoded USB IDs with None sentinel, (3) data.get(KEY, default) for plain ints/bools/strings.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -87,7 +93,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28
-Stopped at: Completed 21-01-PLAN.md (capability fields + buffer_bytes)
+Last session: 2026-04-28T19:51:00Z
+Stopped at: Completed 21-02-PLAN.md (custom-TOML loader for new fields)
 Resume file: None
-Next action: Execute 21-02-PLAN.md (custom-TOML loader for new fields)
+Next action: Execute 21-03-PLAN.md (resolve_style helper for fallback chain)
