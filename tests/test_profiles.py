@@ -78,6 +78,41 @@ def test_printer_profile_defaults():
 
 
 # ---------------------------------------------------------------------------
+# PrinterProfile capability fields (Phase 21)
+# ---------------------------------------------------------------------------
+
+
+def test_printer_profile_capability_fields_default_to_empty():
+    """Phase 21 style capability fields default to empty bytes (capability absent)."""
+    profile = PrinterProfile(name="minimal")
+    assert profile.bold_on == b""
+    assert profile.bold_off == b""
+    assert profile.italic_on == b""
+    assert profile.italic_off == b""
+    assert profile.underline_on == b""
+    assert profile.underline_off == b""
+
+
+def test_printer_profile_buffer_bytes_default_256():
+    """Phase 21 buffer_bytes default is 256 (safe value for unknown hardware)."""
+    profile = PrinterProfile(name="minimal")
+    assert profile.buffer_bytes == 256
+
+
+def test_printer_profile_capability_fields_are_frozen():
+    """The new style fields respect the frozen-dataclass contract."""
+    profile = PrinterProfile(name="frozen-test")
+    for field_name in (
+        "bold_on", "bold_off",
+        "italic_on", "italic_off",
+        "underline_on", "underline_off",
+        "buffer_bytes",
+    ):
+        with pytest.raises(FrozenInstanceError):
+            setattr(profile, field_name, b"\x01")
+
+
+# ---------------------------------------------------------------------------
 # BUILTIN_PROFILES registry
 # ---------------------------------------------------------------------------
 
@@ -96,6 +131,36 @@ def test_builtin_profiles_keys():
         "citizen-cts2000",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
+
+
+def test_builtin_profiles_have_empty_style_codes_in_phase_21():
+    """Phase 21 ships the dataclass shape only; Phase 22 encodes actual style bytes.
+
+    Every built-in MUST have empty bytes for bold/italic/underline in this phase
+    — fabricated codes would print garbage on real hardware. This test is a
+    regression sentinel: when Phase 22 lands and starts populating codes, this
+    test will be updated or removed at that time.
+    """
+    canonical = (
+        "generic", "escp", "ppds", "pcl",
+        "juki-6100", "juki-2200",
+        "oki-3390", "citizen-cts2000",
+    )
+    for name in canonical:
+        p = BUILTIN_PROFILES[name]
+        assert p.bold_on == b"", f"{name} bold_on must be empty in Phase 21"
+        assert p.bold_off == b"", f"{name} bold_off must be empty in Phase 21"
+        assert p.italic_on == b"", f"{name} italic_on must be empty in Phase 21"
+        assert p.italic_off == b"", f"{name} italic_off must be empty in Phase 21"
+        assert p.underline_on == b"", f"{name} underline_on must be empty in Phase 21"
+        assert p.underline_off == b"", f"{name} underline_off must be empty in Phase 21"
+
+
+def test_builtin_profiles_have_positive_buffer_bytes():
+    """Every built-in exposes a positive buffer_bytes int for Phase 26's chunker."""
+    for name, p in BUILTIN_PROFILES.items():
+        assert isinstance(p.buffer_bytes, int), f"{name} buffer_bytes must be int"
+        assert p.buffer_bytes > 0, f"{name} buffer_bytes must be positive"
 
 
 def test_oki_3390_profile_epson_fx2_defaults():
