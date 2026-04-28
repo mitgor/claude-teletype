@@ -295,6 +295,72 @@ def _render_markdown_to_driver(
     return 0
 
 
+def _resolve_print_context(
+    delay: float | None,
+    device: str | None,
+    printer: str | None,
+):
+    """Build (config, all_profiles, resolved_profile) for the print path.
+
+    Shared by both the explicit-path branch (`_print_command_impl`) and the
+    picker-mode branch (`_print_command_impl_picker`). Mirrors `main()`'s
+    profile-resolution chain (per Plan 25-01 D-03) without touching it
+    -- the chat path stays in its lane.
+
+    Returns a 3-tuple on success. On unknown-profile error, emits the error
+    message via typer.echo(err=True) and returns ``(None, None, None)`` so
+    callers can detect failure uniformly without raising.
+    """
+    # Config: defaults < TOML < env < CLI flags. Same chain as main() per
+    # Plan 25-01 D-02 (CLI-03 requirement). delay is accepted but currently
+    # unused for rendering -- merging it still proves the env/CLI layer was
+    # applied (Phase 26 will wire it into the speed dialog).
+    config = load_config()
+    config = apply_env_overrides(config)
+    config = merge_cli_flags(config, delay=delay, device=device)
+
+    # Profile resolution -- mirrors main() lines ~325-371 (per Plan 25-01 D-03).
+    from claude_teletype.profiles import (
+        BUILTIN_PROFILES,
+        PrinterProfile,
+        auto_detect_profile,
+        load_custom_profiles,
+    )
+
+    custom_profiles_dict = (
+        load_custom_profiles({"printer": {"profiles": config.custom_profiles}})
+        if config.custom_profiles
+        else {}
+    )
+    all_profiles = dict(BUILTIN_PROFILES)
+    all_profiles.update(custom_profiles_dict)
+
+    resolved_profile: PrinterProfile | None = None
+    if printer is not None:
+        key = printer.lower().strip()
+        if key not in all_profiles:
+            available = ", ".join(sorted(all_profiles))
+            typer.echo(
+                f"Error: unknown printer profile {printer!r}. "
+                f"Available: {available}",
+                err=True,
+            )
+            return None, None, None
+        resolved_profile = all_profiles[key]
+    elif config.printer_profile and config.printer_profile != "generic":
+        key = config.printer_profile.lower().strip()
+        if key in all_profiles:
+            resolved_profile = all_profiles[key]
+    else:
+        detected = auto_detect_profile(
+            extra_profiles=custom_profiles_dict or None,
+        )
+        if detected is not None:
+            resolved_profile = detected
+
+    return config, all_profiles, resolved_profile
+
+
 def _print_command_impl(
     path: Path,
     delay: float | None,
@@ -328,63 +394,122 @@ def _print_command_impl(
         )
         return 1
 
-    # Config: defaults < TOML < env < CLI flags. Same chain as main() per
-    # D-02 (CLI-03 requirement). delay is accepted but currently unused for
-    # rendering -- merging it still proves the env/CLI layer was applied.
-    config = load_config()
-    config = apply_env_overrides(config)
-    config = merge_cli_flags(config, delay=delay, device=device)
-
-    # Profile resolution -- mirrors main() lines ~325-371 (per D-03).
-    from claude_teletype.profiles import (
-        BUILTIN_PROFILES,
-        PrinterProfile,
-        auto_detect_profile,
-        load_custom_profiles,
+    config, all_profiles, resolved_profile = _resolve_print_context(
+        delay, device, printer,
     )
-
-    custom_profiles_dict = (
-        load_custom_profiles({"printer": {"profiles": config.custom_profiles}})
-        if config.custom_profiles
-        else {}
-    )
-    all_profiles = dict(BUILTIN_PROFILES)
-    all_profiles.update(custom_profiles_dict)
-
-    resolved_profile: PrinterProfile | None = None
-    if printer is not None:
-        key = printer.lower().strip()
-        if key not in all_profiles:
-            available = ", ".join(sorted(all_profiles))
-            typer.echo(
-                f"Error: unknown printer profile {printer!r}. "
-                f"Available: {available}",
-                err=True,
-            )
-            return 1
-        resolved_profile = all_profiles[key]
-    elif config.printer_profile and config.printer_profile != "generic":
-        key = config.printer_profile.lower().strip()
-        if key in all_profiles:
-            resolved_profile = all_profiles[key]
-    else:
-        detected = auto_detect_profile(
-            extra_profiles=custom_profiles_dict or None,
-        )
-        if detected is not None:
-            resolved_profile = detected
+    if config is None:
+        # _resolve_print_context already emitted the error message.
+        return 1
 
     return _render_markdown_to_driver(
         resolved_path, config, all_profiles, resolved_profile,
     )
 
 
+def _make_markdown_picker_app(
+    config,
+    all_profiles: dict,
+    resolved_profile,
+    root: Path | None = None,
+):
+    """Build a minimal Textual App that runs the markdown picker and exits.
+
+    Lazily imports textual so cli.py top-level remains lightweight when the
+    user invokes only the explicit-path branch or non-interactive commands
+    like ``config show`` or ``diagnose``. Plan 25-02 (CLI-02): the no-path
+    branch of ``claude-teletype print`` calls this factory, runs the
+    returned app, and reads ``app._exit_code`` after ``run()`` returns.
+
+    Closure captures ``config``, ``all_profiles``, ``resolved_profile``,
+    and ``root`` so the picker callback has everything it needs to call
+    ``_render_markdown_to_driver`` on the selected path.
+    """
+    from textual.app import App
+
+    from claude_teletype.file_picker_screen import FilePickerScreen
+
+    class MarkdownPickerApp(App):
+        """Minimal one-shot picker launcher for `claude-teletype print` (CLI-02).
+
+        Pushes FilePickerScreen on mount; the dismiss callback either prints
+        the selected file via the Plan 25-01 helper or exits cleanly on
+        cancel. No chat tree, no input prompt, no transcript -- the app
+        exists only to bridge the no-arg CLI to the picker.
+        """
+
+        CSS = ""  # no chrome
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._exit_code: int = 0
+
+        def on_mount(self) -> None:
+            self.push_screen(
+                FilePickerScreen(root=root),
+                callback=self._on_pick,
+            )
+
+        def _on_pick(self, result) -> None:
+            """Handle picker dismiss.
+
+            None -> cancel: exit 0, no print started.
+            Path -> render then exit with the helper's return code.
+            """
+            if result is None:
+                self._exit_code = 0
+                self.exit()
+                return
+            # result is a Path. Render synchronously (blocks the picker
+            # until print completes) then exit. Phase 26 will refactor
+            # this into a worker when the speed dialog lands.
+            self._exit_code = _render_markdown_to_driver(
+                result, config, all_profiles, resolved_profile,
+            )
+            self.exit()
+
+    return MarkdownPickerApp()
+
+
+def _print_command_impl_picker(
+    delay: float | None,
+    device: str | None,
+    printer: str | None,
+) -> int:
+    """No-path branch: launch picker app, return its exit code (CLI-02).
+
+    Mirrors `_print_command_impl`'s config + profile resolution (TOML <
+    env < CLI flags, --printer override, auto-detect) via the shared
+    `_resolve_print_context` helper but skips the path-validation block
+    (no path) and ends with the picker launcher instead of a direct
+    render call. The launcher's callback calls `_render_markdown_to_driver`
+    after the user picks a file.
+
+    Returns 0 on cancel or successful render, the helper's non-zero
+    exit code on render failure, or 1 if config/profile resolution
+    fails up front.
+    """
+    config, all_profiles, resolved_profile = _resolve_print_context(
+        delay, device, printer,
+    )
+    if config is None:
+        return 1
+
+    picker_app = _make_markdown_picker_app(
+        config, all_profiles, resolved_profile, root=None,
+    )
+    picker_app.run()
+    return getattr(picker_app, "_exit_code", 0)
+
+
 @app.command("print")
 def print_md(
-    path: Path = typer.Argument(
-        ...,
+    path: Path | None = typer.Argument(
+        None,
         exists=False,  # we validate manually so we can give a clean error
-        help="Path to a Markdown (or UTF-8 text) file to print.",
+        help=(
+            "Path to a Markdown (or UTF-8 text) file to print. "
+            "Omit to launch the file picker."
+        ),
     ),
     delay: float = typer.Option(
         None,
@@ -407,8 +532,17 @@ def print_md(
         help="Printer profile name (e.g., juki-6100, escp, ppds, pcl).",
     ),
 ) -> None:
-    """Print a Markdown file in one shot, honoring all config layers."""
-    raise typer.Exit(_print_command_impl(path, delay, device, printer))
+    """Print a Markdown file in one shot.
+
+    With a path: render and exit. Without a path: launch the file picker
+    (escape to cancel without printing), render the chosen file, and
+    exit. No chat session is started either way.
+    """
+    if path is None:
+        rc = _print_command_impl_picker(delay, device, printer)
+    else:
+        rc = _print_command_impl(path, delay, device, printer)
+    raise typer.Exit(rc)
 
 
 @app.callback(invoke_without_command=True)
