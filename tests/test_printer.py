@@ -45,6 +45,12 @@ def test_null_driver_close_is_noop():
     driver.close()  # should not raise
 
 
+def test_null_driver_write_bytes_is_noop():
+    """write_bytes(b'...') does not raise."""
+    driver = NullPrinterDriver()
+    driver.write_bytes(b"\x1bE")  # should not raise
+
+
 # ---------------------------------------------------------------------------
 # FilePrinterDriver tests (use tmp_path fixture for a real temp file)
 # ---------------------------------------------------------------------------
@@ -97,6 +103,26 @@ def test_file_driver_close(tmp_path: Path):
     driver = FilePrinterDriver(str(dev))
     driver.close()
     assert driver._fd.closed
+
+
+def test_file_driver_write_bytes_writes_raw_bytes(tmp_path: Path):
+    """write_bytes writes raw bytes verbatim (no ASCII replace)."""
+    dev = tmp_path / "dev"
+    dev.touch()
+    driver = FilePrinterDriver(str(dev))
+    driver.write_bytes(b"\x1bE\x01")
+    driver.close()
+    assert dev.read_bytes() == b"\x1bE\x01"
+
+
+def test_file_driver_write_bytes_disconnect_on_error(tmp_path: Path):
+    """write_bytes on closed fd sets is_connected=False (no raise)."""
+    dev = tmp_path / "dev"
+    dev.touch()
+    driver = FilePrinterDriver(str(dev))
+    driver._fd.close()
+    driver.write_bytes(b"\x1bE")  # should not raise
+    assert driver.is_connected is False
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +183,29 @@ def test_cups_driver_flush_on_close(mock_run: MagicMock):
     driver.close()
     mock_run.assert_called_once()
     assert mock_run.call_args.kwargs["input"] == b"AB"
+
+
+@patch("claude_teletype.printer.subprocess.run")
+def test_cups_driver_write_bytes_buffers_until_newline(mock_run: MagicMock):
+    """write_bytes buffers ESC sequence; trailing write('\\n') flushes combined."""
+    driver = CupsPrinterDriver("TestPrinter")
+    driver.write_bytes(b"\x1bE")
+    driver.write("h")
+    driver.write("i")
+    driver.write_bytes(b"\x1bF")
+    mock_run.assert_not_called()
+    driver.write("\n")
+    mock_run.assert_called_once()
+    assert mock_run.call_args.kwargs["input"] == b"\x1bEhi\x1bF\n"
+
+
+def test_cups_driver_write_bytes_noop_when_disconnected():
+    """write_bytes does nothing when _connected=False."""
+    driver = CupsPrinterDriver("TestPrinter")
+    driver._connected = False
+    with patch("claude_teletype.printer.subprocess.run") as mock_run:
+        driver.write_bytes(b"\x1bE")
+        mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +927,88 @@ class TestProfilePrinterDriver:
         assert cuts_before == 1
         assert cuts_after == 1  # close did not add a second cut
 
+    def test_write_bytes_sends_init_then_data(self):
+        """First write_bytes triggers init sequence + data atomically."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            init_sequence=b"\x1b@",
+            line_spacing=b"\x1b\x32",
+            char_pitch=b"\x1bP",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write_bytes(b"\x1bE")
+
+        raw = _collect_raw(inner)
+        expected_init = b"\x1b@\x1b\x32\x1bP"
+        assert raw.startswith(expected_init)
+        assert raw.endswith(b"\x1bE")
+
+    def test_write_bytes_does_not_handle_newlines_specially(self):
+        """write_bytes(b'\\n') passes through verbatim — NO CR+LF + reinit.
+
+        MD-08 boundary: the renderer is contractually required to use
+        write('\\n') (not write_bytes(b'\\n')) for newlines so the
+        atomic CR+LF + reinit transfer fires correctly. This test
+        documents that boundary.
+        """
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            crlf=True,
+            reinit_on_newline=True,
+            reinit_sequence=b"\x1b@",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+        ppd._initialized = True
+
+        ppd.write_bytes(b"\n")
+
+        raw = _collect_raw(inner)
+        # Plain LF, no CR prepended, no reinit appended
+        assert raw == b"\n"
+
+    def test_write_bytes_sets_unflushed_output_flag(self):
+        """write_bytes triggers end_response cut on subsequent end_response()."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(
+            name="test",
+            init_sequence=b"\x1b@",
+            end_of_response_sequence=b"\x1dV\x00",
+        )
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write_bytes(b"\x1bE")
+        ppd.end_response()
+
+        raw = _collect_raw(inner)
+        assert raw.endswith(b"\x1dV\x00")  # cut sequence reached inner
+
+    def test_write_bytes_noop_when_inner_disconnected(self):
+        """write_bytes does nothing when inner driver is disconnected."""
+        inner = MagicMock()
+        inner.is_connected = False
+        profile = PrinterProfile(name="test")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write_bytes(b"\x1bE")
+        inner.write.assert_not_called()
+
+    def test_write_bytes_empty_bytes_is_noop(self):
+        """write_bytes(b'') does nothing — does NOT trigger init either."""
+        inner = MagicMock()
+        inner.is_connected = True
+        profile = PrinterProfile(name="test", init_sequence=b"\x1b@")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        ppd.write_bytes(b"")
+        inner.write.assert_not_called()
+        assert ppd._initialized is False  # init NOT triggered by empty data
+
     def test_discover_printer_with_profile(self, tmp_path):
         """discover_printer(profile=...) wraps with ProfilePrinterDriver."""
         dev = tmp_path / "dev"
@@ -977,6 +1108,25 @@ def test_usb_driver_noop_when_disconnected():
     driver._connected = False
     driver.write("A")
     ep_out.write.assert_not_called()
+
+
+def test_usb_driver_write_bytes_writes_to_endpoint():
+    """write_bytes sends raw bytes directly to the bulk OUT endpoint."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    driver = UsbPrinterDriver(dev, ep_out)
+    driver.write_bytes(b"\x1bE\x01")
+    ep_out.write.assert_called_once_with(b"\x1bE\x01")
+
+
+def test_usb_driver_write_bytes_disconnect_on_error():
+    """write_bytes failure sets _connected=False."""
+    dev = MagicMock()
+    ep_out = MagicMock()
+    ep_out.write.side_effect = Exception("USB stall")
+    driver = UsbPrinterDriver(dev, ep_out)
+    driver.write_bytes(b"\x1bE")  # should not raise
+    assert driver.is_connected is False
 
 
 def test_usb_driver_close_disposes_resources():
