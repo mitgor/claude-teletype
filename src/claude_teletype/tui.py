@@ -109,6 +109,7 @@ class TeletypeApp(App):
         Binding("ctrl+d", "quit", "Quit"),
         Binding("ctrl+t", "enter_typewriter", "Typewriter"),
         Binding("ctrl+comma", "open_settings", "Settings"),
+        Binding("ctrl+o", "open_markdown", "Open MD"),
         Binding("escape", "cancel_stream", "Cancel", show=False),
     ]
 
@@ -389,6 +390,25 @@ class TeletypeApp(App):
             no_audio=self.no_audio,
         ))
 
+    def action_open_markdown(self) -> None:
+        """Open the markdown file picker and route the chosen path through
+        ``_handle_picker_result``.
+
+        Bound to ``ctrl+o`` (mnemonic: "open file"). The picker is rooted at
+        ``Path.cwd()`` per PICK-02. Dismiss returns ``Path | None``; the
+        callback handles both arms.
+
+        Phase 24 stops at notify() acknowledgement; Phase 26 will replace the
+        callback body with the speed dialog + MarkdownRenderer pipeline. Until
+        then the binding is the user-visible proof-of-life that the picker
+        works end-to-end (PICK-01). The handler name is binding-agnostic so the
+        BINDINGS line can be changed (e.g. to ctrl+shift+o or ctrl+p) without
+        touching this method.
+        """
+        from claude_teletype.file_picker_screen import FilePickerScreen
+
+        self.push_screen(FilePickerScreen(), callback=self._handle_picker_result)
+
     def action_open_settings(self) -> None:
         """Open the settings modal to edit runtime configuration."""
         from claude_teletype.settings_screen import SettingsScreen
@@ -408,6 +428,32 @@ class TeletypeApp(App):
             ),
             callback=self._apply_settings,
         )
+
+    def _handle_picker_result(self, result) -> None:
+        """Handle FilePickerScreen dismiss.
+
+        ``None`` (escape / q): silent return to chat, no toast, no transcript
+        entry, no printer state change (PICK-04). Input focus is restored so
+        the user can keep typing.
+
+        ``Path``: emit a ``notify()`` toast with the absolute path so the user
+        can confirm the picker handed back what they selected (PICK-01 +
+        PICK-05 end-to-end smoke). Phase 26 will replace this body with the
+        speed dialog + MarkdownRenderer pipeline; the ``Path`` argument shape
+        and the ``_handle_picker_result`` method name are the contract Phase
+        26 consumes.
+        """
+        from pathlib import Path
+
+        if result is None:
+            # Cancel: silent no-op + restore focus
+            self.query_one("#prompt", Input).focus()
+            return
+
+        # Selection: notify and restore focus. Phase 26 wires real rendering.
+        path: Path = result
+        self.notify(f"Selected: {path}")
+        self.query_one("#prompt", Input).focus()
 
     def _apply_settings(self, result: dict | None) -> None:
         """Apply changed settings from the SettingsScreen modal.
