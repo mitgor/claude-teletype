@@ -53,7 +53,7 @@ class FilePickerScreen(Screen[Path | None]):
 
     Dismisses with the absolute Path of the selected file (enter on a file
     node), or None if the user cancels (escape or q). Matches the full-Screen
-    pattern of PrinterSetupScreen and TypewriterScreen -- not a ModalScreen
+    pattern of PrinterSetupScreen and TypewriterScreen (not a modal overlay)
     per the CONTEXT.md "TUI architecture" decision.
     """
 
