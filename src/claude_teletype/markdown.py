@@ -63,6 +63,18 @@ class MarkdownRenderer:
     routed through ``text_output_fn("\\n")``. The renderer NEVER passes
     a newline byte through ``style_output_fn`` — that would bypass the
     atomic CR+LF + reinit transfer in ``ProfilePrinterDriver.write``.
+
+    Cancel safety (FLOW-05, Phase 26): callers MUST invoke ``close()``
+    when aborting a render mid-stream (e.g. the user pressing the cancel
+    keybinding during a print job). ``close()`` flushes any open
+    bold/italic spans through ``style_output_fn`` so the printer's
+    style state is clean for the next print job. Without ``close()``,
+    a printer left in bold mode would render the *next* document's
+    text in bold until something else cleared the state. The public
+    ``close()`` method is a thin wrapper around ``_close_open_styles``
+    so the LIFO close order (italic_off before bold_off) and the
+    ``resolve_style`` fallback chain stay identical to the seven
+    existing block-boundary close sites.
     """
 
     def __init__(
@@ -353,6 +365,31 @@ class MarkdownRenderer:
         if self._bold_open:
             self._emit_style_off("bold")
             self._bold_open = False
+
+    def close(self) -> None:
+        """Public abort hook: emit style_off bytes for any open emphasis.
+
+        Plan 26-02 (FLOW-05) public API. Callers MUST invoke this when
+        aborting a render mid-stream (e.g. the user pressing the cancel
+        keybinding during a print job — Plan 26-03 wires the call site
+        in ``tui.py``). Emits ``italic_off`` before ``bold_off`` (LIFO,
+        matching the natural nested ``**outer *inner* outer**`` open
+        order) so the printer's bold/italic state is cleared when
+        control returns to the caller.
+
+        Idempotent: a second call after the flags are already cleared
+        is a silent no-op. Safe to call when ``profile is None`` — the
+        underlying ``_emit_style_off`` short-circuits via the
+        ``self._profile is None: return`` guard inherited from Phase
+        23-03.
+
+        Implementation delegates to ``_close_open_styles`` so the seven
+        existing block-boundary close sites and this public hook share
+        a single source of truth for emit ordering and the
+        ``resolve_style`` fallback chain. Do NOT inline the cleanup
+        logic here — keep it in one place.
+        """
+        self._close_open_styles()
 
     # ------------------------------------------------------------------
     # Table rendering
