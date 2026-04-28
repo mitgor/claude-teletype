@@ -209,7 +209,12 @@ Plans:
   3. User picking instant mode on an impact printer (e.g. Juki via CH341) sees the file print without buffer overruns because writes are chunked at the active profile's `buffer_bytes` boundary; the CR+LF + reinit atomic newline pattern is still preserved
   4. User pressing cancel mid-print returns to the chat session (or exits the CLI subcommand) cleanly: no traceback, the printer is not left in bold/italic/underline state (every opened style code is paired with its corresponding close), and re-opening the picker works immediately
   5. User with an active conversation session sees a "Printed file: `<absolute_path>`" header followed by the plain-text rendered body appended to the session transcript — with no raw ESC bytes — and a user with no active session sees no transcript file created (existing optional-transcript behavior preserved)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — SpeedModeScreen ModalScreen + chunk_writes helper + speed_mode parameter on _render_markdown_to_driver (FLOW-01..FLOW-04)
+- [ ] 26-02-PLAN.md — MarkdownRenderer.close() public abort hook for cancel safety (FLOW-05 renderer side)
+- [ ] 26-03-PLAN.md — write_printed_file helper + tui.py picker→speed-dialog→renderer→transcript pipeline replacing notify() stub + end-to-end integration test (TXN-01..TXN-03 + FLOW-05 closure)
 
 ## Progress
 
