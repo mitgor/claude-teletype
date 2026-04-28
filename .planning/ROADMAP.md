@@ -212,7 +212,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 26-01-PLAN.md — SpeedModeScreen ModalScreen + chunk_writes helper + speed_mode parameter on _render_markdown_to_driver (FLOW-01..FLOW-04)
+- [x] 26-01-PLAN.md — SpeedModeScreen ModalScreen + chunk_writes helper + speed_mode parameter on _render_markdown_to_driver (FLOW-01..FLOW-04)
 - [ ] 26-02-PLAN.md — MarkdownRenderer.close() public abort hook for cancel safety (FLOW-05 renderer side)
 - [ ] 26-03-PLAN.md — write_printed_file helper + tui.py picker→speed-dialog→renderer→transcript pipeline replacing notify() stub + end-to-end integration test (TXN-01..TXN-03 + FLOW-05 closure)
 
@@ -248,4 +248,4 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 23. Streaming Markdown Renderer | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 24. TUI File Picker | v1.5 | 2/2 | Complete   | 2026-04-28 |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 2/2 | Complete   | 2026-04-28 |
-| 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |
+| 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 1/3 | In progress | — |

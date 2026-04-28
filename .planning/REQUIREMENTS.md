@@ -44,10 +44,10 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 
 ### Print Speed & Buffer Flow
 
-- [ ] **FLOW-01**: Before each markdown print job, user sees a dialog choosing between **typewriter pacing** and **instant** print modes
-- [ ] **FLOW-02**: Dialog default selection follows `profile.instant_output` for the active printer profile
-- [ ] **FLOW-03**: Typewriter mode reuses the existing character pacer and audio pipeline so pacing matches conversation streaming
-- [ ] **FLOW-04**: Instant mode chunks writes at `profile.buffer_bytes` boundaries to prevent buffer overruns on impact printers
+- [x] **FLOW-01**: Before each markdown print job, user sees a dialog choosing between **typewriter pacing** and **instant** print modes
+- [x] **FLOW-02**: Dialog default selection follows `profile.instant_output` for the active printer profile
+- [x] **FLOW-03**: Typewriter mode reuses the existing character pacer and audio pipeline so pacing matches conversation streaming
+- [x] **FLOW-04**: Instant mode chunks writes at `profile.buffer_bytes` boundaries to prevent buffer overruns on impact printers
 - [ ] **FLOW-05**: User can cancel an in-progress print job from the TUI without crashing the app or leaving the printer in a bad style state (style codes always closed on cancel)
 
 ### Transcript Integration
@@ -115,10 +115,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | CAP-04 | Phase 22 | Complete |
 | CAP-05 | Phase 22 | Complete |
 | CAP-06 | Phase 21 | Complete |
-| FLOW-01 | Phase 26 | Pending |
-| FLOW-02 | Phase 26 | Pending |
-| FLOW-03 | Phase 26 | Pending |
-| FLOW-04 | Phase 26 | Pending |
+| FLOW-01 | Phase 26 | Complete |
+| FLOW-02 | Phase 26 | Complete |
+| FLOW-03 | Phase 26 | Complete |
+| FLOW-04 | Phase 26 | Complete |
 | FLOW-05 | Phase 26 | Pending |
 | TXN-01 | Phase 26 | Pending |
 | TXN-02 | Phase 26 | Pending |

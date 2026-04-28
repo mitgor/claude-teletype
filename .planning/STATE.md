@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: Phase 25 COMPLETE. CLI-01/02/03/04 all satisfied. `claude-teletype print <path>` (Plan 25-01) + `claude-teletype print` no-arg picker-mode launcher (Plan 25-02) both shipped. Closure-factory `_make_markdown_picker_app` builds a minimal MarkdownPickerApp(App) that pushes Phase 24's FilePickerScreen on mount and routes the dismiss callback through Plan 25-01's `_render_markdown_to_driver` (Path arm) or exits cleanly (None arm). Sibling helper `_print_command_impl_picker` shares `_resolve_print_context` with the explicit-path branch. 7 new CliRunner+unit tests in TestPrintCli02PickerMode; full project: 646 -> 653 tests green.
-stopped_at: Completed 25-02-PLAN.md (Phase 25 closed; CLI-02 satisfied; picker-mode launcher + 7 new tests = 653 total green)
-last_updated: "2026-04-29T00:00:00Z"
-last_activity: 2026-04-29 -- 25-02 landed (_make_markdown_picker_app + _print_command_impl_picker + _resolve_print_context shared resolver + Path|None dispatch in print_md; CLI-02 closed; 7 new tests = 653 total green; Phase 25 COMPLETE)
+status: "Phase 26-01 COMPLETE. FLOW-01..04 satisfied. SpeedModeScreen ModalScreen[str | None] in src/claude_teletype/speed_mode_screen.py dismisses with 'typewriter'/'instant'/None on cancel-escape (default selection driven by profile.instant_output per FLOW-02). chunk_writes(driver, data, chunk_size) free function in printer.py splits payload into write_bytes chunks; ValueError on chunk_size<=0; no-op on empty (FLOW-04). _render_markdown_to_driver gains optional 5th param speed_mode='instant' (Phase 25 backcompat) — typewriter mode wires per-char time.sleep using pacer.classify_char + CHAR_DELAYS plus bell on \\n via audio.make_bell_output (skipped if no_audio); instant mode routes style channel through chunk_writes(driver, data, profile.buffer_bytes). 22 new tests = 675 total green (653 baseline + 9 SpeedModeScreen + 7 chunk_writes + 6 speed_mode wiring). Phase 25 27-test regression sentinel still green."
+stopped_at: Completed 26-01-PLAN.md (Wave 1 of Phase 26; FLOW-01..04 satisfied; SpeedModeScreen + chunk_writes + dual-mode pipeline; 22 new tests = 675 total green; Plans 26-02 and 26-03 unblocked)
+last_updated: "2026-04-28T22:30:00Z"
+last_activity: 2026-04-28 -- 26-01 landed (SpeedModeScreen ModalScreen + chunk_writes free function + speed_mode param wired through _render_markdown_to_driver with sync time.sleep typewriter path + chunked instant path; FLOW-01..04 closed; 22 new tests = 675 total green)
 progress:
   total_phases: 9
   completed_phases: 5
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_plans: 14
+  completed_plans: 13
+  percent: 93
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 25 — claude-teletype print CLI Subcommand — **COMPLETE** (2/2 plans). All four CLI requirements (CLI-01..CLI-04) closed. Phase 26 (speed dialog + render pipeline) is next; the chat-session entry (`tui.py::_handle_picker_result`) and the CLI-print no-path entry (`MarkdownPickerApp._on_pick`) are the two clean integration points Phase 26 inherits.
+**Current focus:** Phase 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (1/3 plans). Plan 26-01 closed FLOW-01..04 (speed dialog modal, buffer chunking helper, dual-mode rendering pipeline). Plan 26-02 (FLOW-05 safe-cancel) and Plan 26-03 (TXN-01..03 transcript wiring + tui.py/cli.py SpeedModeScreen integration) are next.
 
 ## Current Position
 
-Phase: 25 — claude-teletype print CLI Subcommand — **COMPLETE** (2/2 plans)
-Plan: Phase 26 next (speed dialog + render pipeline)
-Status: Phase 25 fully closed. CLI-01/02/03/04 all satisfied. Plan 25-01 shipped explicit-path mode (`claude-teletype print <path>`) with full config-layer chain (defaults < TOML < env < CLI flags), profile resolution, path validation, and reusable `_render_markdown_to_driver` helper. Plan 25-02 shipped no-arg picker mode: closure-factory `_make_markdown_picker_app` builds a minimal MarkdownPickerApp that pushes Phase 24's FilePickerScreen and routes the dismiss callback through Plan 25-01's helper or exits cleanly. Shared `_resolve_print_context` between branches. 27 tests in test_cli_print.py (20 from 25-01 + 7 from 25-02), full project 626 -> 653 tests green.
-Last activity: 2026-04-29 -- 25-02 landed (_make_markdown_picker_app + _print_command_impl_picker + _resolve_print_context shared resolver + Path|None dispatch in print_md; CLI-02 closed; 7 new tests = 653 total green; Phase 25 COMPLETE)
+Phase: 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (1/3 plans)
+Plan: 26-02 next (MarkdownRenderer.close() + cancel keybinding for FLOW-05)
+Status: Plan 26-01 closed FLOW-01..04. SpeedModeScreen ModalScreen[str | None] (src/claude_teletype/speed_mode_screen.py) dismisses with "typewriter"/"instant"/None; default selection driven by profile.instant_output (FLOW-02). chunk_writes(driver, data, chunk_size) free function in printer.py raises ValueError on chunk_size<=0 and emits ceil(L/N) write_bytes calls (FLOW-04). _render_markdown_to_driver gained optional speed_mode="instant" param preserving Phase 25 callers; typewriter path wraps WordWrapper output_fn with sync time.sleep using pacer.classify_char + CHAR_DELAYS multipliers plus bell on '\n' via audio.make_bell_output (skipped if config.no_audio); instant path wraps style_dest with chunk_writes(driver, data, profile.buffer_bytes). 22 new tests, 0 regressions: 653 -> 675 green. Phase 25 27-test regression sentinel preserved.
+Last activity: 2026-04-28 -- 26-01 landed (SpeedModeScreen ModalScreen + chunk_writes free function + speed_mode param wired through _render_markdown_to_driver with sync time.sleep typewriter path + chunked instant path; FLOW-01..04 closed; 22 new tests = 675 total green)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Last activity: 2026-04-29 -- 25-02 landed (_make_markdown_picker_app + _print_co
 | 24-02 | 4.2min | 2 | 2 | 2026-04-28 |
 | 25-01 | 8.6min | 2 | 2 | 2026-04-28 |
 | 25-02 | 3.6min | 2 | 2 | 2026-04-29 |
+| 26-01 | 5.9min | 2 | 6 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -163,6 +164,18 @@ Decisions added in 25-02:
 - Test option (a) (patch `app_inst.push_screen` BEFORE calling `app_inst.on_mount()`) worked first try for `test_picker_app_on_mount_pushes_filepicker`. Plan offered three test strategies (a: patch-pre-call, b: Pilot, c: inspect.getsource grep); option (a) succeeded because on_mount() only calls self.push_screen, which is now the mock -- Textual's compositor isn't touched. Bonus: the test asserts (1) push_screen called, (2) first positional arg is a real FilePickerScreen instance, AND (3) callback kwarg is the bound `_on_pick` method. Richer assertions than option (c) would have produced.
 - Test patches the FACTORY (`claude_teletype.cli._make_markdown_picker_app`) at the dispatch level, AND patches `claude_teletype.cli._render_markdown_to_driver` directly for the callback unit tests. The factory IS the cli-side surface; the closure-captured `_render_markdown_to_driver` reference is patched at the cli module path because the factory's nested `class MarkdownPickerApp` body resolves the name through the cli module namespace, not through textual or file_picker_screen.
 
+Decisions added in 26-01:
+
+- `chunk_writes` is a free function in `printer.py` (not a method on `ProfilePrinterDriver`) — driver-agnostic, pure, trivially testable, accepts any `PrinterDriver` Protocol. Method-on-driver would have coupled it to one inner driver shape and made it harder to unit-test against `NullPrinterDriver` recorders.
+- Sync `time.sleep` for typewriter pacing instead of converting `_render_markdown_to_driver` to `async`. Preserves Plan 25-02's locked sync `MarkdownPickerApp._on_pick` callback shape; the helper still runs in a sync context (Typer command body and picker callback). `pacer.pace_characters` (async) is bypassed but its `CHAR_DELAYS` dict + `classify_char` function are reused so per-char delay multipliers are identical to the chat path.
+- `speed_mode` defaults to `"instant"` (not `"typewriter"`) so the two existing Phase 25 callers (`_print_command_impl`, `MarkdownPickerApp._on_pick`) keep working without modification. They passed 4 positional args before Phase 26 and inherit the no-pacer behaviour matching their pre-Phase-26 contract. The regression sentinel test (27 prior `test_cli_print.py` tests) verifies this.
+- Style-channel chunking lives only on the instant path (not typewriter) because typewriter mode interleaves 1-char text writes with 3–6 byte ESC bursts that are always under any realistic `profile.buffer_bytes`. Adding chunking on the typewriter path would only add a no-op layer of overhead.
+- Instant-mode generic-profile fallback uses `buffer_bytes=256` (defensive default). However, `resolve_style` returns `(b"", b"")` for `None` profile so `style_dest` is effectively unreachable for generic — belt-and-suspenders.
+- `chunk_writes` patch target in tests is `claude_teletype.printer.chunk_writes` (source module) because `cli.py` imports it locally inside the function body. Matches the patch-target convention documented at the top of `tests/test_cli_print.py` for `discover_printer`/`MarkdownRenderer`/`WordWrapper`. Test patching `claude_teletype.cli.chunk_writes` raises `AttributeError` (no module-level attribute) — this is the canonical "import locally + patch at source" pattern in this project.
+- `SpeedModeScreen.__init__` defensively coerces unknown `default_mode` values to `"typewriter"` rather than raising. Phase 26-02/26-03 callers will pass `"typewriter"` or `"instant"` derived from `profile.instant_output`, but a junk value (e.g. user-edited config) shouldn't crash the dialog. Locked by `test_invalid_default_mode_falls_back_to_typewriter`.
+- Pattern locked for one-shot ModalScreen with two-option choice + Print/Cancel: `Vertical(id="<dialog>") -> Static(title) + RadioSet(id="<radio>") -> 2 RadioButton + Horizontal(id="button-row") -> Print + Cancel`. `on_button_pressed` dispatches by `event.button.id`; Print button reads `RadioSet.pressed_button.id`. `action_cancel` mapped to `escape` via `BINDINGS`. Mirrors `SettingsScreen`'s shape.
+- TDD RED gate proven for both tasks: Task 1's tests failed with `ModuleNotFoundError: No module named 'claude_teletype.speed_mode_screen'` before implementation; Task 2's tests failed with `TypeError: _render_markdown_to_driver() got an unexpected keyword argument 'speed_mode'` before implementation. GREEN gate followed in each case with all tests passing.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -177,7 +190,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-29T00:00:00Z
-Stopped at: Completed 25-02-PLAN.md (Phase 25 closed; CLI-02 satisfied; picker-mode launcher + 7 new tests = 653 total green)
+Last session: 2026-04-28T22:30:00Z
+Stopped at: Completed 26-01-PLAN.md (Wave 1 of Phase 26; FLOW-01..04 satisfied; SpeedModeScreen + chunk_writes + dual-mode pipeline; 22 new tests = 675 total green)
 Resume file: None
-Next action: Plan Phase 26 (speed dialog + render pipeline). Inherits two clean integration points: (1) chat-session entry `tui.py::_handle_picker_result` (still emits Phase 24 smoke `notify`; replace with paced render); (2) CLI-print no-path entry `MarkdownPickerApp._on_pick` (already calls `_render_markdown_to_driver` synchronously; either refactor into a Textual worker so a speed dialog can run between picker dismiss and render start, OR replace `_render_markdown_to_driver` with a paced variant respecting `config.delay`). Both are inside `cli.py` / `tui.py`; no cross-file risk. Locked Phase 25 contracts: `_render_markdown_to_driver(path, config, all_profiles, resolved_profile) -> int` (used at two call sites), `_resolve_print_context(delay, device, printer) -> (config, all_profiles, resolved_profile)`, `_make_markdown_picker_app(config, all_profiles, resolved_profile, root) -> MarkdownPickerApp` factory.
+Next action: Execute Plan 26-02 (Wave 2). Adds `MarkdownRenderer.close()` for safe-cancel mid-render (FLOW-05) — flush any open style_off bytes before driver shutdown so impact printers don't end in a stuck-bold/italic/underline state. Then Plan 26-03 (Wave 3) wires `SpeedModeScreen` into both call sites (`tui.py::_handle_picker_result` replacing Phase 24's `notify()` stub; `cli.py::MarkdownPickerApp._on_pick` calling `_render_markdown_to_driver(..., speed_mode=choice)`) and adds `transcript.write_printed_file(path, body)` per TXN-01..03. Locked Phase 26-01 contracts: `SpeedModeScreen(default_mode: str = "typewriter")` dismissing with `"typewriter"|"instant"|None`; `chunk_writes(driver: PrinterDriver, data: bytes, chunk_size: int) -> None` (ValueError on chunk_size<=0); `_render_markdown_to_driver(path, config, all_profiles, resolved_profile, speed_mode: str = "instant") -> int`. Phase 25 contracts (4-arg shape, `_resolve_print_context`, `_make_markdown_picker_app` factory) remain locked and intact.
