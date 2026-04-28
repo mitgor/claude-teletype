@@ -92,7 +92,39 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(populated by roadmap)_ |  |  |
+| PICK-01 | Phase 24 | Pending |
+| PICK-02 | Phase 24 | Pending |
+| PICK-03 | Phase 24 | Pending |
+| PICK-04 | Phase 24 | Pending |
+| PICK-05 | Phase 24 | Pending |
+| CLI-01 | Phase 25 | Pending |
+| CLI-02 | Phase 25 | Pending |
+| CLI-03 | Phase 25 | Pending |
+| CLI-04 | Phase 25 | Pending |
+| MD-01 | Phase 23 | Pending |
+| MD-02 | Phase 23 | Pending |
+| MD-03 | Phase 23 | Pending |
+| MD-04 | Phase 23 | Pending |
+| MD-05 | Phase 23 | Pending |
+| MD-06 | Phase 23 | Pending |
+| MD-07 | Phase 23 | Pending |
+| MD-08 | Phase 23 | Pending |
+| CAP-01 | Phase 21 | Pending |
+| CAP-02 | Phase 21 | Pending |
+| CAP-03 | Phase 21 | Pending |
+| CAP-04 | Phase 22 | Pending |
+| CAP-05 | Phase 22 | Pending |
+| CAP-06 | Phase 21 | Pending |
+| FLOW-01 | Phase 26 | Pending |
+| FLOW-02 | Phase 26 | Pending |
+| FLOW-03 | Phase 26 | Pending |
+| FLOW-04 | Phase 26 | Pending |
+| FLOW-05 | Phase 26 | Pending |
+| TXN-01 | Phase 26 | Pending |
+| TXN-02 | Phase 26 | Pending |
+| TXN-03 | Phase 26 | Pending |
+
+**Coverage:** 31/31 requirements mapped ✓
 
 ---
 *Requirements defined: 2026-04-28*

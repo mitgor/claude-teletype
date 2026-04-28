@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-04-28T19:02:47.360Z"
 last_activity: 2026-04-28
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-03)
+See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 20 — Config Persistence & Smart Startup
+**Current focus:** Phase 21 — Profile Capability Fields & Custom-TOML Support
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 21 — Profile Capability Fields & Custom-TOML Support
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-28 — Milestone v1.5 started
+Status: Defining requirements → Planning
+Last activity: 2026-04-28 — v1.5 roadmap created (Phases 21-26)
 
 ## Performance Metrics
 
@@ -45,13 +45,8 @@ Last activity: 2026-04-28 — Milestone v1.5 started
 | v1.1 Conversation Mode | 3 | 7 | 20min | 2026-02-16 → 2026-02-17 |
 | v1.2 Config/Profiles/LLM/Settings | 8 | 13 | 57min | 2026-02-14 → 2026-02-17 |
 | v1.3 Tech Debt Cleanup | 2 | 2 | 8min | 2026-02-20 |
-| v1.4 Printer Setup TUI | 3 | TBD | - | In progress |
-| Phase 18 P01 | 4min | 2 tasks | 4 files |
-| Phase 19-printer-setup-screen P01 | 1min | 1 tasks | 2 files |
-| Phase 19-printer-setup-screen P02 | 3min | 2 tasks | 2 files |
-| Phase 19-printer-setup-screen P03 | 2min | 2 tasks | 2 files |
-| Phase 20 P01 | 3min | 2 tasks | 3 files |
-| Phase 20 P02 | 2min | 1 tasks | 3 files |
+| v1.4 Printer Setup TUI | 3 | 6 | 15min | 2026-04-03 |
+| v1.5 Markdown File Printing | 6 | TBD | — | In progress |
 
 ## Accumulated Context
 
@@ -60,32 +55,25 @@ Last activity: 2026-04-28 — Milestone v1.5 started
 All decisions logged in PROJECT.md Key Decisions table (24 entries).
 v1.3 decisions archived in MILESTONES.md.
 
-- [Phase 18]: discover_all() uses importlib.util.find_spec to check pyusb without importing -- avoids caching failed imports
-- [Phase 18]: DiscoveryResult captures diagnostics as list[str] for flexible display in CLI and future TUI
-- [Phase 19]: Factory uses lazy import of BUILTIN_PROFILES to avoid circular import
-- [Phase 19]: create_driver_for_selection delegates to _find_usb_printer for USB, falls back to NullPrinterDriver gracefully
-- [Phase 19]: Select widget populated in compose() not on_mount() to avoid Textual EmptySelectError with allow_blank=False
-- [Phase 19]: VID:PID profile matching done locally via getattr loop to avoid pyusb import in UI thread
-- [Phase 19]: call_after_refresh used to defer setup screen push to next frame, preventing Textual mount-time screen conflicts
-- [Phase 19]: discover_all() only called in TUI mode without --device; --no-tui and --device paths use existing discover_printer()
-- [Phase 20]: Atomic write uses fd-level os.write + os.replace for crash safety (no intermediate partial state)
-- [Phase 20]: TOML content validated via tomllib.loads before write to catch template bugs
-- [Phase 20]: saved_printer_* fields excluded from env overrides -- internal state, not user settings
-- [Phase 20]: match_saved_printer returns PrinterSelection|None for direct use with create_driver_for_selection
-- [Phase 20]: discovery=None reused as signal to skip setup screen (existing convention from --device path)
+Carry-forward from v1.4 still in force for v1.5:
+- CR+LF+reinit must remain a single atomic USB transfer for newlines (Juki/CH341 drops fragmented LF). The markdown renderer must compose with `ProfilePrinterDriver.write` for `\n` rather than re-implementing the newline path.
+- `dataclasses.replace` is the supported way to alias profiles (preserves frozen immutability of `PrinterProfile`).
+- Custom-TOML profiles use `bytes.fromhex()` decoding for byte fields and `int(..., 16)` for VID/PID — Phase 21 must mirror this convention for the new `bold_on`/`italic_on`/`underline_on` and integer `buffer_bytes` fields.
 
 ### Pending Todos
 
-None.
+None — phase planning starts at Phase 21.
 
 ### Blockers/Concerns
 
-- Juki 9100 control codes extrapolated from 6100 -- need hardware verification
-- Phase 19: Textual screen lifecycle edge cases (push_screen timing) -- resolve during planning
-- Phase 19: pyusb reimport after same-session `uv sync` -- test sys.modules cache clearing
+- Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — relevant when Phase 22 fills in Juki style codes.
+- Phase 22: bold/italic byte sequences for OKI 3390 (Epson FX-2 mode) and Citizen CT-S2000 (ESC/POS) need verification against published references; sequences left empty if unverified rather than fabricated (CAP-05 explicitly allows this).
+- Phase 23: ASCII table layout under narrow `profile.columns` (e.g. Citizen 42-col thermal) needs a graceful fallback strategy — degenerate wide tables should not crash the renderer.
+- Phase 26: per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode can be trusted.
 
 ## Session Continuity
 
-Last session: 2026-04-03T12:20:48.922Z
-Stopped at: Completed 20-02-PLAN.md
+Last session: 2026-04-28
+Stopped at: Roadmap created for v1.5 (Phases 21-26)
 Resume file: None
+Next action: `/gsd-plan-phase 21` to break Phase 21 into plans
