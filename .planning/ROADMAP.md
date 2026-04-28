@@ -192,8 +192,12 @@ Plans:
   2. User running `claude-teletype print` with no path sees the same TUI file picker from Phase 24, prints the chosen file, and exits when the print completes (no chat session started)
   3. User's TOML config, env vars, and CLI flags (delay, audio, printer profile, saved-printer matching) are all honored by `print` exactly as they are by the chat command — verified by `--printer escp claude-teletype print foo.md` and `CLAUDE_TELETYPE_DELAY=10 claude-teletype print foo.md` producing the expected style codes and pacing
   4. User running `claude-teletype print /nonexistent.md` or `claude-teletype print /etc` (a directory) sees a clear error message and the process exits with a non-zero status
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 25-01-PLAN.md -- `print <path>` Typer subcommand + _render_markdown_to_driver helper; CliRunner tests for CLI-01, CLI-03, CLI-04
+- [ ] 25-02-PLAN.md -- No-path picker-mode: minimal MarkdownPickerApp launches FilePickerScreen and routes selection through the Plan 25-01 helper; CliRunner tests for CLI-02
 
 ### Phase 26: Speed Dialog, Buffer Chunking, Cancel & Transcript Integration
 **Goal**: Each markdown print job opens with a speed-mode dialog whose default reflects the active profile, instant mode chunks writes at the profile's `buffer_bytes` boundary, the user can cancel mid-print without crashing or stranding open style codes, and printed files appear in the active session transcript as plain text
@@ -238,5 +242,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
 | 23. Streaming Markdown Renderer | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 24. TUI File Picker | v1.5 | 2/2 | Complete   | 2026-04-28 |
-| 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/TBD | Not started | — |
+| 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/2 | Not started | — |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |
