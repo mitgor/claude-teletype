@@ -87,6 +87,12 @@ class MarkdownRenderer:
     def render(self, text: str) -> None:
         """Render a markdown document through the configured output channels."""
         lines = text.split("\n")
+        # ``split("\n")`` on a string ending with ``\n`` produces a trailing
+        # empty element. That trailing newline is structural delimitation,
+        # not a blank-line block — drop it so a one-line document like
+        # "# Hello\n" doesn't render as if a blank paragraph followed.
+        if lines and lines[-1] == "":
+            lines.pop()
         i = 0
         while i < len(lines):
             line = lines[i]
