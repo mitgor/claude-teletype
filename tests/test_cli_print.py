@@ -694,3 +694,136 @@ class TestPrintCli26SpeedMode:
             )
             assert rc == 0
             bell_factory.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Plan 26-03 (TXN-01, TXN-02, TXN-03): transcript_write parameter wiring
+# ---------------------------------------------------------------------------
+
+
+class TestPrintCli26TranscriptIntegration:
+    """Plan 26-03: transcript_write parameter on _render_markdown_to_driver
+    (TXN-01, TXN-02, TXN-03)."""
+
+    def test_transcript_write_none_no_fanout(self, tmp_path):
+        """TXN-03 fast path: no transcript_write -> no transcript entry."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "x.md"
+        md.write_text("hi\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch("claude_teletype.transcript.write_printed_file") as wpf:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None, transcript_write=None,
+            )
+            assert rc == 0
+            wpf.assert_not_called()
+
+    def test_transcript_write_captures_plain_text_only(self, tmp_path):
+        """TXN-02: transcript collector receives plain text — no ESC bytes.
+
+        Renders **bold** (escp profile -> ESC E / ESC F) and verifies the
+        transcript collector sees only the word 'bold', never \\x1b."""
+        from claude_teletype.cli import _render_markdown_to_driver
+        from claude_teletype.profiles import get_profile
+
+        md = tmp_path / "x.md"
+        md.write_text("**bold**\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        captured: list[str] = []
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ):
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, get_profile("escp"),
+                transcript_write=captured.append,
+            )
+            assert rc == 0
+            joined = "".join(captured)
+            # Plain text body has 'bold'
+            assert "bold" in joined
+            # TXN-02: no ESC bytes
+            assert "\x1b" not in joined
+            # TXN-01: header is present
+            assert "Printed file:" in joined
+
+    def test_transcript_not_written_on_read_error(self, tmp_path):
+        """If the file can't be read, no transcript half-entry is written."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        nonexistent = tmp_path / "missing.md"
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        captured: list[str] = []
+        with patch(
+            "claude_teletype.printer.discover_printer",
+        ) as discover:
+            rc = _render_markdown_to_driver(
+                nonexistent, FakeConfig(), {}, None,
+                transcript_write=captured.append,
+            )
+            # File doesn't exist — read_text raises before discover_printer.
+            assert rc == 1
+            discover.assert_not_called()
+            # No transcript header written.
+            assert captured == []
+
+    def test_transcript_write_called_once_per_render(self, tmp_path):
+        """TXN-01: write_printed_file invoked exactly once at end of successful render."""
+        from claude_teletype.cli import _render_markdown_to_driver
+
+        md = tmp_path / "x.md"
+        md.write_text("hello\n")
+
+        class FakeConfig:
+            device = None
+            delay = 0.0
+            no_audio = True
+
+        mock_driver = MagicMock()
+        mock_driver.is_connected = True
+        del mock_driver.end_response
+
+        captured: list[str] = []
+        # Patch the SOURCE module reference. _render_markdown_to_driver
+        # imports write_printed_file locally inside the function body, so
+        # patches must hit claude_teletype.transcript (matches the
+        # patch-target convention documented at the top of this file).
+        import claude_teletype.transcript as transcript_mod
+        real_wpf = transcript_mod.write_printed_file
+        with patch(
+            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+        ), patch(
+            "claude_teletype.transcript.write_printed_file",
+            wraps=real_wpf,
+        ) as wpf:
+            rc = _render_markdown_to_driver(
+                md, FakeConfig(), {}, None,
+                transcript_write=captured.append,
+            )
+            assert rc == 0
+            assert wpf.call_count == 1

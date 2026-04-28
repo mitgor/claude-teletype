@@ -1,5 +1,7 @@
 """Tests for the transcript file writer output module."""
 
+from pathlib import Path
+
 from claude_teletype.transcript import make_transcript_output
 
 
@@ -81,3 +83,70 @@ def test_close_idempotent(tmp_path):
     write_fn("a")
     close_fn()
     close_fn()  # second call should not raise
+
+
+class TestWritePrintedFile:
+    """Plan 26-03 (TXN-01..TXN-03): transcript.write_printed_file helper."""
+
+    def test_write_fn_none_is_noop(self, tmp_path):
+        """TXN-03: write_fn=None means no transcript configured -> no-op."""
+        from claude_teletype.transcript import write_printed_file
+
+        # Must not raise. No way to observe; the assertion is "doesn't crash".
+        write_printed_file(None, tmp_path / "x.md", "body")
+
+    def test_writes_header_and_body(self, tmp_path):
+        from claude_teletype.transcript import write_printed_file
+
+        captured: list[str] = []
+        md = tmp_path / "doc.md"
+        md.write_text("# Doc\n")
+        write_printed_file(captured.append, md, "Body text")
+        joined = "".join(captured)
+        assert joined.startswith("Printed file: ")
+        assert str(md.resolve()) in joined
+        assert "Body text" in joined
+        assert joined.endswith("\n")
+
+    def test_relative_path_becomes_absolute(self, tmp_path, monkeypatch):
+        from claude_teletype.transcript import write_printed_file
+
+        monkeypatch.chdir(tmp_path)
+        rel = Path("doc.md")
+        (tmp_path / "doc.md").write_text("hello")
+        captured: list[str] = []
+        write_printed_file(captured.append, rel, "")
+        joined = "".join(captured)
+        # Absolute path should appear (resolves via tmp_path/doc.md)
+        assert str((tmp_path / "doc.md").resolve()) in joined
+
+    def test_empty_body(self, tmp_path):
+        from claude_teletype.transcript import write_printed_file
+
+        captured: list[str] = []
+        write_printed_file(captured.append, tmp_path / "x.md", "")
+        joined = "".join(captured)
+        # "Printed file: <path>\n" + "" + "\n" => trailing \n still emitted
+        assert joined.endswith("\n\n")
+
+    def test_multi_line_body_preserved_verbatim(self, tmp_path):
+        from claude_teletype.transcript import write_printed_file
+
+        captured: list[str] = []
+        body = "Line 1\nLine 2\nLine 3"
+        write_printed_file(captured.append, tmp_path / "x.md", body)
+        joined = "".join(captured)
+        assert "Line 1\nLine 2\nLine 3" in joined
+
+    def test_per_char_streaming(self, tmp_path):
+        """write_fn is called once per character (matches transcript convention)."""
+        from claude_teletype.transcript import write_printed_file
+
+        captured: list[str] = []
+        md = tmp_path / "x.md"
+        md.touch()
+        write_printed_file(captured.append, md, "abc")
+        # Each captured element is a single char (per-char contract)
+        assert all(len(c) == 1 for c in captured)
+        # Reassembly equals the formatted string
+        assert "".join(captured) == f"Printed file: {md.resolve()}\nabc\n"
