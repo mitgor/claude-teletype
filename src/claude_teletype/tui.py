@@ -399,11 +399,11 @@ class TeletypeApp(App):
         callback handles both arms.
 
         Phase 24 stops at notify() acknowledgement; Phase 26 will replace the
-        callback body with the speed dialog + MarkdownRenderer pipeline. Until
-        then the binding is the user-visible proof-of-life that the picker
-        works end-to-end (PICK-01). The handler name is binding-agnostic so the
-        BINDINGS line can be changed (e.g. to ctrl+shift+o or ctrl+p) without
-        touching this method.
+        callback body with the speed dialog + Phase 23's renderer pipeline.
+        Until then the binding is the user-visible proof-of-life that the
+        picker works end-to-end (PICK-01). The handler name is
+        binding-agnostic so the BINDINGS line can be changed (e.g. to
+        ctrl+shift+o or ctrl+p) without touching this method.
         """
         from claude_teletype.file_picker_screen import FilePickerScreen
 
@@ -439,9 +439,9 @@ class TeletypeApp(App):
         ``Path``: emit a ``notify()`` toast with the absolute path so the user
         can confirm the picker handed back what they selected (PICK-01 +
         PICK-05 end-to-end smoke). Phase 26 will replace this body with the
-        speed dialog + MarkdownRenderer pipeline; the ``Path`` argument shape
-        and the ``_handle_picker_result`` method name are the contract Phase
-        26 consumes.
+        speed dialog + Phase 23's renderer pipeline; the ``Path`` argument
+        shape and the ``_handle_picker_result`` method name are the contract
+        Phase 26 consumes.
         """
         from pathlib import Path
 
