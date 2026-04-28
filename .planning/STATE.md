@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
 status: in-progress
-stopped_at: Completed 23-03-PLAN.md (Inline emphasis state machine; MD-01 + MD-07 closed; Phase 23 complete — MD-01..MD-08 all green)
-last_updated: "2026-04-28T20:59:56Z"
-last_activity: 2026-04-28 -- 23-03 landed (inline emphasis bold/italic state machine; 17 new tests; MD-01 closed; Phase 23 complete)
+stopped_at: Completed 24-01-PLAN.md (FilePickerScreen widget; PICK-02/03/04/05 closed; 11 picker tests + 616 project tests green)
+last_updated: "2026-04-28T21:17:41Z"
+last_activity: 2026-04-28 -- 24-01 landed (FilePickerScreen + MarkdownDirectoryTree filter_paths + Pilot test suite; PICK-02/03/04/05 closed)
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 8
-  percent: 89
+  total_plans: 10
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 23 — Streaming Markdown Renderer — **COMPLETE** (3/3 plans)
+**Current focus:** Phase 24 — TUI File Picker — **IN PROGRESS** (1/2 plans)
 
 ## Current Position
 
-Phase: 23 — Streaming Markdown Renderer — **COMPLETE** (3/3 plans)
-Plan: Phase 24 next (TUI file picker — markdown renderer is now ready as a downstream consumer)
-Status: Phase 23 closed. MD-01..MD-08 all satisfied. MarkdownRenderer fully tested through real WordWrapper(80) + real escp profile (39 markdown tests, 605 project tests, all green).
-Last activity: 2026-04-28 -- 23-03 landed (inline emphasis bold/italic state machine; 17 new tests; MD-01 closed; Phase 23 complete)
+Phase: 24 — TUI File Picker — **IN PROGRESS** (1/2 plans)
+Plan: Plan 24-02 next (keybinding integration into TeletypeApp + result-callback wiring)
+Status: 24-01 closed. PICK-02/03/04/05 satisfied. FilePickerScreen widget + MarkdownDirectoryTree filter_paths landed; 11 picker tests + 616 project tests all green.
+Last activity: 2026-04-28 -- 24-01 landed (FilePickerScreen + MarkdownDirectoryTree filter_paths + Pilot test suite; PICK-02/03/04/05 closed)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 38
+- Total plans completed: 39
 - Average duration: 3.3min
-- Total execution time: 2.2 hours
+- Total execution time: 2.3 hours
 
 **Recent plan metrics:**
 
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
-| 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
 | 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
 | 23-01 | 2.5min | 2 | 2 | 2026-04-28 |
 | 23-02 | 5.1min | 2 | 2 | 2026-04-28 |
 | 23-03 | 4.1min | 2 | 2 | 2026-04-28 |
+| 24-01 | 3.4min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -119,6 +119,17 @@ Decisions added in 23-03:
 - `_close_open_styles()` invoked from 7 sites: heading (close-before-outer-bold-off), ulist, olist, blockquote, paragraph, code-block-enter (defensive — emphasis is suppressed inside code fences per MD-04), end-of-render (defensive close for unclosed `**hello`). Italic closes BEFORE bold to mirror the natural LIFO open order for nested `**outer *inner* outer**` spans.
 - `resolve_style` consulted at every emit; `(b"", b"")` returns silently no-op via `if on:` / `if off:` guards — text falls back to plain without renderer-side branching. `_profile is None` short-circuit makes the renderer unit-testable without a profile.
 
+Decisions added in 24-01:
+
+- FilePickerScreen subclasses `Screen[Path | None]` (NOT `ModalScreen`) — locked carry-forward of v1.4's `PrinterSetupScreen` / `TypewriterScreen` pattern. Documented in CONTEXT.md and enforced via `test_screen_is_full_screen_not_modal` (`isinstance(s, Screen) and not isinstance(s, ModalScreen)`).
+- `MarkdownDirectoryTree` is a DirectoryTree subclass that overrides `filter_paths` (rather than passing a per-instance callable). Filter rules live in module-level frozensets (`HIDDEN_DIRS`, `MARKDOWN_SUFFIXES`) at the top of the file — discoverable, greppable, easy to extend for PICK-06 recents. Suffix match is case-insensitive (`.MD`/`.Markdown` accepted).
+- FilePickerScreen accepts `root: Path | None = None` defaulting to `Path.cwd()`. Production callers get PICK-02 cwd-rooting for free; tests pass `tmp_path` directly without monkeypatching `Path.cwd()` or using `chdir` fixtures. This single design choice eliminated `chdir` from the test plan.
+- No `enter` key binding on FilePickerScreen — DirectoryTree's native FileSelected (file) and expand-toggle (directory) handle enter for free. Adding a custom binding would shadow this and break "enter on a directory expands, doesn't dismiss".
+- `escape` is the primary cancel binding (Footer-visible); `q` is an alternate cancel with `show=False` so it doesn't clutter the visible bindings strip. Both call `action_cancel` which dismisses with None (PICK-04).
+- Pilot tests for file selection synthesize `DirectoryTree.FileSelected(node=_StubNode(), path=target)` and call `screen.on_directory_tree_file_selected(event)` directly. Avoids the keyboard-timing fragility of Pilot navigation through an expanding tree. Mirrors `test_printer_setup_screen.py`'s direct `_on_connect` calls.
+- `Static` content assertion uses `str(display.render())` not `display.renderable` — the latter doesn't exist in this Textual version; `render()` returns a `Content` whose `str()` is the displayed text. Documented inline in `test_path_display_initial_placeholder` so future contributors don't reach for the non-existent attr.
+- Class docstring says "(not a modal overlay)" not "not a ModalScreen" — preserves the locked decision in plain English while keeping `grep -c ModalScreen file_picker_screen.py == 0` green (verification rule from the plan).
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -133,7 +144,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28T20:59:56Z
-Stopped at: Completed 23-03-PLAN.md (Inline emphasis state machine; MD-01 + MD-07 closed; Phase 23 complete — MD-01..MD-08 all green)
+Last session: 2026-04-28T21:17:41Z
+Stopped at: Completed 24-01-PLAN.md (FilePickerScreen widget; PICK-02/03/04/05 closed; 11 picker tests + 616 project tests green)
 Resume file: None
-Next action: Execute Phase 24 (TUI file picker — markdown renderer is now ready as a downstream consumer; integrates with WordWrapper(80) + ProfilePrinterDriver via the dual-channel `text_output_fn`/`style_output_fn` interface)
+Next action: Execute Plan 24-02 (TeletypeApp keybinding + action_print_markdown + result-callback wiring; depends on 24-01's `FilePickerScreen` + `Screen[Path | None]` contract)

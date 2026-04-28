@@ -10,10 +10,10 @@ Requirements for the **Markdown File Printing** milestone. Each maps to roadmap 
 ### File Picker (TUI)
 
 - [ ] **PICK-01**: User can open a markdown file picker from the main TUI session via a keybinding
-- [ ] **PICK-02**: Picker is rooted at the directory `claude-teletype` was launched from (cwd) and supports navigating into subdirectories and back to parents
-- [ ] **PICK-03**: Picker filters visible files to `.md` and `.markdown` extensions; directories are always shown
-- [ ] **PICK-04**: User can cancel the picker and return to the chat session without printing anything
-- [ ] **PICK-05**: Picker displays the resolved absolute path of the highlighted file so the user knows what they're about to print
+- [x] **PICK-02**: Picker is rooted at the directory `claude-teletype` was launched from (cwd) and supports navigating into subdirectories and back to parents
+- [x] **PICK-03**: Picker filters visible files to `.md` and `.markdown` extensions; directories are always shown
+- [x] **PICK-04**: User can cancel the picker and return to the chat session without printing anything
+- [x] **PICK-05**: Picker displays the resolved absolute path of the highlighted file so the user knows what they're about to print
 
 ### CLI Subcommand
 
@@ -93,10 +93,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PICK-01 | Phase 24 | Pending |
-| PICK-02 | Phase 24 | Pending |
-| PICK-03 | Phase 24 | Pending |
-| PICK-04 | Phase 24 | Pending |
-| PICK-05 | Phase 24 | Pending |
+| PICK-02 | Phase 24 | Complete |
+| PICK-03 | Phase 24 | Complete |
+| PICK-04 | Phase 24 | Complete |
+| PICK-05 | Phase 24 | Complete |
 | CLI-01 | Phase 25 | Pending |
 | CLI-02 | Phase 25 | Pending |
 | CLI-03 | Phase 25 | Pending |

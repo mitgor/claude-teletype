@@ -176,8 +176,12 @@ Plans:
   3. User sees the absolute path of the currently-highlighted file displayed in the picker so they know exactly what they're about to print
   4. User pressing escape (or selecting an explicit "Cancel" entry) closes the picker and returns to the chat session with no print job started, no transcript entry, and no printer-state side effects
   5. User selecting a file dispatches the renderer (Phase 23) against that path and the picker closes back to the chat
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
+
+Plans:
+- [x] 24-01-PLAN.md -- FilePickerScreen widget: DirectoryTree, .md/.markdown filter, hidden-dir filter, path display, escape/q cancel, file-selected dismiss
+- [ ] 24-02-PLAN.md -- ctrl+o keybinding integration into TeletypeApp; action_open_markdown + _handle_picker_result callback; notify() smoke (Phase 26 wires real render)
 
 ### Phase 25: `claude-teletype print` CLI Subcommand
 **Goal**: Users print a markdown file in one shot from the shell — either by passing the path directly or by launching the picker and exiting after the print — without ever entering the chat TUI
@@ -233,6 +237,6 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 3/3 | Complete   | 2026-04-28 |
 | 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
 | 23. Streaming Markdown Renderer | v1.5 | 3/3 | Complete   | 2026-04-28 |
-| 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |
+| 24. TUI File Picker | v1.5 | 1/2 | In Progress|  |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/TBD | Not started | — |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 0/TBD | Not started | — |
