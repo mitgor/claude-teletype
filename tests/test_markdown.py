@@ -452,3 +452,138 @@ class TestIntegration:
             assert b"\n" not in chunk, (
                 f"style channel emitted newline: {chunk!r}"
             )
+
+
+class TestRendererCancelSafety:
+    """Plan 26-02 (FLOW-05): MarkdownRenderer.close() cancel-safety contract.
+
+    Verifies the public abort hook that lets cancel handlers (Plan 26-03's
+    cancel keybinding in tui.py) flush any open bold/italic spans through
+    the style channel so the printer's style state is clean for the next
+    print job. close() is a thin public wrapper around the existing
+    private ``_close_open_styles`` helper from Phase 23-03 — single
+    source of truth for emit ordering (italic_off before bold_off, LIFO).
+    """
+
+    def test_close_is_public_method(self) -> None:
+        """close() is a public attribute on MarkdownRenderer."""
+        assert hasattr(MarkdownRenderer, "close")
+        assert callable(MarkdownRenderer.close)
+
+    def test_close_with_open_bold_emits_bold_off(self) -> None:
+        """Open bold span gets closed by close() — leaves printer state clean."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        # Simulate partial render that opened bold but did not close it.
+        renderer._bold_open = True
+        renderer.close()
+        assert b"\x1bF" in style_bytes  # ESC F = escp bold off
+        assert renderer._bold_open is False
+
+    def test_close_with_open_italic_emits_italic_off(self) -> None:
+        """Open italic span gets closed by close() — leaves printer state clean."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        renderer._italic_open = True
+        renderer.close()
+        assert b"\x1b5" in style_bytes  # ESC 5 = escp italic off
+        assert renderer._italic_open is False
+
+    def test_close_emits_italic_before_bold_lifo(self) -> None:
+        """Both flags open: close() emits italic_off then bold_off (LIFO)."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        renderer._bold_open = True
+        renderer._italic_open = True
+        renderer.close()
+        # LIFO close order: italic_off (\x1b5) then bold_off (\x1bF).
+        italic_idx = style_bytes.index(b"\x1b5")
+        bold_idx = style_bytes.index(b"\x1bF")
+        assert italic_idx < bold_idx
+        assert renderer._italic_open is False
+        assert renderer._bold_open is False
+
+    def test_close_with_no_open_styles_is_noop(self) -> None:
+        """No open emphasis -> close() emits nothing."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        # Both flags False (default __init__ state).
+        renderer.close()
+        assert style_bytes == []
+
+    def test_close_is_idempotent(self) -> None:
+        """Second close() call after flags are clear emits nothing."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        renderer._bold_open = True
+        renderer.close()
+        first_call_bytes = list(style_bytes)
+        style_bytes.clear()
+        renderer.close()
+        # Second call should add nothing — flags already cleared.
+        assert style_bytes == []
+        # First call did emit bold_off.
+        assert b"\x1bF" in first_call_bytes
+
+    def test_close_with_profile_none_is_safe(self) -> None:
+        """profile=None: _emit_style_off short-circuits, close() stays a no-op."""
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=None,
+        )
+        renderer._bold_open = True
+        renderer._italic_open = True
+        renderer.close()  # MUST NOT raise
+        # No bytes emitted — profile=None short-circuit in _emit_style_off.
+        assert style_bytes == []
+
+    def test_close_docstring_documents_abort_contract(self) -> None:
+        """Docstring contract: must mention 'abort' or 'cancel' so future
+        maintainers find the public API documenting Phase 26 cancel handling."""
+        doc = (MarkdownRenderer.close.__doc__ or "").lower()
+        assert "abort" in doc or "cancel" in doc
+
+    def test_close_with_render_then_cancel_balances_style_byte_pairs(self) -> None:
+        """End-to-end-ish: partial render emits style_on, close() balances it.
+
+        Verifies the user-facing FLOW-05 promise: every style_on has a
+        matching style_off after close() runs.
+        """
+        style_bytes: list[bytes] = []
+        renderer = MarkdownRenderer(
+            text_output_fn=lambda c: None,
+            style_output_fn=style_bytes.append,
+            profile=get_profile("escp"),
+        )
+        # Partial render: open bold (e.g. "**hello" with no closing **).
+        # We synthesise this via _toggle_bold so the test doesn't depend on
+        # render() internals.
+        renderer._toggle_bold()  # opens bold: emits ESC E
+        # Simulate user cancel: caller invokes close().
+        renderer.close()
+        # Byte-level balance check: bold_on (\x1bE) and bold_off (\x1bF) match.
+        bold_on_count = style_bytes.count(b"\x1bE")
+        bold_off_count = style_bytes.count(b"\x1bF")
+        assert bold_on_count == bold_off_count == 1
