@@ -407,6 +407,13 @@ def test_load_custom_profiles_all_fields():
                     "usb_vendor_id": "04b8",
                     "usb_product_id": "0202",
                     "columns": 132,
+                    "bold_on": "1b45",
+                    "bold_off": "1b46",
+                    "italic_on": "1b34",
+                    "italic_off": "1b35",
+                    "underline_on": "1b2d01",
+                    "underline_off": "1b2d00",
+                    "buffer_bytes": 64,
                 }
             }
         }
@@ -427,6 +434,86 @@ def test_load_custom_profiles_all_fields():
     assert p.usb_vendor_id == 0x04B8
     assert p.usb_product_id == 0x0202
     assert p.columns == 132
+    assert p.bold_on == b"\x1bE"
+    assert p.bold_off == b"\x1bF"
+    assert p.italic_on == b"\x1b4"
+    assert p.italic_off == b"\x1b5"
+    assert p.underline_on == b"\x1b-\x01"
+    assert p.underline_off == b"\x1b-\x00"
+    assert p.buffer_bytes == 64
+
+
+def test_load_custom_profiles_style_hex_round_trip():
+    """Phase 21 style capability hex strings decode to bytes via bytes.fromhex."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "styled": {
+                    "bold_on": "1b45",       # ESC E
+                    "bold_off": "1b46",      # ESC F
+                    "italic_on": "1b34",     # ESC 4
+                    "italic_off": "1b35",    # ESC 5
+                    "underline_on": "1b2d01",   # ESC - 1
+                    "underline_off": "1b2d00",  # ESC - 0
+                }
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    p = result["styled"]
+    assert p.bold_on == b"\x1bE"
+    assert p.bold_off == b"\x1bF"
+    assert p.italic_on == b"\x1b4"
+    assert p.italic_off == b"\x1b5"
+    assert p.underline_on == b"\x1b-\x01"
+    assert p.underline_off == b"\x1b-\x00"
+
+
+def test_load_custom_profiles_buffer_bytes_int():
+    """buffer_bytes is read as a plain integer (NOT a hex string)."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "chunked": {
+                    "buffer_bytes": 128,
+                }
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    assert result["chunked"].buffer_bytes == 128
+
+
+def test_load_custom_profiles_buffer_bytes_default_256_when_absent():
+    """Missing buffer_bytes defaults to 256."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bare": {}
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    assert result["bare"].buffer_bytes == 256
+
+
+def test_load_custom_profiles_style_keys_default_empty_when_absent():
+    """All six style keys default to empty bytes when absent from TOML."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "bare": {}
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    p = result["bare"]
+    assert p.bold_on == b""
+    assert p.bold_off == b""
+    assert p.italic_on == b""
+    assert p.italic_off == b""
+    assert p.underline_on == b""
+    assert p.underline_off == b""
 
 
 # ---------------------------------------------------------------------------
