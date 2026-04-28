@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: "Phase 26-01 COMPLETE. FLOW-01..04 satisfied. SpeedModeScreen ModalScreen[str | None] in src/claude_teletype/speed_mode_screen.py dismisses with 'typewriter'/'instant'/None on cancel-escape (default selection driven by profile.instant_output per FLOW-02). chunk_writes(driver, data, chunk_size) free function in printer.py splits payload into write_bytes chunks; ValueError on chunk_size<=0; no-op on empty (FLOW-04). _render_markdown_to_driver gains optional 5th param speed_mode='instant' (Phase 25 backcompat) — typewriter mode wires per-char time.sleep using pacer.classify_char + CHAR_DELAYS plus bell on \\n via audio.make_bell_output (skipped if no_audio); instant mode routes style channel through chunk_writes(driver, data, profile.buffer_bytes). 22 new tests = 675 total green (653 baseline + 9 SpeedModeScreen + 7 chunk_writes + 6 speed_mode wiring). Phase 25 27-test regression sentinel still green."
-stopped_at: Completed 26-01-PLAN.md (Wave 1 of Phase 26; FLOW-01..04 satisfied; SpeedModeScreen + chunk_writes + dual-mode pipeline; 22 new tests = 675 total green; Plans 26-02 and 26-03 unblocked)
-last_updated: "2026-04-28T22:30:00Z"
-last_activity: 2026-04-28 -- 26-01 landed (SpeedModeScreen ModalScreen + chunk_writes free function + speed_mode param wired through _render_markdown_to_driver with sync time.sleep typewriter path + chunked instant path; FLOW-01..04 closed; 22 new tests = 675 total green)
+status: "Plan 26-02 closed FLOW-05 renderer-side. MarkdownRenderer.close() public abort hook landed in src/claude_teletype/markdown.py — thin wrapper delegating 1:1 to existing _close_open_styles (Phase 23 single source of truth preserved); idempotent; profile=None safe; class docstring extended with 'Cancel safety' paragraph. 9 new tests in TestRendererCancelSafety (RED→GREEN gate); 0 regressions: 675 -> 684 green. Plan 26-03 unblocked: cancel keybinding handler in tui.py can now call renderer.close() + driver.end_response() with confidence."
+stopped_at: Completed 26-02-PLAN.md (Wave 2 of Phase 26; FLOW-05 renderer-side closed; MarkdownRenderer.close() public abort hook; 9 new tests = 684 total green; Plan 26-03 unblocked)
+last_updated: "2026-04-28T22:35:08Z"
+last_activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort hook delegating to _close_open_styles; class docstring "Cancel safety" paragraph documents FLOW-05 contract; 9 new tests = 684 total green)
 progress:
   total_phases: 9
   completed_phases: 5
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (1/3 plans). Plan 26-01 closed FLOW-01..04 (speed dialog modal, buffer chunking helper, dual-mode rendering pipeline). Plan 26-02 (FLOW-05 safe-cancel) and Plan 26-03 (TXN-01..03 transcript wiring + tui.py/cli.py SpeedModeScreen integration) are next.
+**Current focus:** Phase 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (2/3 plans). Plan 26-01 closed FLOW-01..04 (speed dialog modal, buffer chunking helper, dual-mode rendering pipeline). Plan 26-02 closed FLOW-05 renderer-side (MarkdownRenderer.close() public abort hook). Plan 26-03 next (TXN-01..03 transcript wiring + tui.py/cli.py SpeedModeScreen integration + cancel keybinding wiring).
 
 ## Current Position
 
-Phase: 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (1/3 plans)
-Plan: 26-02 next (MarkdownRenderer.close() + cancel keybinding for FLOW-05)
-Status: Plan 26-01 closed FLOW-01..04. SpeedModeScreen ModalScreen[str | None] (src/claude_teletype/speed_mode_screen.py) dismisses with "typewriter"/"instant"/None; default selection driven by profile.instant_output (FLOW-02). chunk_writes(driver, data, chunk_size) free function in printer.py raises ValueError on chunk_size<=0 and emits ceil(L/N) write_bytes calls (FLOW-04). _render_markdown_to_driver gained optional speed_mode="instant" param preserving Phase 25 callers; typewriter path wraps WordWrapper output_fn with sync time.sleep using pacer.classify_char + CHAR_DELAYS multipliers plus bell on '\n' via audio.make_bell_output (skipped if config.no_audio); instant path wraps style_dest with chunk_writes(driver, data, profile.buffer_bytes). 22 new tests, 0 regressions: 653 -> 675 green. Phase 25 27-test regression sentinel preserved.
-Last activity: 2026-04-28 -- 26-01 landed (SpeedModeScreen ModalScreen + chunk_writes free function + speed_mode param wired through _render_markdown_to_driver with sync time.sleep typewriter path + chunked instant path; FLOW-01..04 closed; 22 new tests = 675 total green)
+Phase: 26 — Speed Dialog, Buffer Chunking, Cancel & Transcript — **IN PROGRESS** (2/3 plans)
+Plan: 26-03 next (write_printed_file helper + tui.py picker→speed-dialog→renderer→transcript pipeline + cancel keybinding wiring; TXN-01..03 + FLOW-05 closure)
+Status: Plan 26-02 closed FLOW-05 renderer-side. MarkdownRenderer.close() public abort hook landed in src/claude_teletype/markdown.py — thin wrapper delegating 1:1 to existing _close_open_styles (Phase 23 single source of truth preserved); idempotent; profile=None safe; class docstring extended with "Cancel safety" paragraph documenting the FLOW-05 contract. 9 new tests in TestRendererCancelSafety (RED commit a0fd705 → GREEN commit 938eb1d gate); 0 regressions: 675 -> 684 green. Phase 23's 39 baseline tests untouched and green; Phase 25's 27-test regression sentinel preserved. Plan 26-03 unblocked: cancel keybinding handler in tui.py can call renderer.close() + driver.end_response() with confidence (LIFO close order matches the seven existing block-boundary close sites; resolve_style fallback chain consistent with the rest of the renderer).
+Last activity: 2026-04-28 -- 26-02 landed (MarkdownRenderer.close() public abort hook; thin wrapper around _close_open_styles; class docstring "Cancel safety" paragraph documents FLOW-05 contract; 9 new TestRendererCancelSafety tests = 684 total green)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Last activity: 2026-04-28 -- 26-01 landed (SpeedModeScreen ModalScreen + chunk_w
 | 25-01 | 8.6min | 2 | 2 | 2026-04-28 |
 | 25-02 | 3.6min | 2 | 2 | 2026-04-29 |
 | 26-01 | 5.9min | 2 | 6 | 2026-04-28 |
+| 26-02 | 4.0min | 1 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -176,6 +177,15 @@ Decisions added in 26-01:
 - Pattern locked for one-shot ModalScreen with two-option choice + Print/Cancel: `Vertical(id="<dialog>") -> Static(title) + RadioSet(id="<radio>") -> 2 RadioButton + Horizontal(id="button-row") -> Print + Cancel`. `on_button_pressed` dispatches by `event.button.id`; Print button reads `RadioSet.pressed_button.id`. `action_cancel` mapped to `escape` via `BINDINGS`. Mirrors `SettingsScreen`'s shape.
 - TDD RED gate proven for both tasks: Task 1's tests failed with `ModuleNotFoundError: No module named 'claude_teletype.speed_mode_screen'` before implementation; Task 2's tests failed with `TypeError: _render_markdown_to_driver() got an unexpected keyword argument 'speed_mode'` before implementation. GREEN gate followed in each case with all tests passing.
 
+Decisions added in 26-02:
+
+- Public `MarkdownRenderer.close()` is a thin 1-line delegation to `_close_open_styles()` — Phase 23's helper stays the SINGLE source of truth for LIFO emit ordering (italic_off before bold_off) and the resolve_style fallback chain. Reimplementing the cleanup body inline would duplicate the LIFO order and the profile-fallback decision; every future fix would need to be applied in two places. Promote-private-helper-to-public-API pattern locked: when a private mechanic needs a public entry point (e.g. cancel handler in another module), add a thin documented wrapper that delegates 1:1.
+- Cancel keybinding wiring deferred to Plan 26-03. Plan 26-02 ships only the renderer-side public API. The keybinding interaction with the speed-dialog → picker → render pipeline lives in 26-03 so the integration test there can exercise the full cancel pipeline as one piece. This split also keeps 26-02's surface area minimal (one public method, one docstring paragraph, 9 tests) which made TDD RED→GREEN sharp.
+- close() takes no arguments and returns None. No `force=True` flag, no `flush=True` flag — the underlying `_close_open_styles` is already deterministic (closes whatever flags are open). Adding optional params would just expose private state. Idempotency is inherent: emit-then-clear semantics on the flags mean a second call sees False flags and emits nothing — no separate `_closed` boolean needed.
+- profile=None safety inherited from Phase 23: `_emit_style_off` already short-circuits via `self._profile is None: return` (Phase 23-03), so close() does NOT need its own None guard. Test `test_close_with_profile_none_is_safe` documents this defensively.
+- Document the contract in BOTH the class docstring (Cancel safety paragraph) AND the `close()` method docstring. Class docstring tells future readers WHY the API exists (printer state-leak hazard); method docstring tells callers HOW to use it (idempotent, profile=None safe, LIFO emit order). Both reference `_close_open_styles` by name to make the delegation discoverable. Sentinel test `test_close_docstring_documents_abort_contract` asserts "abort" or "cancel" appears in the docstring.
+- TDD RED gate proven: 9 tests added in commit a0fd705 (test) all failed with `AttributeError: 'MarkdownRenderer' object has no attribute 'close'` before implementation. GREEN commit 938eb1d (feat) added the method body and all 9 passed first run; Phase 23's 17 emphasis/symmetry tests still green; full project went 675 → 684 (+9, zero regressions). REFACTOR phase skipped — implementation is one statement.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -190,7 +200,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28T22:30:00Z
-Stopped at: Completed 26-01-PLAN.md (Wave 1 of Phase 26; FLOW-01..04 satisfied; SpeedModeScreen + chunk_writes + dual-mode pipeline; 22 new tests = 675 total green)
+Last session: 2026-04-28T22:35:08Z
+Stopped at: Completed 26-02-PLAN.md (Wave 2 of Phase 26; FLOW-05 renderer-side closed; MarkdownRenderer.close() public abort hook; 9 new TestRendererCancelSafety tests = 684 total green)
 Resume file: None
-Next action: Execute Plan 26-02 (Wave 2). Adds `MarkdownRenderer.close()` for safe-cancel mid-render (FLOW-05) — flush any open style_off bytes before driver shutdown so impact printers don't end in a stuck-bold/italic/underline state. Then Plan 26-03 (Wave 3) wires `SpeedModeScreen` into both call sites (`tui.py::_handle_picker_result` replacing Phase 24's `notify()` stub; `cli.py::MarkdownPickerApp._on_pick` calling `_render_markdown_to_driver(..., speed_mode=choice)`) and adds `transcript.write_printed_file(path, body)` per TXN-01..03. Locked Phase 26-01 contracts: `SpeedModeScreen(default_mode: str = "typewriter")` dismissing with `"typewriter"|"instant"|None`; `chunk_writes(driver: PrinterDriver, data: bytes, chunk_size: int) -> None` (ValueError on chunk_size<=0); `_render_markdown_to_driver(path, config, all_profiles, resolved_profile, speed_mode: str = "instant") -> int`. Phase 25 contracts (4-arg shape, `_resolve_print_context`, `_make_markdown_picker_app` factory) remain locked and intact.
+Next action: Execute Plan 26-03 (Wave 3). Wires `SpeedModeScreen` into both call sites (`tui.py::_handle_picker_result` replacing Phase 24's `notify()` stub; `cli.py::MarkdownPickerApp._on_pick` calling `_render_markdown_to_driver(..., speed_mode=choice)`), adds `transcript.write_printed_file(path, body)` per TXN-01..03, and wires the cancel keybinding handler that calls `renderer.close()` + `driver.end_response()` (FLOW-05 closure). Locked Phase 26-01 + 26-02 contracts: `SpeedModeScreen(default_mode: str = "typewriter")` dismissing with `"typewriter"|"instant"|None`; `chunk_writes(driver: PrinterDriver, data: bytes, chunk_size: int) -> None` (ValueError on chunk_size<=0); `_render_markdown_to_driver(path, config, all_profiles, resolved_profile, speed_mode: str = "instant") -> int`; `MarkdownRenderer.close() -> None` (idempotent, profile=None safe, LIFO emit order — delegates to `_close_open_styles`). Phase 25 contracts (4-arg shape, `_resolve_print_context`, `_make_markdown_picker_app` factory) remain locked and intact.
