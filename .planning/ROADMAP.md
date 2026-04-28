@@ -66,7 +66,7 @@
 **Milestone Goal:** Open and print local Markdown files through the TUI or CLI, rendering bold/italic/headings/lists/code/tables on capability-aware printer profiles, with per-print speed selection.
 
 - [x] **Phase 21: Profile Capability Fields & Custom-TOML Support** - Extend `PrinterProfile` with style byte fields, fallback chain, and `buffer_bytes`; route the same fields through custom-TOML loader (completed 2026-04-28)
-- [ ] **Phase 22: Encoded Style Sequences for Built-In Profiles** - Verified bold/italic/underline byte sequences for Epson ESC/P, IBM PPDS, HP PCL, Juki, OKI, and Citizen built-ins
+- [x] **Phase 22: Encoded Style Sequences for Built-In Profiles** - Verified bold/italic/underline byte sequences for Epson ESC/P, IBM PPDS, HP PCL, Juki, OKI, and Citizen built-ins (completed 2026-04-28)
 - [ ] **Phase 23: Streaming Markdown Renderer** - Block-and-inline renderer that consumes profile capabilities, composes with `WordWrapper`, and preserves the CR+LF + reinit atomic newline pattern
 - [ ] **Phase 24: TUI File Picker** - Markdown file picker rooted at cwd, launched from the main session via a keybinding, with cancel-back-to-chat semantics
 - [ ] **Phase 25: `claude-teletype print` CLI Subcommand** - One-shot print path with and without an explicit file argument, honoring all existing config layers
@@ -147,7 +147,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 22-01-PLAN.md — Encode bold/italic/underline ESC sequences on built-in profiles, remove Phase 21 sentinel, add per-profile + paired-symmetry tests
+- [x] 22-01-PLAN.md — Encode bold/italic/underline ESC sequences on built-in profiles, remove Phase 21 sentinel, add per-profile + paired-symmetry tests
 
 ### Phase 23: Streaming Markdown Renderer
 **Goal**: A streaming renderer turns markdown text into a sequence of `(plain_char, optional_style_bytes)` events that compose with the existing `WordWrapper` and `ProfilePrinterDriver` newline pattern — so wrapped lines preserve list indentation, blockquote prefixes, and the atomic CR+LF + reinit transfer
@@ -226,7 +226,7 @@ Phases execute in numeric order: 21 → 22 → 23 → 24 → 25 → 26
 | 19. Printer Setup Screen | v1.4 | 3/3 | ✓ Complete | 2026-04-03 |
 | 20. Config Persistence & Smart Startup | v1.4 | 2/2 | ✓ Complete | 2026-04-03 |
 | 21. Profile Capability Fields & Custom-TOML Support | v1.5 | 3/3 | Complete   | 2026-04-28 |
-| 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 0/1 | Not started | — |
+| 22. Encoded Style Sequences for Built-In Profiles | v1.5 | 1/1 | Complete   | 2026-04-28 |
 | 23. Streaming Markdown Renderer | v1.5 | 0/TBD | Not started | — |
 | 24. TUI File Picker | v1.5 | 0/TBD | Not started | — |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 0/TBD | Not started | — |

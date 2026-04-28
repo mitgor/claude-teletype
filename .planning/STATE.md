@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: executing
-stopped_at: Completed 21-03-PLAN.md (resolve_style helper, Phase 21 complete)
-last_updated: "2026-04-28T19:56:30Z"
-last_activity: 2026-04-28 -- Phase 21 complete (resolve_style helper landed; CAP-01/02/03/06 done)
+status: planning
+stopped_at: Completed 22-01-PLAN.md (built-in profiles encoded; Phase 22 complete; CAP-04 + CAP-05 satisfied)
+last_updated: "2026-04-28T20:19:27Z"
+last_activity: 2026-04-28 -- Phase 22 complete (style sequences encoded on built-ins; CAP-04 + CAP-05 satisfied)
 progress:
   total_phases: 9
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
   percent: 100
 ---
 
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 21 — Profile Capability Fields & Custom-TOML Support
+**Current focus:** Phase 22 — Encoded Style Sequences for Built-In Profiles — **COMPLETE**
 
 ## Current Position
 
-Phase: 21 — Profile Capability Fields & Custom-TOML Support — **COMPLETE**
-Plan: Phase 22 next (encode verified bold/italic/underline byte sequences into built-in profiles for CAP-04/CAP-05)
-Status: Phase 21 complete (CAP-01, CAP-02, CAP-03, CAP-06 satisfied); ready for Phase 22 planning
-Last activity: 2026-04-28 -- Phase 21 complete (resolve_style helper landed; CAP-03 satisfied)
+Phase: 22 — Encoded Style Sequences for Built-In Profiles — **COMPLETE**
+Plan: Phase 23 next (markdown renderer consuming resolve_style on the now-encoded built-ins)
+Status: Phase 22 complete (CAP-04 + CAP-05 satisfied); CAP-01..06 all satisfied; ready for Phase 23 planning
+Last activity: 2026-04-28 -- Phase 22 complete (style sequences encoded on built-ins; CAP-04 + CAP-05 satisfied)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 34
+- Total plans completed: 35
 - Average duration: 3.3min
-- Total execution time: 1.9 hours
+- Total execution time: 2.0 hours
 
 **Recent plan metrics:**
 
@@ -45,6 +45,7 @@ Last activity: 2026-04-28 -- Phase 21 complete (resolve_style helper landed; CAP
 | 21-01 | 2.8min | 2 | 2 | 2026-04-28 |
 | 21-02 | 1.8min | 2 | 2 | 2026-04-28 |
 | 21-03 | 2.3min | 2 | 2 | 2026-04-28 |
+| 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -87,20 +88,27 @@ Decisions added in 21-03:
 - Underline is the terminal node of the fallback chain — bold and italic fall back to underline, but underline does NOT substitute bold or italic. Rationale: underline is universally supported on impact printers; if a printer lacks underline too, the renderer emits plain text rather than fabricating a substitute that may print garbage.
 - Italic wins over underline when both are set; bold wins over underline when both are set. The fallback chain only fires when the primary capability is empty — no precedence ambiguity for profile authors who declare both.
 
+Decisions added in 22-01:
+
+- Encoding-table-as-contract: 22-CONTEXT.md's "Encoding sources" table was the authoritative spec. Every byte literal in the planner's action blocks was copied character-for-character into profiles.py — no interpretation, no creative substitution. Fabricated codes would print garbage on real hardware; the conservative-default rule (when unsure, leave empty) was already baked into the table.
+- Citizen ESC/POS bold uses BINARY 1/0 in the third byte (`\x1b\x45\x01`/`\x1b\x45\x00`), NOT ASCII '1'/'0'. The `test_citizen_cts2000_bold_codes` docstring flags this gotcha explicitly so future contributors don't "correct" it back to `\x1b\x45\x31`/`\x1b\x45\x30`.
+- Removed the Phase 21 sentinel `test_builtin_profiles_have_empty_style_codes_in_phase_21` rather than rewriting it — its stated purpose explicitly anticipated removal once Phase 22 landed. Replacement is strictly stronger: TestStyleCodesPerProfile asserts exact byte literals per cell + paired-symmetry sentinel asserts the structural invariant (non-empty `*_on` implies non-empty `*_off`) closing Phase 21 REVIEW IN-05 carry-forward.
+- Aliases (ibm, juki) are NOT separately encoded — they pick up codes through the existing `dataclasses.replace` pattern. Two explicit alias-inheritance tests verify this works after the encoding edit.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
 
 ### Blockers/Concerns
 
-- Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — relevant when Phase 22 fills in Juki style codes.
-- Phase 22: bold/italic byte sequences for OKI 3390 (Epson FX-2 mode) and Citizen CT-S2000 (ESC/POS) need verification against published references; sequences left empty if unverified rather than fabricated (CAP-05 explicitly allows this).
+- Juki 9100 control codes still extrapolated from 6100 (carried over from v1.4) — Phase 22 left Juki bold/italic intentionally empty (CAP-05 conservative-default rule), so the carry-forward concern shrinks to "underline ESC -1/-0 should be exercised on real hardware before claiming Juki underline works end-to-end".
+- Phase 22 left intentionally-empty cells for OKI italic (ESC! mode-bit composite varies by firmware revision) and all three Citizen italics (thermal receipt does not support italic). Documented in 22-CONTEXT.md Deferred Ideas.
 - Phase 23: ASCII table layout under narrow `profile.columns` (e.g. Citizen 42-col thermal) needs a graceful fallback strategy — degenerate wide tables should not crash the renderer.
 - Phase 26: per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode can be trusted.
 
 ## Session Continuity
 
-Last session: 2026-04-28T19:56:30Z
-Stopped at: Completed 21-03-PLAN.md (resolve_style helper, Phase 21 complete)
+Last session: 2026-04-28T20:19:27Z
+Stopped at: Completed 22-01-PLAN.md (built-in profiles encoded; Phase 22 complete; CAP-04 + CAP-05 satisfied)
 Resume file: None
-Next action: Plan Phase 22 (encode bold/italic/underline byte sequences into built-in profiles for CAP-04 and CAP-05)
+Next action: Plan Phase 23 (markdown renderer consuming resolve_style on the now-encoded built-ins)
