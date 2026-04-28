@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from claude_teletype.printer import (
     A4_COLUMNS,
     CupsPrinterDriver,
@@ -1637,3 +1639,80 @@ def test_cups_discovery_defaults_enabled_when_state_missing(mock_run: MagicMock)
     )
     printers = discover_cups_printers()
     assert printers[0]["enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# chunk_writes tests (Phase 26-01, FLOW-04)
+# ---------------------------------------------------------------------------
+
+
+class _RecorderDriver(NullPrinterDriver):
+    """Test double: capture every write_bytes call into a list."""
+
+    def __init__(self) -> None:
+        self.calls: list[bytes] = []
+
+    def write_bytes(self, data: bytes) -> None:
+        self.calls.append(data)
+
+
+class TestChunkWrites:
+    """chunk_writes helper for instant-mode buffer chunking (FLOW-04).
+
+    Splits a bytes payload into fixed-size slices via repeated
+    driver.write_bytes calls. Used by Phase 26's instant-mode pipeline to
+    avoid CH341 USB-LPT bridge byte-fragility (Juki profile buffer_bytes=64).
+    """
+
+    def test_empty_data_is_noop(self):
+        from claude_teletype.printer import chunk_writes
+
+        driver = _RecorderDriver()
+        chunk_writes(driver, b"", 64)
+        assert driver.calls == []
+
+    def test_zero_chunk_size_raises(self):
+        from claude_teletype.printer import chunk_writes
+
+        with pytest.raises(ValueError, match="positive"):
+            chunk_writes(NullPrinterDriver(), b"abc", 0)
+
+    def test_negative_chunk_size_raises(self):
+        from claude_teletype.printer import chunk_writes
+
+        with pytest.raises(ValueError, match="positive"):
+            chunk_writes(NullPrinterDriver(), b"abc", -5)
+
+    def test_exact_multiple_emits_n_chunks(self):
+        from claude_teletype.printer import chunk_writes
+
+        driver = _RecorderDriver()
+        chunk_writes(driver, b"x" * 200, 100)
+        assert len(driver.calls) == 2
+        assert all(len(c) == 100 for c in driver.calls)
+        assert b"".join(driver.calls) == b"x" * 200
+
+    def test_ragged_tail(self):
+        from claude_teletype.printer import chunk_writes
+
+        driver = _RecorderDriver()
+        chunk_writes(driver, b"x" * 250, 100)
+        assert [len(c) for c in driver.calls] == [100, 100, 50]
+        assert b"".join(driver.calls) == b"x" * 250
+
+    def test_single_byte_chunk(self):
+        from claude_teletype.printer import chunk_writes
+
+        driver = _RecorderDriver()
+        chunk_writes(driver, b"hello", 1)
+        assert driver.calls == [b"h", b"e", b"l", b"l", b"o"]
+
+    def test_juki_realistic_512_bytes_chunk_64(self):
+        """CH341 USB-LPT bridge byte-fragility scenario (Juki buffer_bytes=64)."""
+        from claude_teletype.printer import chunk_writes
+
+        driver = _RecorderDriver()
+        chunk_writes(driver, b"\x1bE" * 256, 64)  # 512 bytes total
+        assert len(driver.calls) == 8
+        assert all(len(c) == 64 for c in driver.calls)
+        assert b"".join(driver.calls) == b"\x1bE" * 256

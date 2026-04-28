@@ -945,3 +945,38 @@ def make_printer_output(
     printer_write.flush = printer_flush  # type: ignore[attr-defined]
 
     return printer_write
+
+
+def chunk_writes(
+    driver: PrinterDriver,
+    data: bytes,
+    chunk_size: int,
+) -> None:
+    """Split a bytes payload into chunk_size-byte writes (Phase 26 FLOW-04).
+
+    Used by Phase 26's instant-mode pipeline to prevent buffer overruns on
+    impact printers. The Juki/CH341 USB-LPT bridge in particular drops
+    bytes when bulk transfers exceed the bridge's 64-byte buffer; the
+    profile.buffer_bytes field encodes the per-printer safe chunk size
+    (juki=64, citizen=128, generic=256).
+
+    Each chunk reaches the driver via driver.write_bytes — no per-character
+    driver.write calls, so the MD-08 newline contract is preserved
+    (newlines stay on the text channel and never enter chunk_writes).
+
+    Args:
+        driver: A PrinterDriver. write_bytes is called once per chunk.
+        data: The raw bytes to split. Empty -> no-op (no driver call).
+        chunk_size: Slice length. Must be positive.
+
+    Raises:
+        ValueError: If chunk_size <= 0.
+    """
+    if chunk_size <= 0:
+        raise ValueError(
+            f"chunk_size must be positive, got {chunk_size}"
+        )
+    if not data:
+        return
+    for i in range(0, len(data), chunk_size):
+        driver.write_bytes(data[i : i + chunk_size])
