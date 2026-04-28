@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Markdown File Printing
-status: in-progress
-stopped_at: Completed 24-01-PLAN.md (FilePickerScreen widget; PICK-02/03/04/05 closed; 11 picker tests + 616 project tests green)
-last_updated: "2026-04-28T21:17:41Z"
-last_activity: 2026-04-28 -- 24-01 landed (FilePickerScreen + MarkdownDirectoryTree filter_paths + Pilot test suite; PICK-02/03/04/05 closed)
+status: Phase 24 closed. PICK-01..05 all satisfied. ctrl+o keybinding wired into TeletypeApp + FilePickerScreen integration via action_open_markdown / _handle_picker_result; 10 keybinding tests + 626 project tests all green. Phase 26 inherits the locked Path contract.
+stopped_at: Completed 24-02-PLAN.md (ctrl+o keybinding + action_open_markdown + _handle_picker_result; PICK-01 closed; 10 new tests + 626 project tests green)
+last_updated: "2026-04-28T21:26:24Z"
+last_activity: 2026-04-28 -- 24-02 landed (ctrl+o binding + action_open_markdown + _handle_picker_result notify smoke; PICK-01 closed; Phase 24 complete)
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 10
+  completed_phases: 4
+  total_plans: 9
   completed_plans: 9
-  percent: 90
+  percent: 100
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-28)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 24 — TUI File Picker — **IN PROGRESS** (1/2 plans)
+**Current focus:** Phase 24 — TUI File Picker — **COMPLETE** (2/2 plans). Phase 25 (CLI no-arg path) and Phase 26 (speed dialog + render pipeline) next.
 
 ## Current Position
 
-Phase: 24 — TUI File Picker — **IN PROGRESS** (1/2 plans)
-Plan: Plan 24-02 next (keybinding integration into TeletypeApp + result-callback wiring)
-Status: 24-01 closed. PICK-02/03/04/05 satisfied. FilePickerScreen widget + MarkdownDirectoryTree filter_paths landed; 11 picker tests + 616 project tests all green.
-Last activity: 2026-04-28 -- 24-01 landed (FilePickerScreen + MarkdownDirectoryTree filter_paths + Pilot test suite; PICK-02/03/04/05 closed)
+Phase: 24 — TUI File Picker — **COMPLETE** (2/2 plans)
+Plan: Phase 25 next (CLI no-arg path entry; reuses FilePickerScreen with the same `root=` constructor)
+Status: Phase 24 closed. PICK-01..05 all satisfied. ctrl+o keybinding wired into TeletypeApp + FilePickerScreen integration via action_open_markdown / _handle_picker_result; 10 keybinding tests + 626 project tests all green. Phase 26 inherits the locked Path contract (the _handle_picker_result method name and Path argument shape are the consumed interface).
+Last activity: 2026-04-28 -- 24-02 landed (ctrl+o binding + action_open_markdown + _handle_picker_result notify smoke; PICK-01 closed; Phase 24 complete)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 39
+- Total plans completed: 40
 - Average duration: 3.3min
-- Total execution time: 2.3 hours
+- Total execution time: 2.4 hours
 
 **Recent plan metrics:**
 
 | Plan | Duration | Tasks | Files | Completed |
 |------|----------|-------|-------|-----------|
-| 22-01 | 4.0min | 3 | 2 | 2026-04-28 |
 | 23-01 | 2.5min | 2 | 2 | 2026-04-28 |
 | 23-02 | 5.1min | 2 | 2 | 2026-04-28 |
 | 23-03 | 4.1min | 2 | 2 | 2026-04-28 |
 | 24-01 | 3.4min | 2 | 2 | 2026-04-28 |
+| 24-02 | 4.2min | 2 | 2 | 2026-04-28 |
 
 **By Milestone:**
 
@@ -130,6 +130,19 @@ Decisions added in 24-01:
 - `Static` content assertion uses `str(display.render())` not `display.renderable` — the latter doesn't exist in this Textual version; `render()` returns a `Content` whose `str()` is the displayed text. Documented inline in `test_path_display_initial_placeholder` so future contributors don't reach for the non-existent attr.
 - Class docstring says "(not a modal overlay)" not "not a ModalScreen" — preserves the locked decision in plain English while keeping `grep -c ModalScreen file_picker_screen.py == 0` green (verification rule from the plan).
 
+Decisions added in 24-02:
+
+- ctrl+o chosen over ctrl+m / ctrl+shift+o for the file picker entry. Mnemonic ("open file"), zero conflict with the four existing TeletypeApp bindings (ctrl+d quit, ctrl+t typewriter, ctrl+comma settings, escape cancel_stream), unreserved by Textual. Some legacy terminals send ctrl+o as XOFF-adjacent "discard output", but Textual's input layer captures it as `key=ctrl+o` regardless (same mechanism that lets nano use ctrl+o for "Write Out").
+- Footer label "Open MD" (7 chars) — matches brevity of existing labels (Quit/Typewriter/Settings/Cancel). Binding placed between ctrl+comma and escape so show=True bindings stay in left-to-right Footer order; show=False escape stays last.
+- notify() smoke chosen over real render for `_handle_picker_result`'s Path arm. Keeps Phase 24 mergeable independent of Phase 26's speed-dialog scope. Phase 26 will replace only the body — the method name (`_handle_picker_result`), the Path argument shape (always absolute via 24-01's `Path(event.path).resolve()`), and the input-refocus pattern in the None arm are the locked contract Phase 26 consumes.
+- Paired action_<name> + _handle_<name>_result methods convention now used in three places: settings (action_open_settings + _apply_settings), printer setup (_show_setup_screen + _handle_setup_result), file picker (action_open_markdown + _handle_picker_result). Future push_screen+callback flows should follow the same shape.
+- Action handler is binding-agnostic — `action_open_markdown` does not reference `ctrl+o`, so the BINDINGS line can be edited (e.g. to ctrl+shift+o or ctrl+p) without touching the method. Documented in the action's docstring.
+- Refocus #prompt input in BOTH arms of `_handle_picker_result` (None and Path) — matches existing `_handle_setup_result` / `_apply_settings`. Textual restores focus on `pop_screen` automatically in most cases, but the explicit `query_one("#prompt", Input).focus()` is the established belt-and-suspenders style.
+- ctrl+o is App-level (not Input-level) — works even when the input prompt is disabled (Thinking... mid-stream state). Locked by `test_picker_opens_during_disabled_input`. Phase 26 will need to handle stream-in-flight gracefully for the real render path, but the binding works regardless.
+- Dual-test pattern (action-direct + keypress) for keybinding integration: action-direct test isolates handler logic; keypress test validates BINDINGS wiring. If only one fails you know which layer is broken without bisecting.
+- Direct `screen.dismiss(value)` in cancel/selection Pilot tests — same shape as 24-01's synthesized FileSelected pattern. Avoids DirectoryTree timing flakiness; tests the same observable contract the callback consumes.
+- Docstring rephrased "MarkdownRenderer pipeline" -> "Phase 23's renderer pipeline" so plan verification rule `grep -c MarkdownRenderer src/claude_teletype/tui.py == 0` holds. Phase 23 contract is locked — this plan must not import or instantiate the renderer. Same Rule-3 docstring-grep pattern plan 24-01 used for ModalScreen.
+
 ### Pending Todos
 
 None — phase planning starts at Phase 21.
@@ -144,7 +157,7 @@ None — phase planning starts at Phase 21.
 
 ## Session Continuity
 
-Last session: 2026-04-28T21:17:41Z
-Stopped at: Completed 24-01-PLAN.md (FilePickerScreen widget; PICK-02/03/04/05 closed; 11 picker tests + 616 project tests green)
+Last session: 2026-04-28T21:26:24Z
+Stopped at: Completed 24-02-PLAN.md (ctrl+o keybinding + action_open_markdown + _handle_picker_result; PICK-01 closed; Phase 24 complete; 10 keybinding tests + 626 project tests green)
 Resume file: None
-Next action: Execute Plan 24-02 (TeletypeApp keybinding + action_print_markdown + result-callback wiring; depends on 24-01's `FilePickerScreen` + `Screen[Path | None]` contract)
+Next action: Execute Phase 25 (CLI no-arg path entry — `claude-teletype` invoked without a path argument launches the picker before the chat. Reuses FilePickerScreen with the existing `root=` constructor parameter; no FilePickerScreen changes required.)
