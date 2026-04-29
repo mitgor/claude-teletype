@@ -150,7 +150,8 @@ async def test_picker_mounts_with_directory_tree(md_tree: Path):
     """PICK-02: Picker mounts; DirectoryTree present and rooted at given path."""
     app = PickerTestApp(root=md_tree)
     async with app.run_test(size=(80, 40)) as pilot:
-        await pilot.pause()
+        # Longer pause lets DirectoryTree.watch_path async reactive complete.
+        await pilot.pause(0.05)
         tree = app.screen.query_one("#picker-tree", DirectoryTree)
         # DirectoryTree.path is a Path on modern Textual; coerce for safety.
         assert Path(tree.path).resolve() == md_tree.resolve()
