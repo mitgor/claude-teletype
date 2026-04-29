@@ -421,6 +421,42 @@ def test_load_custom_profiles_all_fields():
     assert p.buffer_bytes == 64
 
 
+def test_citizen_profile_has_cp866_codepage():
+    """citizen-cts2000 ships with CP866 codepage_command and cp866 text_codec."""
+    p = get_profile("citizen-cts2000")
+    assert p.codepage_command == b"\x1bt\x11"  # ESC t 17 — CP866
+    assert p.text_codec == "cp866"
+
+
+def test_load_custom_profiles_codepage_and_text_codec():
+    """Custom TOML profiles can declare codepage_command (hex) and text_codec."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "russian": {
+                    "codepage_command": "1b7411",  # ESC t 17
+                    "text_codec": "cp866",
+                }
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    p = result["russian"]
+    assert p.codepage_command == b"\x1bt\x11"
+    assert p.text_codec == "cp866"
+
+
+def test_load_custom_profiles_codepage_defaults_empty():
+    """Profiles without codepage keys default to empty bytes / empty string."""
+    raw = {
+        "printer": {"profiles": {"plain": {"description": "ASCII only"}}}
+    }
+    result = load_custom_profiles(raw)
+    p = result["plain"]
+    assert p.codepage_command == b""
+    assert p.text_codec == ""
+
+
 def test_load_custom_profiles_style_hex_round_trip():
     """Phase 21 style capability hex strings decode to bytes via bytes.fromhex."""
     raw = {

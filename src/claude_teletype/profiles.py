@@ -83,6 +83,20 @@ class PrinterProfile:
     # USB-bulk printers can safely go larger.
     buffer_bytes: int = 256
 
+    # Non-ASCII text encoding. When ``text_codec`` is non-empty, the
+    # ProfilePrinterDriver lazily switches to that codec the first time a
+    # non-ASCII character appears in the stream — sending
+    # ``codepage_command`` once, then encoding subsequent non-ASCII chars
+    # with ``text_codec`` and emitting them as raw bytes (bypassing the
+    # ASCII decode path). Empty defaults preserve the original
+    # ASCII-with-replace behavior for profiles that do not opt in.
+    #
+    # Example for Citizen CT-S2000 (Cyrillic via CP866):
+    #   codepage_command=b"\x1bt\x11"  # ESC t 17 — select CP866 (Russian)
+    #   text_codec="cp866"
+    codepage_command: bytes = b""
+    text_codec: str = ""
+
 
 BUILTIN_PROFILES: dict[str, PrinterProfile] = {
     "generic": PrinterProfile(
@@ -233,6 +247,12 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         usb_product_id=0x2002,
         columns=42,                             # Font A on 80mm thermal paper
         buffer_bytes=128,                       # 80mm receipt buffer is ~512B; modest chunks
+        # Cyrillic / Russian markdown: switch to CP866 lazily on first
+        # non-ASCII char. ESC t 17 selects code page 17 (CP866) on Citizen
+        # ESC/POS firmware. Adjust the command byte if your specific unit
+        # documents a different table number.
+        codepage_command=b"\x1bt\x11",          # ESC t 17 — CP866 (Russian)
+        text_codec="cp866",
     ),
 }
 
@@ -335,6 +355,8 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
             ),
             columns=data.get("columns", 80),
             buffer_bytes=buf,
+            codepage_command=bytes.fromhex(data.get("codepage_command", "")),
+            text_codec=data.get("text_codec", ""),
         )
     return profiles
 

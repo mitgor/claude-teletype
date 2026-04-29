@@ -1642,8 +1642,140 @@ def test_cups_discovery_defaults_enabled_when_state_missing(mock_run: MagicMock)
 
 
 # ---------------------------------------------------------------------------
-# chunk_writes tests (Phase 26-01, FLOW-04)
+# Codepage / Cyrillic tests (post-v1.5: lazy CP866 for citizen-cts2000)
 # ---------------------------------------------------------------------------
+
+
+class _CapturingDriver(NullPrinterDriver):
+    """Test double: capture both write() (str) and write_bytes() (bytes)."""
+
+    def __init__(self) -> None:
+        self.text_calls: list[str] = []
+        self.byte_calls: list[bytes] = []
+
+    @property
+    def is_connected(self) -> bool:  # override NullPrinterDriver's False
+        return True
+
+    def write(self, char: str) -> None:
+        self.text_calls.append(char)
+
+    def write_bytes(self, data: bytes) -> None:
+        self.byte_calls.append(data)
+
+
+class TestCodepageSwitching:
+    """ProfilePrinterDriver lazy codepage switching for non-ASCII text.
+
+    The Citizen CT-S2000 ships ``codepage_command=b"\\x1bt\\x11"`` (ESC t 17,
+    CP866) and ``text_codec="cp866"``. The driver must:
+    - Pass ASCII characters through unchanged (no codepage command emitted)
+    - On the FIRST non-ASCII character, send the codepage command once
+    - Encode subsequent non-ASCII chars via the profile's codec and emit
+      them as raw bytes (NOT through the ASCII-decode path)
+    - Never re-emit the codepage command after the first send (until reset)
+    """
+
+    def _make_driver(self):
+        from claude_teletype.profiles import get_profile
+
+        inner = _CapturingDriver()
+        drv = ProfilePrinterDriver(inner, get_profile("citizen-cts2000"))
+        return drv, inner
+
+    def test_ascii_only_does_not_emit_codepage_command(self):
+        drv, inner = self._make_driver()
+        for ch in "Hello, world!":
+            drv.write(ch)
+        # Codepage command bytes (\x1bt\x11) must NOT appear in any write
+        all_bytes = b"".join(inner.byte_calls)
+        assert b"\x1bt\x11" not in all_bytes
+
+    def _flatten(self, inner) -> bytes:
+        """Concatenate text + byte calls into a single byte stream.
+
+        ``_send_raw`` delivers ESC sequences as strings (decoded via
+        ascii/replace), while non-ASCII chars on a codepage profile go
+        through ``write_bytes``. The actual wire-level output combines
+        both — so for assertions we flatten str→bytes and concat.
+        """
+        out = b""
+        for chunk in inner.text_calls:
+            out += chunk.encode("ascii", errors="replace")
+        for chunk in inner.byte_calls:
+            out += chunk
+        return out
+
+    def test_first_cyrillic_char_emits_codepage_command(self):
+        drv, inner = self._make_driver()
+        drv.write("П")
+        assert b"\x1bt\x11" in self._flatten(inner)
+
+    def test_cyrillic_encoded_via_cp866(self):
+        drv, inner = self._make_driver()
+        for ch in "Привет":
+            drv.write(ch)
+        # CP866 bytes for "Привет" (0x8f 0xe0 0xa8 0xa2 0xa5 0xe2)
+        assert "Привет".encode("cp866") in b"".join(inner.byte_calls)
+
+    def test_codepage_command_emitted_only_once(self):
+        drv, inner = self._make_driver()
+        for ch in "Привет, мир! Hello, мир again!":
+            drv.write(ch)
+        # Codepage command is sent via _send_raw (str path), so check text_calls
+        joined = "".join(inner.text_calls)
+        assert joined.count("\x1bt\x11") == 1
+
+    def test_ascii_after_cyrillic_uses_normal_path(self):
+        drv, inner = self._make_driver()
+        drv.write("П")
+        drv.write("!")
+        # The "!" goes through inner.write (str path), not write_bytes
+        assert "!" in inner.text_calls
+
+    def test_swap_profile_resets_codepage_flag(self):
+        """After swap_profile, the new profile's codepage fires on next non-ASCII."""
+        from claude_teletype.profiles import get_profile
+
+        drv, inner = self._make_driver()
+        drv.write("П")
+        # Now swap to escp (no codepage_command, no text_codec)
+        drv.swap_profile(get_profile("escp"))
+        # Reset: a fresh non-ASCII char would re-trigger if escp had codepage
+        # But escp has no codepage; this just verifies swap clears state safely
+        assert drv._codepage_sent is False  # noqa: SLF001
+
+    def test_multichar_chunk_with_mixed_ascii_and_cyrillic(self):
+        """WordWrapper batches whole words into one write call.
+
+        A chunk like "Hello,Привет" must trigger the codepage path and
+        encode the whole chunk via cp866 (ASCII bytes preserve verbatim
+        in cp866, so the round trip is lossless).
+        """
+        drv, inner = self._make_driver()
+        drv.write("Hello,Привет")
+        # The mixed chunk should be encoded as cp866 bytes
+        assert b"Hello,\x8f\xe0\xa8\xa2\xa5\xe2" in b"".join(inner.byte_calls)
+
+    def test_multichar_pure_ascii_chunk_uses_fast_path(self):
+        """An ASCII-only multi-char chunk must NOT enter the codepage path."""
+        drv, inner = self._make_driver()
+        drv.write("Hello, world!")
+        # ASCII chunk goes through inner.write (str path); no encoded bytes
+        assert "Hello, world!" in inner.text_calls
+
+    def test_profile_without_text_codec_uses_default_path(self):
+        """A profile with no text_codec passes non-ASCII through unchanged."""
+        from claude_teletype.profiles import get_profile
+
+        inner = _CapturingDriver()
+        drv = ProfilePrinterDriver(inner, get_profile("escp"))
+        drv.write("é")
+        # No codepage command (escp doesn't define one) and no encoded bytes;
+        # the char goes through inner.write (which would replace via ASCII decode
+        # in the real path, but our capturing driver records the raw call)
+        assert "é" in inner.text_calls
+        assert all(b"\x1bt" not in c for c in inner.byte_calls)
 
 
 class _RecorderDriver(NullPrinterDriver):

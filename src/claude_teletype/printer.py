@@ -242,6 +242,11 @@ class ProfilePrinterDriver:
         # end_response() / close() so we don't cut blank paper if flush is
         # called twice (e.g. cancel + error paths both calling _flush_printer).
         self._has_unflushed_output = False
+        # Tracks whether the profile's codepage_command has been emitted
+        # for the current session. Lazy: only sent the first time a
+        # non-ASCII char appears, so ASCII-only documents pay no penalty
+        # and the printer stays in its default codepage.
+        self._codepage_sent = False
 
     def _send_raw(self, data: bytes) -> None:
         """Send raw bytes through the inner driver as a single write.
@@ -285,8 +290,45 @@ class ProfilePrinterDriver:
             if self._profile.reinit_on_newline and self._profile.reinit_sequence:
                 newline_data += self._profile.reinit_sequence
             self._send_raw(newline_data)
+        elif self._needs_codepage(char):
+            # Chunk contains at least one non-ASCII char on a profile with
+            # a configured text_codec. Lazy-send the codepage command once,
+            # then encode the whole chunk via the profile's codec and ship
+            # it as raw bytes — bypassing the ASCII decode path in _send_raw
+            # which would replace non-ASCII chars with '?'. ASCII chars in
+            # the chunk survive intact because CP866 (and most ESC/POS code
+            # pages) preserve 0x00-0x7F verbatim.
+            self._ensure_codepage()
+            encoded = char.encode(self._profile.text_codec, errors="replace")
+            self._inner.write_bytes(encoded)
         else:
             self._inner.write(char)
+
+    def _needs_codepage(self, char: str) -> bool:
+        """True when the chunk contains any non-ASCII char on a codepage profile.
+
+        ``char`` is named for the protocol but may be a multi-char string
+        (WordWrapper batches whole words into one ``write`` call). Returns
+        False for ASCII-only chunks and for profiles without a configured
+        ``text_codec`` — those flow through the original write path.
+        """
+        if not self._profile.text_codec:
+            return False
+        return any(ord(c) > 0x7F for c in char)
+
+    def _ensure_codepage(self) -> None:
+        """Emit ``codepage_command`` exactly once per session.
+
+        Called lazily on the first non-ASCII char. Profiles with no
+        ``codepage_command`` (e.g. ``text_codec`` set without a select
+        sequence) skip the send and just rely on the codec encoding,
+        which works for printers whose default codepage already matches.
+        """
+        if self._codepage_sent:
+            return
+        self._codepage_sent = True
+        if self._profile.codepage_command:
+            self._send_raw(self._profile.codepage_command)
 
     def write_bytes(self, data: bytes) -> None:
         """Send raw bytes (e.g., ESC style sequences) as a single atomic transfer.
@@ -309,9 +351,12 @@ class ProfilePrinterDriver:
         """Replace the current profile and mark as uninitialized.
 
         The new profile's init sequences will be sent on the next write().
+        Resets the codepage-sent flag so the new profile's
+        ``codepage_command`` (if any) fires on the next non-ASCII char.
         """
         self._profile = new_profile
         self._initialized = False
+        self._codepage_sent = False
 
     def end_response(self) -> None:
         """Emit the profile's end-of-response sequence (e.g. paper cut).
