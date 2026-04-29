@@ -13,7 +13,7 @@ text when codes are empty. See ``resolve_style`` for the chain.
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,19 @@ class PrinterProfile:
     #   text_codec="cp866"
     codepage_command: bytes = b""
     text_codec: str = ""
+
+    # Per-character transliteration map applied BEFORE codec encoding.
+    # Each (key, value) replaces the key char with the value string
+    # whenever the key appears in the stream. Use this to handle:
+    #   - Letters present in Unicode but absent from the printer's
+    #     code page (e.g. Ukrainian "і" → Latin "i" on CP866; "ґ" → "г")
+    #   - Typographic glyphs not in the code page (e.g. em-dash "—" → "--",
+    #     ellipsis "…" → "...", curly quotes "" "" → straight quotes)
+    # Values may be multi-character strings, including ASCII or other
+    # Cyrillic chars that ARE in the active code page. Substitution runs
+    # before _needs_codepage() so a chunk that becomes pure-ASCII after
+    # substitution skips the codepage path entirely.
+    text_fallback: dict[str, str] = field(default_factory=dict)
 
 
 BUILTIN_PROFILES: dict[str, PrinterProfile] = {
@@ -253,6 +266,24 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
         # documents a different table number.
         codepage_command=b"\x1bt\x11",          # ESC t 17 — CP866 (Russian)
         text_codec="cp866",
+        # CP866 has full Russian coverage but Ukrainian "і/І/ґ/Ґ" are
+        # missing (CP866 carries ї/Ї/є/Є at 0xf2-0xf5, but not the four
+        # listed below). Fall back to visually-close substitutes so
+        # Ukrainian-tinged text prints legibly instead of "?". Also
+        # transliterate common typographic glyphs Unicode introduces
+        # (em-dash, ellipsis, curly quotes) since CP866 lacks them.
+        text_fallback={
+            # Ukrainian letters absent from CP866
+            "і": "i", "І": "I",
+            "ґ": "г", "Ґ": "Г",
+            # Typographic glyphs absent from CP866 (also from CP1125)
+            "—": "--", "–": "-",
+            "…": "...",
+            "“": '"', "”": '"',  # left/right double quote
+            "‘": "'", "’": "'",  # left/right single quote
+            "«": '"', "»": '"',
+            "∞": "oo",
+        },
     ),
 }
 
@@ -357,6 +388,7 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
             buffer_bytes=buf,
             codepage_command=bytes.fromhex(data.get("codepage_command", "")),
             text_codec=data.get("text_codec", ""),
+            text_fallback=dict(data.get("text_fallback", {})),
         )
     return profiles
 

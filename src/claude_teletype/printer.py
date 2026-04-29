@@ -278,6 +278,15 @@ class ProfilePrinterDriver:
             return
         self._ensure_init()
         self._has_unflushed_output = True
+        # Apply per-char transliteration before any codec encoding. This
+        # lets profiles substitute glyphs that are missing from their
+        # code page (e.g. Ukrainian "і" → Latin "i" on CP866) instead of
+        # the codec's "?" replacement. After substitution, the chunk may
+        # be pure ASCII and skip the codepage path entirely.
+        if self._profile.text_fallback and char != "\n":
+            char = "".join(
+                self._profile.text_fallback.get(c, c) for c in char
+            )
         if char == "\n":
             # Send CR+LF+reinit as a single atomic transfer.
             # Fragmented USB transfers cause the Juki 6100 (CH341 bridge)

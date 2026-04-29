@@ -1764,6 +1764,77 @@ class TestCodepageSwitching:
         # ASCII chunk goes through inner.write (str path); no encoded bytes
         assert "Hello, world!" in inner.text_calls
 
+    def test_text_fallback_substitutes_unicode_to_latin(self):
+        """Ukrainian 'і' (U+0456) — absent from CP866 — falls back to Latin 'i'."""
+        drv, inner = self._make_driver()
+        # 'і' (CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I, U+0456) is
+        # not in CP866; the citizen-cts2000 profile maps it to 'i' (Latin).
+        drv.write("привіт")
+        all_bytes = b"".join(inner.byte_calls)
+        # The 'i' fallback char should appear as Latin 'i' (0x69) — NOT '?' (0x3f)
+        assert b"i" in all_bytes
+        assert b"?" not in all_bytes  # no codec replacement
+
+    def test_text_fallback_substitutes_unicode_to_cyrillic(self):
+        """Ukrainian 'Ґ' (U+0490) — absent from CP866 — falls back to 'Г' (CP866 0x83)."""
+        drv, inner = self._make_driver()
+        drv.write("Ґанок")
+        all_bytes = b"".join(inner.byte_calls)
+        # 'Г' is at 0x83 in CP866; the fallback should produce that byte
+        assert b"\x83" in all_bytes
+        assert b"?" not in all_bytes
+
+    def test_text_fallback_typographic_glyphs(self):
+        """Em-dash and ellipsis fall back to ASCII analogs."""
+        drv, inner = self._make_driver()
+        drv.write("hello—world… ok")
+        # Em-dash → '--', ellipsis → '...'
+        seen = "".join(inner.text_calls) + "".join(c.decode("cp866", errors="replace") for c in inner.byte_calls)
+        assert "hello--world... ok" in seen
+
+    def test_text_fallback_pure_ascii_after_substitution_skips_codepage(self):
+        """If fallback produces pure ASCII, the codepage path is skipped."""
+        drv, inner = self._make_driver()
+        # 'і' alone after fallback becomes 'i' (pure ASCII) — should NOT
+        # trigger codepage_command emission OR write_bytes path.
+        drv.write("і")
+        # No codepage command sent (we never crossed the non-ASCII threshold)
+        assert all(b"\x1bt\x11" not in c for c in inner.byte_calls)
+        # 'i' goes through inner.write (str path), not write_bytes
+        assert "i" in "".join(inner.text_calls)
+
+    def test_text_fallback_disabled_when_empty(self):
+        """A profile with empty text_fallback still works the original way."""
+        import dataclasses
+        from claude_teletype.profiles import get_profile
+
+        base = get_profile("citizen-cts2000")
+        no_fallback = dataclasses.replace(base, text_fallback={})
+        inner = _CapturingDriver()
+        drv = ProfilePrinterDriver(inner, no_fallback)
+        drv.write("і")  # no fallback → encoded via cp866 with errors=replace → '?'
+        all_bytes = b"".join(inner.byte_calls)
+        # Without fallback, 'і' becomes '?' on the wire
+        assert b"?" in all_bytes
+
+    def test_load_custom_profiles_text_fallback_from_toml(self):
+        """Custom TOML profiles can declare a text_fallback dict."""
+        from claude_teletype.profiles import load_custom_profiles
+
+        raw = {
+            "printer": {
+                "profiles": {
+                    "ua": {
+                        "text_codec": "cp866",
+                        "text_fallback": {"і": "i", "Ґ": "Г"},
+                    }
+                }
+            }
+        }
+        result = load_custom_profiles(raw)
+        p = result["ua"]
+        assert p.text_fallback == {"і": "i", "Ґ": "Г"}
+
     def test_profile_without_text_codec_uses_default_path(self):
         """A profile with no text_codec passes non-ASCII through unchanged."""
         from claude_teletype.profiles import get_profile
