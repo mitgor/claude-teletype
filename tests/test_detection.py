@@ -7,12 +7,13 @@ import pytest
 
 from claude_teletype.printing.detection import (
     BRIDGE_CHIP_VIDS,
+    BRIDGE_CHIPS,
     Classification,
     DeviceKind,
     classify,
 )
 from claude_teletype.printing.discovery import UsbDeviceInfo
-from claude_teletype.printing.profiles import BUILTIN_PROFILES, auto_detect_profile
+from claude_teletype.printing.profiles import BUILTIN_PROFILES
 from claude_teletype.printing.registry import ProfileRegistry
 
 
@@ -54,9 +55,58 @@ class TestClassifyBridge:
         assert result.suggested_profile is None
         assert "CH341" in result.transport_note
 
-    def test_bridge_chip_vids_is_placeholder_this_phase(self):
-        """Phase 27 ships the seam only; Phase 28 populates the data."""
-        assert BRIDGE_CHIP_VIDS == {}
+    def test_bridge_chip_vids_derived_from_bridge_chips(self):
+        """BRIDGE_CHIP_VIDS is the vid→note projection of BRIDGE_CHIPS."""
+        assert BRIDGE_CHIP_VIDS == {
+            vid: chip.note for vid, chip in BRIDGE_CHIPS.items()
+        }
+        assert BRIDGE_CHIP_VIDS, "registry must be populated (R009)"
+
+
+class TestClassifyBridgeRealData:
+    """classify() against the real curated BRIDGE_CHIPS data (R009, R012)."""
+
+    @pytest.mark.parametrize(
+        ("vid", "pid", "serial_only"),
+        [
+            (0x1A86, 0x7584, False),  # CH341 "USB2.0-Print" — the Juki bridge
+            (0x1A86, 0x7523, True),  # CH340 serial (Arduino-clone chip)
+            (0x067B, 0x2303, True),  # PL2303 serial
+            (0x067B, 0x2305, False),  # PL2305 IEEE-1284 parallel
+            (0x0403, 0x6001, True),  # FT232 — FTDI has no parallel product
+            (0x9710, 0x7705, False),  # MCS7705 parallel
+        ],
+    )
+    def test_curated_bridge_classification(self, vid, pid, serial_only):
+        result = classify(UsbDeviceInfo(vendor_id=vid, product_id=pid), _registry())
+        assert result.kind is DeviceKind.BRIDGE
+        assert result.suggested_profile is None
+        assert result.serial_only is serial_only
+        assert result.transport_note == BRIDGE_CHIP_VIDS[vid]
+
+    def test_unlisted_pid_under_bridge_vid_is_bridge_unknown_capability(self):
+        """A PID listed in neither set stays BRIDGE with serial_only=False."""
+        result = classify(
+            UsbDeviceInfo(vendor_id=0x1A86, product_id=0xFFFF),
+            _registry(),
+        )
+        assert result.kind is DeviceKind.BRIDGE
+        assert result.serial_only is False
+
+    def test_juki_profile_vid_pin_shadowed_by_bridge_check(self):
+        """Deliberate behavior change (R011): juki-6100 pins 0x1A86:0x7584,
+        but the bridge-first check now wins — the CH341 identifies the
+        cable, not the printer, so no native profile may be suggested."""
+        registry = _registry()
+        pinned = registry.match_vidpid(0x1A86, 0x7584)
+        assert pinned is not None, "precondition: juki profile still pins the VID"
+
+        result = classify(
+            UsbDeviceInfo(vendor_id=0x1A86, product_id=0x7584),
+            registry,
+        )
+        assert result.kind is DeviceKind.BRIDGE
+        assert result.suggested_profile is None
 
 
 class TestClassifyNative:
@@ -120,50 +170,3 @@ class TestClassificationType:
         assert DeviceKind.NATIVE_PRINTER.value == "native"
         assert DeviceKind.BRIDGE.value == "bridge"
         assert DeviceKind.UNKNOWN.value == "unknown"
-
-
-class TestBehaviorParityWithAutoDetect:
-    """A device that auto_detect_profile resolved to profile X must classify
-    NATIVE_PRINTER with suggested_profile == X (DET-02 behavior parity)."""
-
-    @staticmethod
-    def _fake_usb_with_device(vid: int, pid: int):
-        """Build fake usb modules enumerating one printer-class device."""
-        mock_intf = MagicMock()
-        mock_intf.bInterfaceClass = 7
-
-        mock_cfg = MagicMock()
-        mock_cfg.__iter__ = lambda self: iter([mock_intf])
-
-        mock_dev = MagicMock()
-        mock_dev.__iter__ = lambda self: iter([mock_cfg])
-        mock_dev.idVendor = vid
-        mock_dev.idProduct = pid
-
-        mock_usb_core = MagicMock()
-        mock_usb_core.NoBackendError = type("NoBackendError", (Exception,), {})
-        mock_usb_core.find.return_value = [mock_dev]
-
-        mock_usb = MagicMock()
-        mock_usb.core = mock_usb_core
-        return {"usb": mock_usb, "usb.core": mock_usb_core}
-
-    @pytest.mark.parametrize(
-        ("vid", "pid"),
-        [
-            (0x2730, 0x2002),  # citizen-cts2000 (exact VID:PID entry)
-            (0x04B8, 0x0005),  # epson (VID-only entry)
-            (0x1A86, 0x7584),  # juki bridge-VID pin — unchanged this phase
-        ],
-    )
-    def test_classify_matches_auto_detect_profile(self, vid, pid):
-        with patch.dict("sys.modules", self._fake_usb_with_device(vid, pid)):
-            legacy = auto_detect_profile()
-        assert legacy is not None, "precondition: auto-detect matched a profile"
-
-        result = classify(
-            UsbDeviceInfo(vendor_id=vid, product_id=pid),
-            _registry(),
-        )
-        assert result.kind is DeviceKind.NATIVE_PRINTER
-        assert result.suggested_profile == legacy.name
