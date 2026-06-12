@@ -10,11 +10,17 @@ actually opened.
 from unittest.mock import MagicMock, patch
 
 from claude_teletype.printing.discovery import (
+    CupsPrinterInfo,
     DiscoveryResult,
     PrinterSelection,
     UsbDeviceInfo,
     _device_matches_identity,
     _find_usb_printer,
+)
+from claude_teletype.printing.drivers import (
+    CupsPrinterDriver,
+    NullPrinterDriver,
+    ProfilePrinterDriver,
 )
 from claude_teletype.printing.selection import create_driver_for_selection
 
@@ -235,3 +241,149 @@ class TestDeviceMatchesIdentity:
             vendor_id=0x04B8, product_id=0x0005, serial="AAA", bus=1, address=4
         )
         assert _device_matches_identity(dev, identity) is False
+
+
+class TestKernelClaimOpenFailure:
+    """R013: a kernel-claimed device produces a diagnostic, not a dead driver."""
+
+    def test_eacces_on_set_configuration_returns_none_with_diagnostic(self):
+        dev = _fake_printer_device(0x04B8, 0x0005)
+        dev.set_configuration.side_effect = OSError(13, "Access denied")
+
+        diagnostics: list[str] = []
+        with patch.dict("sys.modules", _fake_usb_modules([dev])):
+            driver = _find_usb_printer(diagnostics)
+
+        assert driver is None
+        assert any("held by a host driver" in d for d in diagnostics)
+        assert any("AppleUSBPrinter" in d for d in diagnostics)
+
+    def test_ebusy_on_set_configuration_returns_none(self):
+        dev = _fake_printer_device(0x04B8, 0x0005)
+        dev.set_configuration.side_effect = OSError(16, "Resource busy")
+
+        with patch.dict("sys.modules", _fake_usb_modules([dev])):
+            driver = _find_usb_printer()
+
+        assert driver is None
+
+    def test_other_set_configuration_failure_stays_best_effort(self):
+        """Non-claim errors keep the legacy behavior: driver still returned."""
+        dev = _fake_printer_device(0x04B8, 0x0005)
+        dev.set_configuration.side_effect = RuntimeError("transient")
+
+        with patch.dict("sys.modules", _fake_usb_modules([dev])):
+            driver = _find_usb_printer()
+
+        assert driver is not None
+        assert driver._dev is dev
+
+
+def _claimed_device_discovery(
+    queues: list[CupsPrinterInfo],
+) -> DiscoveryResult:
+    return DiscoveryResult(
+        pyusb_available=True,
+        libusb_available=True,
+        usb_devices=[
+            UsbDeviceInfo(
+                vendor_id=0x04B8,
+                product_id=0x0005,
+                product_name="Epson LX-300",
+                serial="EP-AAA",
+            ),
+        ],
+        cups_printers=queues,
+    )
+
+
+class TestUsbOpenFailureCupsFallback:
+    """R013: USB-open failure falls back to an enabled CUPS queue."""
+
+    def test_falls_back_to_enabled_cups_queue_with_message(self, capsys):
+        discovery = _claimed_device_discovery(
+            [CupsPrinterInfo(name="EPSON_LX", uri="usb://EPSON/LX-300")]
+        )
+        sel = PrinterSelection(connection_type="usb", device_index=0)
+
+        with patch(
+            "claude_teletype.printing.discovery._find_usb_printer",
+            return_value=None,
+        ):
+            driver = create_driver_for_selection(sel, discovery)
+
+        assert isinstance(driver, CupsPrinterDriver)
+        assert driver._name == "EPSON_LX"
+        err = capsys.readouterr().err
+        assert "USB direct unavailable" in err
+        assert "falling back to CUPS queue EPSON_LX" in err
+
+    def test_prefers_queue_with_matching_serial(self):
+        discovery = _claimed_device_discovery(
+            [
+                CupsPrinterInfo(name="Other_Q", uri="usb://Other/Q", serial="ZZZ"),
+                CupsPrinterInfo(
+                    name="EPSON_LX", uri="usb://EPSON/LX-300", serial="EP-AAA"
+                ),
+            ]
+        )
+        sel = PrinterSelection(connection_type="usb", device_index=0)
+
+        with patch(
+            "claude_teletype.printing.discovery._find_usb_printer",
+            return_value=None,
+        ):
+            driver = create_driver_for_selection(sel, discovery)
+
+        assert isinstance(driver, CupsPrinterDriver)
+        assert driver._name == "EPSON_LX"
+
+    def test_skips_disabled_queues(self):
+        discovery = _claimed_device_discovery(
+            [
+                CupsPrinterInfo(name="Dead_Q", uri="usb://Dead/Q", enabled=False),
+                CupsPrinterInfo(name="Live_Q", uri="usb://Live/Q"),
+            ]
+        )
+        sel = PrinterSelection(connection_type="usb", device_index=0)
+
+        with patch(
+            "claude_teletype.printing.discovery._find_usb_printer",
+            return_value=None,
+        ):
+            driver = create_driver_for_selection(sel, discovery)
+
+        assert isinstance(driver, CupsPrinterDriver)
+        assert driver._name == "Live_Q"
+
+    def test_no_enabled_queue_returns_null_driver(self):
+        discovery = _claimed_device_discovery(
+            [CupsPrinterInfo(name="Dead_Q", uri="usb://Dead/Q", enabled=False)]
+        )
+        sel = PrinterSelection(connection_type="usb", device_index=0)
+
+        with patch(
+            "claude_teletype.printing.discovery._find_usb_printer",
+            return_value=None,
+        ):
+            driver = create_driver_for_selection(sel, discovery)
+
+        assert isinstance(driver, NullPrinterDriver)
+
+    def test_profile_wrap_applies_to_fallback_driver(self):
+        discovery = _claimed_device_discovery(
+            [CupsPrinterInfo(name="EPSON_LX", uri="usb://EPSON/LX-300")]
+        )
+        sel = PrinterSelection(
+            connection_type="usb", device_index=0, profile_name="escp"
+        )
+
+        with patch(
+            "claude_teletype.printing.discovery._find_usb_printer",
+            return_value=None,
+        ):
+            driver = create_driver_for_selection(sel, discovery)
+
+        assert isinstance(driver, ProfilePrinterDriver)
+        assert isinstance(driver._inner, CupsPrinterDriver)
+        assert driver._inner._name == "EPSON_LX"

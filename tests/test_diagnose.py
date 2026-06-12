@@ -274,3 +274,97 @@ class TestDiagnoseCommand:
             ret = run_diagnose()
 
         assert ret is None
+
+
+def _fleet_discovery():
+    """One native printer, one class-7 bridge, one bridge-tier serial-only."""
+    from claude_teletype.printing.discovery import DiscoveryResult, UsbDeviceInfo
+
+    return DiscoveryResult(
+        pyusb_available=True,
+        libusb_available=True,
+        usb_devices=[
+            UsbDeviceInfo(
+                vendor_id=0x04B8,
+                product_id=0x0046,
+                product_name="Epson LX-350",
+            ),
+            UsbDeviceInfo(
+                vendor_id=0x1A86,
+                product_id=0x7584,
+                product_name="USB2.0-Print",
+                printer_class=True,
+            ),
+            UsbDeviceInfo(
+                vendor_id=0x1A86,
+                product_id=0x7523,
+                product_name="USB Serial",
+                printer_class=False,
+            ),
+        ],
+    )
+
+
+def _run_diagnose_wide(mock_result):
+    """Run run_diagnose against a fixed-width Console; return rendered text."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from claude_teletype.diagnose import run_diagnose
+
+    buf = StringIO()
+    with patch(
+        "claude_teletype.diagnose.Console",
+        return_value=Console(file=buf, width=300),
+    ):
+        with patch("claude_teletype.diagnose.discover_all", return_value=mock_result):
+            run_diagnose()
+    return buf.getvalue()
+
+
+class TestDiagnoseClassificationMatrix:
+    """R007/R013/R014 surface: diagnose renders per-device classification."""
+
+    def test_classification_columns_render(self):
+        """Kind / Suggested profile / Transport note / Readback columns appear."""
+        output = _run_diagnose_wide(_fleet_discovery())
+
+        for column in ("Kind", "Suggested profile", "Transport note", "Readback"):
+            assert column in output
+        assert "USB Devices (printer-class and bridge adapters)" in output
+
+    def test_native_device_gets_profile_suggestion_and_untested_readback(self):
+        """Epson LX-350 (model-pinned) shows native kind + escp suggestion."""
+        output = _run_diagnose_wide(_fleet_discovery())
+
+        assert "native printer" in output
+        assert "escp" in output
+        # No device is opened during diagnose — readback stays untested.
+        assert "untested (no open device)" in output
+
+    def test_bridge_devices_report_absent_readback_never_error(self):
+        """Bridges show 'absent (bridge)' (R014: absent, not broken)."""
+        output = _run_diagnose_wide(_fleet_discovery())
+
+        assert "absent (bridge)" in output
+        assert "QinHeng/WCH CH340/CH341 USB-LPT bridge" in output
+
+    def test_bridge_tier_device_labeled_unconfirmed_adapter(self):
+        """printer_class=False bridge-tier entries are unconfirmed adapters."""
+        output = _run_diagnose_wide(_fleet_discovery())
+
+        assert "bridge (unconfirmed adapter)" in output
+        # CH340 0x7523 is a curated serial-only PID.
+        assert "serial-only" in output
+
+    def test_diagnose_never_raises_when_classification_fails(self):
+        """A classify() explosion degrades to an unknown row, no crash."""
+        with patch(
+            "claude_teletype.diagnose.classify",
+            side_effect=RuntimeError("classification boom"),
+        ):
+            output = _run_diagnose_wide(_fleet_discovery())
+
+        assert "unknown" in output
+        assert "Traceback" not in output

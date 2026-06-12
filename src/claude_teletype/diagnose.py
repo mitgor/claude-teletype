@@ -13,7 +13,42 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from claude_teletype.printing.discovery import discover_all
+from claude_teletype.printing.detection import Classification, DeviceKind, classify
+from claude_teletype.printing.discovery import UsbDeviceInfo, discover_all
+from claude_teletype.printing.profiles import BUILTIN_PROFILES
+from claude_teletype.printing.registry import ProfileRegistry
+
+
+def _classification_row(
+    dev: UsbDeviceInfo, registry: ProfileRegistry
+) -> tuple[str, str, str, str]:
+    """(kind, suggested profile, transport note, readback) for one device.
+
+    Never raises: a classification failure degrades to an 'unknown' row so
+    run_diagnose can always render the full table. No live readback is
+    attempted — opening a device here could claim it out from under CUPS,
+    so NATIVE_PRINTER readback reports 'untested (no open device)'.
+    """
+    try:
+        classification = classify(dev, registry)
+    except Exception:
+        classification = Classification(kind=DeviceKind.UNKNOWN)
+
+    if classification.kind is DeviceKind.BRIDGE:
+        kind = "bridge" if dev.printer_class else "bridge (unconfirmed adapter)"
+        readback = "absent (bridge)"
+    elif classification.kind is DeviceKind.NATIVE_PRINTER:
+        kind = "native printer"
+        readback = "untested (no open device)"
+    else:
+        kind = "unknown"
+        readback = "absent"
+
+    note = classification.transport_note
+    if classification.serial_only:
+        note = f"{note} (serial-only)" if note else "serial-only"
+
+    return kind, classification.suggested_profile or "—", note, readback
 
 
 def run_diagnose() -> None:
@@ -52,16 +87,29 @@ def run_diagnose() -> None:
     # --- USB Devices ---
     if result.pyusb_available and result.libusb_available:
         if result.usb_devices:
-            usb_table = Table(title="USB Printer Devices", show_header=True)
+            registry = ProfileRegistry(BUILTIN_PROFILES)
+            usb_table = Table(
+                title="USB Devices (printer-class and bridge adapters)",
+                show_header=True,
+            )
             usb_table.add_column("Device", style="cyan")
             usb_table.add_column("VID:PID")
             usb_table.add_column("Bus:Addr", style="dim")
+            usb_table.add_column("Kind")
+            usb_table.add_column("Suggested profile")
+            usb_table.add_column("Transport note", style="dim")
+            usb_table.add_column("Readback", style="dim")
             for dev in result.usb_devices:
                 name = dev.product_name or dev.manufacturer or "Unknown"
+                kind, suggested, note, readback = _classification_row(dev, registry)
                 usb_table.add_row(
                     name,
                     f"0x{dev.vendor_id:04x}:0x{dev.product_id:04x}",
                     f"{dev.bus}:{dev.address}",
+                    kind,
+                    suggested,
+                    note,
+                    readback,
                 )
             console.print(usb_table)
         else:

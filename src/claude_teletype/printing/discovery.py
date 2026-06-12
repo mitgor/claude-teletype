@@ -8,6 +8,7 @@ cycle) and the USB/CUPS enumeration functions.
 
 from __future__ import annotations
 
+import errno as _errno
 import re
 import subprocess
 import sys
@@ -169,11 +170,29 @@ def _find_usb_printer(
                 if ep_out is not None:
                     try:
                         dev.set_configuration()
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        # EACCES/EBUSY means a host kernel driver holds the
+                        # device (macOS: AppleUSBPrinter kext). Surface it
+                        # and bail so callers can fall back to CUPS instead
+                        # of returning a driver whose writes will all fail.
+                        # Deliberately NO auto-detach here — detaching the
+                        # kext breaks CUPS until replug (Pitfall 2).
+                        if getattr(err, "errno", None) in (
+                            _errno.EACCES,
+                            _errno.EBUSY,
+                        ):
+                            if verbose:
+                                diagnostics.append(
+                                    "USB open failed: device is held by a host "
+                                    "driver — on macOS, AppleUSBPrinter; use the "
+                                    "CUPS queue or unload the kext."
+                                )
+                            return None
+                        # Other set_configuration failures stay best-effort:
+                        # many devices work without an explicit config set.
                     if verbose:
                         diagnostics.append(f"USB printer found: endpoint OUT {ep_out.bEndpointAddress}")
-                    return UsbPrinterDriver(dev, ep_out)
+                    return UsbPrinterDriver(dev, ep_out, interface_number=intf.bInterfaceNumber)
 
     if verbose and not found_printer:
         diagnostics.append(

@@ -18,6 +18,7 @@ from claude_teletype.printing.drivers import (
     FilePrinterDriver,
     JukiPrinterDriver,
     NullPrinterDriver,
+    PortStatus,
     ProfilePrinterDriver,
     UsbPrinterDriver,
     make_printer_output,
@@ -1155,6 +1156,69 @@ def test_usb_driver_close_handles_import_error():
     with patch.dict("sys.modules", {"usb": None, "usb.util": None}):
         driver.close()  # should not raise
     assert driver._dev is None
+
+
+# ---------------------------------------------------------------------------
+# UsbPrinterDriver.get_status() — USB Printer Class 1.1 GET_PORT_STATUS
+# ---------------------------------------------------------------------------
+
+
+def test_usb_driver_get_status_parses_spec_bits():
+    """0x18 -> selected + not_error, no paper_empty (bits 4 and 3 set)."""
+    dev = MagicMock()
+    dev.ctrl_transfer.return_value = bytes([0x18])
+    driver = UsbPrinterDriver(dev, MagicMock())
+
+    status = driver.get_status()
+
+    assert status == PortStatus(paper_empty=False, selected=True, not_error=True)
+    # Spec-verbatim class request: 0xA1 / GET_PORT_STATUS / wValue 0 /
+    # wIndex = interface number / 1 byte.
+    dev.ctrl_transfer.assert_called_once_with(0xA1, 0x01, 0, 0, 1)
+
+
+def test_usb_driver_get_status_parses_paper_empty_bit():
+    """Bit 5 (0x20) maps to paper_empty."""
+    dev = MagicMock()
+    dev.ctrl_transfer.return_value = bytes([0x38])
+    driver = UsbPrinterDriver(dev, MagicMock())
+
+    status = driver.get_status()
+
+    assert status == PortStatus(paper_empty=True, selected=True, not_error=True)
+
+
+def test_usb_driver_get_status_uses_interface_number():
+    """interface_number constructor arg flows into wIndex."""
+    dev = MagicMock()
+    dev.ctrl_transfer.return_value = bytes([0x18])
+    driver = UsbPrinterDriver(dev, MagicMock(), interface_number=2)
+
+    driver.get_status()
+
+    dev.ctrl_transfer.assert_called_once_with(0xA1, 0x01, 0, 2, 1)
+
+
+def test_usb_driver_get_status_returns_none_on_usb_error():
+    """A ctrl_transfer stall (the CH341 path) means ABSENT: None, no raise."""
+    dev = MagicMock()
+    dev.ctrl_transfer.side_effect = Exception("Pipe error (EPIPE)")
+    driver = UsbPrinterDriver(dev, MagicMock())
+
+    assert driver.get_status() is None
+    # Absent readback is not an error state — the driver stays connected.
+    assert driver.is_connected is True
+
+
+def test_usb_driver_get_status_returns_none_after_close():
+    """A closed driver (dev disposed) reports None instead of touching None."""
+    dev = MagicMock()
+    driver = UsbPrinterDriver(dev, MagicMock())
+    mock_usb = MagicMock()
+    with patch.dict("sys.modules", {"usb": mock_usb, "usb.util": mock_usb.util}):
+        driver.close()
+
+    assert driver.get_status() is None
 
 
 # ---------------------------------------------------------------------------

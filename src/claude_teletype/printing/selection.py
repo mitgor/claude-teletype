@@ -131,6 +131,28 @@ def create_driver_for_selection(
         # so test patches targeting
         # ``claude_teletype.printing.discovery._find_usb_printer`` intercept it.
         driver = _discovery._find_usb_printer(identity=identity)
+        if driver is None:
+            # USB direct failed — typically the OS kernel driver holds the
+            # device (macOS AppleUSBPrinter). Fall back to an enabled CUPS
+            # queue instead of silently degrading to NullPrinterDriver:
+            # prefer a queue whose serial matches the picked device, else
+            # the first enabled queue. Profile wrapping below still applies.
+            enabled_queues = [q for q in discovery.cups_printers if q.enabled]
+            if enabled_queues:
+                fallback = None
+                if identity is not None and identity.serial:
+                    fallback = next(
+                        (q for q in enabled_queues if q.serial == identity.serial),
+                        None,
+                    )
+                if fallback is None:
+                    fallback = enabled_queues[0]
+                print(
+                    "USB direct unavailable (device may be claimed by the OS) "
+                    f"— falling back to CUPS queue {fallback.name}",
+                    file=sys.stderr,
+                )
+                driver = CupsPrinterDriver(fallback.name)
     elif selection.connection_type == "cups":
         if selection.cups_printer_name:
             driver = CupsPrinterDriver(selection.cups_printer_name)

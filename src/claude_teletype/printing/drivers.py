@@ -9,9 +9,25 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from claude_teletype.printing.profiles import PrinterProfile, get_profile
+
+
+@dataclass(frozen=True)
+class PortStatus:
+    """Parsed USB Printer Class 1.1 GET_PORT_STATUS byte.
+
+    Bit 5 = paper empty, bit 4 = selected (on-line), bit 3 = not-error.
+    Returned by UsbPrinterDriver.get_status(); a None from get_status()
+    means readback is ABSENT (e.g. a CH341 bridge stalls the request) —
+    absent is never an error state.
+    """
+
+    paper_empty: bool
+    selected: bool
+    not_error: bool
 
 
 @runtime_checkable
@@ -143,14 +159,39 @@ class CupsPrinterDriver:
 class UsbPrinterDriver:
     """Direct USB bulk-transfer driver via pyusb, bypassing CUPS."""
 
-    def __init__(self, dev: Any, ep_out: Any) -> None:
+    def __init__(self, dev: Any, ep_out: Any, interface_number: int = 0) -> None:
         self._dev = dev
         self._ep_out = ep_out
+        self._interface_number = interface_number
         self._connected = True
 
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def get_status(self) -> PortStatus | None:
+        """USB Printer Class 1.1 GET_PORT_STATUS readback.
+
+        Spec-verbatim class request: bmRequestType 0xA1 (device-to-host,
+        class, interface), bRequest 0x01 (GET_PORT_STATUS), wValue 0,
+        wIndex = interface number, one byte of data.
+
+        Returns None on ANY exception: a pipe stall (EPIPE) is the
+        EXPECTED outcome on CH341-style bridges that do not implement
+        the request — readback "absent", never a broken-printer signal.
+        """
+        if self._dev is None:
+            return None
+        try:
+            data = self._dev.ctrl_transfer(0xA1, 0x01, 0, self._interface_number, 1)
+            status_byte = data[0]
+        except Exception:
+            return None
+        return PortStatus(
+            paper_empty=bool(status_byte & 0x20),
+            selected=bool(status_byte & 0x10),
+            not_error=bool(status_byte & 0x08),
+        )
 
     def write(self, char: str) -> None:
         if not self._connected:
