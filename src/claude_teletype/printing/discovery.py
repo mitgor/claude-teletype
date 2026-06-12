@@ -14,12 +14,19 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from claude_teletype.printing.detection import BRIDGE_CHIP_VIDS
 from claude_teletype.printing.drivers import UsbPrinterDriver
 
 
 @dataclass
 class UsbDeviceInfo:
-    """Discovered USB printer-class device."""
+    """Discovered USB device.
+
+    ``printer_class`` is a provenance marker: True means a class-7
+    (printer) interface was found during enumeration; False means the
+    device surfaced through the bridge-VID tier — a known bridge chip
+    that did not present a printer-class interface (serial/vendor mode).
+    """
 
     vendor_id: int
     product_id: int
@@ -28,6 +35,7 @@ class UsbDeviceInfo:
     serial: str = ""
     bus: int = 0
     address: int = 0
+    printer_class: bool = True
 
 
 @dataclass
@@ -387,6 +395,7 @@ def discover_all() -> DiscoveryResult:
                 devices = []
 
             USB_PRINTER_CLASS = 7
+            class7_dev_ids: set[int] = set()
             for dev in devices:
                 for cfg in dev:
                     for intf in cfg:
@@ -414,15 +423,56 @@ def discover_all() -> DiscoveryResult:
                                     address=dev.address or 0,
                                 )
                             )
+                            class7_dev_ids.add(id(dev))
                             break  # one entry per device, not per interface
                     else:
                         continue
                     break
 
-            if result.libusb_available and not result.usb_devices:
+            # Keyed to class-7 results only: a bridge-tier-only discovery
+            # still reports no printer-class devices (the message stays
+            # truthful — bridges are unconfirmed adapters, not printers).
+            if result.libusb_available and not class7_dev_ids:
                 total = len(devices)
                 result.diagnostics.append(
                     f"No USB printer-class devices found. {total} other USB devices present."
+                )
+
+            # Bridge tier: known bridge-chip VIDs that did not present a
+            # printer-class interface (CH340 in serial mode, PL2303, ...).
+            # Descriptor reads ONLY — never write probe bytes, never do
+            # control transfers, never set_configuration: a 0x1A86:0x7523
+            # is statistically an Arduino and probing corrupts whatever it
+            # is doing. Appended after all class-7 entries so index-based
+            # consumers keep stable indices within one discovery run.
+            for dev in devices:
+                if id(dev) in class7_dev_ids:
+                    continue
+                if dev.idVendor not in BRIDGE_CHIP_VIDS:
+                    continue
+                try:
+                    product_name = dev.product or ""
+                except Exception:
+                    product_name = ""
+                try:
+                    manufacturer = dev.manufacturer or ""
+                except Exception:
+                    manufacturer = ""
+                try:
+                    serial = dev.serial_number or ""
+                except Exception:
+                    serial = ""
+                result.usb_devices.append(
+                    UsbDeviceInfo(
+                        vendor_id=dev.idVendor,
+                        product_id=dev.idProduct,
+                        product_name=product_name,
+                        manufacturer=manufacturer,
+                        serial=serial,
+                        bus=dev.bus or 0,
+                        address=dev.address or 0,
+                        printer_class=False,
+                    )
                 )
 
     # 3. CUPS discovery (always, regardless of pyusb)
