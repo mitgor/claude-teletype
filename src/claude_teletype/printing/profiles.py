@@ -114,6 +114,15 @@ class PrinterProfile:
     # substitution skips the codepage path entirely.
     text_fallback: dict[str, str] = field(default_factory=dict)
 
+    # Capabilities that could NOT be verified from vendor documentation
+    # and need a human with the real hardware (or the paper manual) to
+    # confirm. Each entry is a short free-text note naming the unverified
+    # capability and what would verify it. `claude-teletype diagnose`
+    # renders these per profile so catalog gaps are visible instead of
+    # silently absent (R022: never fabricate byte sequences — leave the
+    # field empty and record the gap here).
+    human_needed: tuple[str, ...] = ()
+
 
 BUILTIN_PROFILES: dict[str, PrinterProfile] = {
     "generic": PrinterProfile(
@@ -291,6 +300,30 @@ BUILTIN_PROFILES: dict[str, PrinterProfile] = {
     ),
 }
 
+
+def _load_catalog() -> dict[str, PrinterProfile]:
+    """Merge every catalog module's PROFILES dict into one mapping.
+
+    The catalog package imports PrinterProfile from THIS module at its
+    module top, so the reverse import here MUST stay function-local —
+    the same cycle-break idiom as detection.detect_native_profile.
+    Importing the catalog at profiles.py module top would close the
+    import cycle and crash at load time.
+    """
+    from claude_teletype.printing.catalog import epson
+
+    merged: dict[str, PrinterProfile] = {}
+    for module in (epson,):
+        merged.update(module.PROFILES)
+    return merged
+
+
+# Catalog merge ordering constraint: this update() must run AFTER the
+# BUILTIN_PROFILES literal above (the catalog extends it) and BEFORE the
+# ibm/juki alias blocks below, so future alias entries built with
+# dataclasses.replace can target catalog profiles as well as literal ones.
+BUILTIN_PROFILES.update(_load_catalog())
+
 # IBM alias: same ESC sequences as PPDS, brand name users recognize
 BUILTIN_PROFILES["ibm"] = dataclasses.replace(
     BUILTIN_PROFILES["ppds"],
@@ -393,6 +426,7 @@ def load_custom_profiles(raw_toml: dict) -> dict[str, PrinterProfile]:
             codepage_command=bytes.fromhex(data.get("codepage_command", "")),
             text_codec=data.get("text_codec", ""),
             text_fallback=dict(data.get("text_fallback", {})),
+            human_needed=tuple(data.get("human_needed", [])),
         )
     return profiles
 

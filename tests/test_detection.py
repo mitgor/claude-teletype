@@ -191,10 +191,26 @@ class TestClassifyNativeMatrix:
 
     @pytest.mark.parametrize(("vid", "pid"), sorted(KNOWN_MODEL_PIDS))
     def test_known_model_pid_suggests_profile(self, vid, pid):
-        """Epson LX-350/LQ-350 pins classify NATIVE_PRINTER with escp."""
+        """Epson LX-350/LQ-350 pins classify NATIVE_PRINTER with escp2."""
         result = classify(UsbDeviceInfo(vendor_id=vid, product_id=pid), _miss_registry())
         assert result.kind is DeviceKind.NATIVE_PRINTER
         assert result.suggested_profile == KNOWN_MODEL_PIDS[(vid, pid)]
+
+    @pytest.mark.parametrize(("vid", "pid"), sorted(KNOWN_MODEL_PIDS))
+    def test_known_model_pid_suggestion_resolves_in_registry(self, vid, pid):
+        """Every KNOWN_MODEL_PIDS suggestion is a real builtin catalog key.
+
+        MEM015 guard: a table value that diverges from the catalog key
+        makes the CLI fallback silently skip and the setup Select fall
+        back to generic. ProfileRegistry.get raising ValueError here
+        means the table and the catalog drifted apart.
+        """
+        suggestion = classify(
+            UsbDeviceInfo(vendor_id=vid, product_id=pid), _miss_registry()
+        ).suggested_profile
+        assert suggestion == "escp2"
+        profile = ProfileRegistry(BUILTIN_PROFILES).get(suggestion)
+        assert profile.name == "escp2"
 
     def test_registry_match_beats_known_model_pid(self):
         """A registry (custom-profile) VID:PID claim wins over the table."""
@@ -322,7 +338,7 @@ class TestDetectNativeProfile:
         ):
             profile = detect_native_profile(registry)
         assert profile is None
-        registry.get.assert_called_once_with("escp")
+        registry.get.assert_called_once_with("escp2")
 
     def test_first_native_suggestion_wins_over_later_devices(self):
         """Scan order: bridges/unknowns are passed over; the first device

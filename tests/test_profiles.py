@@ -47,6 +47,7 @@ def test_printer_profile_defaults():
     assert profile.usb_vendor_id is None
     assert profile.usb_product_id is None
     assert profile.columns == 80
+    assert profile.human_needed == ()
 
 
 # ---------------------------------------------------------------------------
@@ -89,9 +90,9 @@ def test_printer_profile_capability_fields_are_frozen():
 # ---------------------------------------------------------------------------
 
 
-def test_builtin_profiles_has_ten_entries():
-    """BUILTIN_PROFILES has 10 entries: 7 canonical + ibm alias + juki-6100/2200 + juki alias."""
-    assert len(BUILTIN_PROFILES) == 10
+def test_builtin_profiles_count():
+    """BUILTIN_PROFILES entry count: literals + aliases + catalog profiles."""
+    assert len(BUILTIN_PROFILES) == 11
 
 
 def test_builtin_profiles_keys():
@@ -101,6 +102,7 @@ def test_builtin_profiles_keys():
         "juki-6100", "juki-2200", "juki",
         "oki-3390",
         "citizen-cts2000",
+        "escp2",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
 
@@ -200,6 +202,49 @@ def test_escp_profile_esc_sequences():
     assert p.char_pitch == b"\x1bP"                  # ESC P
     assert p.crlf is False
     assert p.usb_vendor_id == 0x04B8                 # Seiko Epson Corp
+
+
+def test_escp2_codes_match_escp_field_for_field():
+    """escp2 (S03 catalog) style/init codes are verified identical to escp.
+
+    ESC/P2 is a superset of ESC/P for these commands (Epson ESC/P2
+    command summary) — the bytes must match field-for-field.
+    """
+    escp2 = BUILTIN_PROFILES["escp2"]
+    escp = BUILTIN_PROFILES["escp"]
+    for field_name in (
+        "init_sequence", "reset_sequence", "line_spacing", "char_pitch",
+        "bold_on", "bold_off",
+        "italic_on", "italic_off",
+        "underline_on", "underline_off",
+        "crlf", "formfeed_on_close", "columns",
+    ):
+        assert getattr(escp2, field_name) == getattr(escp, field_name), (
+            f"escp2.{field_name} diverges from escp"
+        )
+
+
+def test_escp2_codepage_pc437():
+    """escp2 selects PC437 via ESC t 1 (ESC/P Reference Manual p. C-76)."""
+    p = BUILTIN_PROFILES["escp2"]
+    assert p.codepage_command == b"\x1bt\x01"  # ESC t 1 — table 1 = PC437
+    assert p.text_codec == "cp437"
+
+
+def test_escp2_no_usb_ids():
+    """escp2 carries NO VID/PID: 0x04B8 is VID-only-claimed by escp (D007).
+
+    LX-350/LQ-350 route to escp2 via detection.KNOWN_MODEL_PIDS, not the
+    registry index — a VID claim here would collide with escp's.
+    """
+    p = BUILTIN_PROFILES["escp2"]
+    assert p.usb_vendor_id is None
+    assert p.usb_product_id is None
+
+
+def test_escp2_no_human_needed_entries():
+    """Every escp2 capability was verified from the manual — no gaps."""
+    assert BUILTIN_PROFILES["escp2"].human_needed == ()
 
 
 def test_ppds_profile_esc_sequences():
@@ -532,6 +577,38 @@ def test_load_custom_profiles_buffer_bytes_rejects_bool():
     }
     with pytest.raises(ValueError, match=r"buffer_bytes must be a positive integer"):
         load_custom_profiles(raw)
+
+
+def test_load_custom_profiles_human_needed_list_becomes_tuple():
+    """A TOML human_needed list loads as a tuple (frozen dataclass field)."""
+    raw = {
+        "printer": {
+            "profiles": {
+                "partial": {
+                    "human_needed": [
+                        "italic codes unverified — needs the paper manual",
+                        "codepage table number unverified",
+                    ],
+                }
+            }
+        }
+    }
+    result = load_custom_profiles(raw)
+    p = result["partial"]
+    assert p.human_needed == (
+        "italic codes unverified — needs the paper manual",
+        "codepage table number unverified",
+    )
+    assert isinstance(p.human_needed, tuple)
+
+
+def test_load_custom_profiles_human_needed_absent_yields_empty_tuple():
+    """Profiles without a human_needed key default to an empty tuple."""
+    raw = {
+        "printer": {"profiles": {"plain": {"description": "all verified"}}}
+    }
+    result = load_custom_profiles(raw)
+    assert result["plain"].human_needed == ()
 
 
 def test_load_custom_profiles_style_keys_default_empty_when_absent():

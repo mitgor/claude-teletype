@@ -116,11 +116,13 @@ NATIVE_PRINTER_VENDOR_VIDS: dict[int, str] = {
 }
 
 # Specific (VID, PID) models pinned to a profile suggestion.
-# HIGH confidence — IDs via the-sz USB ID DB. Both are ESC/P2 machines;
-# the suggestion repoints to escp2 when S03 ships that profile.
+# HIGH confidence — IDs via the-sz USB ID DB. Both are ESC/P2 machines,
+# pinned to the catalog's escp2 profile. The string must equal the
+# catalog key EXACTLY — divergence makes the CLI fallback silently skip
+# and the setup Select fall back to generic.
 KNOWN_MODEL_PIDS: dict[tuple[int, int], str] = {
-    (0x04B8, 0x0046): "escp",  # Epson LX-350
-    (0x04B8, 0x0047): "escp",  # Epson LQ-350
+    (0x04B8, 0x0046): "escp2",  # Epson LX-350
+    (0x04B8, 0x0047): "escp2",  # Epson LQ-350
 }
 
 
