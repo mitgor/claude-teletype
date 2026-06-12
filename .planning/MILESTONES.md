@@ -1,5 +1,31 @@
 # Milestones
 
+## v1.5 Markdown File Printing (Shipped: 2026-04-28, archived 2026-06-12)
+
+**Phases:** 21-26 (6 phases, 14 plans, 28 tasks)
+**Timeline:** 2026-04-28 → 2026-04-29 (~3hr execution)
+**Code:** +16,122 lines across 56 files, 700 tests passing (6,647 LOC source + 10,201 LOC tests)
+
+**Key accomplishments:**
+
+- `PrinterProfile` style capability fields — bold/italic/underline byte pairs + per-profile `buffer_bytes` — with custom-TOML support and the `resolve_style` fallback chain (italic→underline→plain, bold→underline→plain)
+- Verified bold/italic/underline ESC sequences for all built-in profiles (Epson ESC/P, IBM PPDS, HP PCL, Juki, OKI, Citizen) from published reference manuals; capabilities left as empty bytes where undocumented (no fabricated codes)
+- Streaming markdown renderer — headings, lists, fenced code, blockquotes, GFM tables, inline emphasis — composing with `WordWrapper` and the atomic CR+LF+reinit newline path via a dual-channel text/style API (`write_bytes` on all five drivers)
+- TUI file picker (`ctrl+o`) rooted at cwd with `.md`/`.markdown` filtering and cancel-back-to-chat semantics
+- `claude-teletype print [path]` CLI subcommand — explicit path or picker mode — honoring all config layers (TOML/env/flags)
+- Per-print speed dialog (typewriter vs instant), `buffer_bytes` write chunking for impact printers, cancel-safe `renderer.close()` style cleanup, and printed-file transcript integration
+
+**Tech debt accepted:**
+
+- Real-hardware verification of style ESC sequences deferred (Phase 22 verification `human_needed`) — automated spec checks pass; physical confirmation pending on Epson, IBM PPDS, HP PCL, OKI ML 3390 (FX-2 mode), Citizen CT-S2000, and Juki 6100/2200 underline
+- Per-profile `buffer_bytes` defaults need real-hardware validation (Juki, Epson) before instant mode is fully trusted
+- WordWrapper strips the renderer's 4-space code-block indent (content survives, visual indent lost)
+- Table cells truncate rather than wrap on narrow profiles (e.g. Citizen 42-col thermal)
+
+Known deferred items at close: 1 (see STATE.md Deferred Items)
+
+---
+
 ## v1.4 Printer Setup TUI (Shipped: 2026-04-03)
 
 **Phases completed:** 3 phases, 6 plans, 10 tasks

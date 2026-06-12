@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A Python CLI tool that streams AI conversation to a physical dot-matrix printer character-by-character via USB-LPT adapter. Supports multiple LLM backends (Claude Code CLI, OpenAI, OpenRouter), configurable printer profiles (Juki, Epson, IBM, HP, custom), and a pure typewriter mode for direct keystroke-to-paper output. Features an interactive printer setup screen on startup for device discovery, connection selection, and profile assignment — with in-app pyusb installation and config persistence. When no printer hardware is available, it runs a split-screen terminal simulator. Includes a diagnostic CLI command, persistent TOML configuration, a TUI settings modal, multi-turn conversations with session persistence, error recovery, and word-wrapped output.
+A Python CLI tool that streams AI conversation to a physical dot-matrix printer character-by-character via USB-LPT adapter. Supports multiple LLM backends (Claude Code CLI, OpenAI, OpenRouter), configurable printer profiles (Juki, Epson, IBM, HP, custom), and a pure typewriter mode for direct keystroke-to-paper output. Features an interactive printer setup screen on startup for device discovery, connection selection, and profile assignment — with in-app pyusb installation and config persistence. When no printer hardware is available, it runs a split-screen terminal simulator. Prints local Markdown files via a TUI file picker (`ctrl+o`) or the `claude-teletype print` subcommand, rendering bold/italic/headings/lists/code/tables through capability-aware printer profiles with a per-print speed dialog. Includes a diagnostic CLI command, persistent TOML configuration, a TUI settings modal, multi-turn conversations with session persistence, error recovery, and word-wrapped output.
 
 ## Core Value
 
@@ -59,21 +59,20 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ `claude-teletype diagnose` CLI command with structured Rich output — v1.4
 - ✓ Skip/simulator option always available in setup screen — v1.4
 
+- ✓ TUI markdown file picker (`ctrl+o`) rooted at cwd with `.md`/`.markdown` filtering and cancel-back-to-chat — v1.5
+- ✓ `claude-teletype print [path]` CLI subcommand (explicit path or picker mode) honoring all config layers — v1.5
+- ✓ Streaming markdown renderer — bold, italic, headings, lists, fenced code, blockquotes, ASCII tables — v1.5
+- ✓ `PrinterProfile` style capability fields + `resolve_style` fallback chain (italic/bold→underline→plain) — v1.5
+- ✓ Verified style ESC sequences for Epson ESC/P, IBM PPDS, HP PCL, Juki/OKI/Citizen where documented — v1.5
+- ✓ Custom TOML profiles can declare style byte sequences and `buffer_bytes` — v1.5
+- ✓ Per-print speed dialog (typewriter pace vs instant) defaulting from `profile.instant_output` — v1.5
+- ✓ Instant-mode buffer chunking via per-profile `buffer_bytes` field — v1.5
+- ✓ Cancel-safe printing — style codes always closed via `renderer.close()` on abort — v1.5
+- ✓ Printed files logged in session transcript as plain text (no ESC bytes) — v1.5
+
 ### Active
 
-## Current Milestone: v1.5 Markdown File Printing
-
-**Goal:** Open and print local Markdown files through the TUI or CLI, rendering bold/italic/headings/lists/code/tables on capability-aware printer profiles, with per-print speed selection.
-
-**Target features:**
-- TUI file picker rooted at cwd (keybinding entry from main session)
-- `claude-teletype print [path]` CLI subcommand
-- Markdown rendering — bold, italic, headings, lists, fenced code, blockquotes, ASCII tables
-- `PrinterProfile` capability fields for bold/italic/underline + style fallback chain
-- Encoded styling for Epson ESC/P, IBM PPDS, HP PCL, and Juki/OKI/Citizen where documented
-- Per-print speed dialog (typewriter pace vs instant)
-- Instant-mode buffer chunking via per-profile `buffer_bytes` field
-- Printed files logged in session transcript
+(None — next milestone not yet defined)
 
 ### Out of Scope
 
@@ -85,11 +84,11 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.4 shipped (2026-04-03). 4,646 LOC source + 6,510 LOC tests (Python). 479 tests passing.
+**Current state:** v1.5 shipped (2026-04-28, archived 2026-06-12). 6,647 LOC source + 10,201 LOC tests (Python). 700 tests passing. Post-v1.5 untracked additions: codepage support (`codepage_command` + `text_codec`) and `text_fallback` transliteration for non-ASCII printing, with CP866/CP1125 Cyrillic example documents.
 
 **Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile/USB drivers + discovery dataclasses + driver factory), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), printer_setup_screen.py (interactive printer setup), settings_screen.py (TUI settings modal), diagnose.py (CLI diagnostic command), warnings.py (config conflict detection + startup warnings).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile/USB drivers + discovery dataclasses + driver factory), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), printer_setup_screen.py (interactive printer setup), settings_screen.py (TUI settings modal), diagnose.py (CLI diagnostic command), warnings.py (config conflict detection + startup warnings), markdown.py (streaming markdown renderer with dual text/style channels), file_picker_screen.py (TUI markdown file picker), speed_mode_screen.py (per-print speed dialog).
 
 **Known tech debt:**
 - `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
@@ -97,6 +96,11 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - Juki 9100 control codes extrapolated from 6100 (need hardware verification)
 - create_driver_for_selection() for USB re-discovers by class, not by index (single printer assumed)
 - discovery=None sentinel carries two meanings (saved-match and device-override skip)
+- Style ESC sequences spec-verified only — real-hardware confirmation pending on all profile families (Phase 22 verification `human_needed`)
+- Per-profile `buffer_bytes` defaults unvalidated on real hardware (Juki, Epson) — instant mode trust pending
+- WordWrapper strips 4-space code-block indent (content survives, visual indent lost)
+- Table cells truncate rather than wrap on narrow profiles (Citizen 42-col thermal)
+- Codepage/transliteration features (commits d70aded, 7ccdff5) landed outside GSD tracking — no requirements or phase artifacts
 
 ## Constraints
 
@@ -142,6 +146,18 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | USB matching by VID:PID, CUPS by queue name | Bus/address changes on replug; VID:PID and queue names are stable | ✓ Good |
 | discovery=None as skip-setup signal | Reuses existing convention; TUI checks this in _needs_printer_setup | ✓ Good |
 | CR+LF+reinit as single atomic USB transfer | Prevents Juki CH341 bridge from dropping LF byte on word-wrap newlines | ✓ Good |
+| Empty bytes (b"") sentinel for absent style capability | Fallback chain reads capability state from data; no conditional per-printer code | ✓ Good |
+| resolve_style as free function with italic/bold→underline→plain chain | Underline universal on impact printers; never fabricate codes that print garbage | ✓ Good |
+| Encoding-table-as-contract for Phase 22 byte literals | Byte values copied verbatim from published manuals; when unsure, leave empty | ✓ Good |
+| write_bytes as public Protocol method (style channel) | Dual-channel seam visible at type-checker layer; newlines stay on write('\n') (MD-08) | ✓ Good |
+| Hand-written streaming markdown renderer (no library) | Dual text/style channel + WordWrapper composition impossible with off-the-shelf renderers | ✓ Good |
+| Emphasis markers as state-machine tokens, not text | `*`/`_` consumed by toggle path; never reach printer output | ✓ Good |
+| ctrl+o App-level binding for file picker | Mnemonic, conflict-free, works even while input is disabled mid-stream | ✓ Good |
+| _make_*_app() closure factory for one-shot Textual apps | Captures context without overriding Textual constructor signatures | ✓ Good |
+| speed_mode defaults to "instant" on _render_markdown_to_driver | Existing Phase 25 callers keep pre-Phase-26 contract without modification | ✓ Good |
+| Sync time.sleep pacing in print path (reusing CHAR_DELAYS) | Preserves locked sync callback shape; identical per-char delays to chat path | ✓ Good |
+| MarkdownRenderer.close() as thin delegation to _close_open_styles | Single source of truth for LIFO style cleanup; idempotent cancel safety | ✓ Good |
+| chunk_writes as free function in printer.py | Driver-agnostic, pure, testable against any PrinterDriver Protocol | ✓ Good |
 
 ## Evolution
 
@@ -161,4 +177,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-28 — v1.5 milestone started*
+*Last updated: 2026-06-12 after v1.5 milestone*
