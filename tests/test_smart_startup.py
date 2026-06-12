@@ -232,8 +232,12 @@ class TestCliSetsDistinctSetupDecisions:
     """cli.main passes a distinct SetupDecision per startup path (REF-04)."""
 
     @staticmethod
-    def _run_cli(argv, config):
-        """Invoke the CLI with the standard mock harness; return TeletypeApp kwargs."""
+    def _run_cli(argv, config, discovery=None):
+        """Invoke the CLI with the standard mock harness; return TeletypeApp kwargs.
+
+        ``discovery`` overrides what the patched discover_all() returns;
+        defaults to a single enabled CUPS queue.
+        """
         from typer.testing import CliRunner
         from unittest.mock import MagicMock, patch
 
@@ -268,7 +272,7 @@ class TestCliSetsDistinctSetupDecisions:
         ) as mock_sys:
             mock_env.return_value = config
             mock_merge.return_value = config
-            mock_discover.return_value = DiscoveryResult(
+            mock_discover.return_value = discovery if discovery is not None else DiscoveryResult(
                 cups_printers=[
                     CupsPrinterInfo(
                         name="USB2.0-Print",
@@ -340,3 +344,61 @@ class TestCliSetsDistinctSetupDecisions:
         assert (
             saved_kwargs["setup_decision"] is not device_kwargs["setup_decision"]
         )  # new contract: distinguishable
+
+
+class TestR011ClassificationNeverAutoSkips:
+    """R011 regression: classification informs, it never auto-skips setup.
+
+    The one allowed auto path is an exact saved VID:PID match
+    (SKIP_SAVED_MATCH); a recognized bridge chip with no saved config must
+    still land on SHOW_SETUP.
+    """
+
+    @staticmethod
+    def _bridge_only_discovery():
+        """Exactly one CH341 bridge (the VID:PID the juki profile pins)."""
+        return DiscoveryResult(
+            pyusb_available=True,
+            usb_devices=[
+                UsbDeviceInfo(
+                    vendor_id=0x1A86,
+                    product_id=0x7584,
+                    product_name="USB2.0-Print",
+                    printer_class=False,
+                )
+            ],
+        )
+
+    def test_bridge_only_discovery_without_saved_config_shows_setup(self):
+        """No saved printer config + one bridge device → SHOW_SETUP.
+
+        Classification alone never auto-skips, even though the bridge's
+        VID:PID matches the juki profile's pin."""
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.setup_decision import SetupDecision
+
+        cfg = TeletypeConfig()
+        discovery = self._bridge_only_discovery()
+
+        kwargs = TestCliSetsDistinctSetupDecisions._run_cli(
+            [], cfg, discovery=discovery
+        )
+        assert kwargs["setup_decision"] is SetupDecision.SHOW_SETUP
+        assert kwargs["discovery"] is discovery
+
+    def test_saved_vidpid_match_on_bridge_still_skips(self):
+        """The saved-match path (R011's one allowed auto path) still skips
+        when the saved VID:PID matches the connected bridge."""
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.setup_decision import SetupDecision
+
+        cfg = TeletypeConfig()
+        cfg.saved_printer_type = "usb"
+        cfg.saved_printer_id = "1a86:7584"
+        cfg.saved_printer_profile = "juki"
+
+        kwargs = TestCliSetsDistinctSetupDecisions._run_cli(
+            [], cfg, discovery=self._bridge_only_discovery()
+        )
+        assert kwargs["setup_decision"] is SetupDecision.SKIP_SAVED_MATCH
+        assert kwargs["discovery"] is None

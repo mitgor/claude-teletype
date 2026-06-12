@@ -30,11 +30,13 @@ from textual.widgets import (
     Static,
 )
 
+from claude_teletype.printing.detection import DeviceKind, classify
 from claude_teletype.printing.discovery import (
     DiscoveryResult,
     PrinterSelection,
     kernel_driver_holds_printer,
 )
+from claude_teletype.printing.registry import ProfileRegistry
 
 
 class PrinterSetupScreen(Screen[PrinterSelection | None]):
@@ -96,6 +98,12 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         super().__init__(**kwargs)
         self._discovery = discovery
         self._all_profiles: dict[str, Any] = all_profiles or {"generic": None}
+        # VID:PID index over the screen's profile catalog; classify() only
+        # consumes match_vidpid. None placeholders (e.g. the default
+        # {"generic": None}) carry no VID:PID and are excluded.
+        self._registry = ProfileRegistry(
+            {n: p for n, p in self._all_profiles.items() if p is not None}
+        )
         # Maps OptionList index -> device metadata
         self._device_entries: list[dict[str, Any]] = []
 
@@ -134,6 +142,40 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
 
             yield Footer()
 
+    def _add_usb_device_options(self, option_list: OptionList, log: Log) -> None:
+        """Add one OptionList entry per discovered USB device.
+
+        Labels carry the classification verdict: BRIDGE devices get the
+        transport note plus a manual-family-pick hint (the chip identifies
+        the cable, not the printer), and bridge-tier devices that never
+        presented a printer-class interface are tagged "unconfirmed
+        adapter". Serial-only chips additionally write an R012 warning to
+        the diagnostics log — they cannot drive a parallel printer.
+        """
+        for i, usb_dev in enumerate(self._discovery.usb_devices):
+            classification = classify(usb_dev, self._registry)
+            if usb_dev.product_name:
+                label = f"{usb_dev.product_name} (USB {usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
+            else:
+                label = f"USB Device ({usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
+            if classification.kind is DeviceKind.BRIDGE:
+                note = classification.transport_note or "USB bridge"
+                label = f"{label} — {note} — choose your printer family"
+            if not usb_dev.printer_class:
+                label = f"{label} [unconfirmed adapter]"
+            option_list.add_option(label)
+            self._device_entries.append({
+                "type": "usb",
+                "index": i,
+                "usb_info": usb_dev,
+            })
+            if classification.serial_only:
+                log.write_line(
+                    f"Warning: {classification.transport_note} "
+                    f"({usb_dev.vendor_id:04x}:{usb_dev.product_id:04x}) is a "
+                    "serial-only adapter — it cannot drive a parallel printer."
+                )
+
     def on_mount(self) -> None:
         """Populate widgets with discovery data."""
         option_list = self.query_one("#device-list", OptionList)
@@ -141,18 +183,7 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
 
         # Build device entries and populate OptionList
         self._device_entries = []
-
-        for i, usb_dev in enumerate(self._discovery.usb_devices):
-            if usb_dev.product_name:
-                label = f"{usb_dev.product_name} (USB {usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
-            else:
-                label = f"USB Device ({usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
-            option_list.add_option(label)
-            self._device_entries.append({
-                "type": "usb",
-                "index": i,
-                "usb_info": usb_dev,
-            })
+        self._add_usb_device_options(option_list, log)
 
         for i, cups_pr in enumerate(self._discovery.cups_printers):
             suffix = f": {cups_pr.model}" if cups_pr.model else ""
@@ -244,12 +275,19 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
                         "may time out. No CUPS queue available — falling back."
                     )
 
-            # Auto-detect profile by VID:PID matching against all_profiles
-            matched_profile = self._match_profile_by_vid_pid(
-                usb_info.vendor_id, usb_info.product_id
-            )
-            if matched_profile:
-                profile_select.value = matched_profile
+            # Route the profile suggestion through classify(): only a
+            # NATIVE_PRINTER verdict carries a suggestion, and it is
+            # advisory — applied only when the Select actually offers it.
+            # BRIDGE devices always stay on "generic" (forcing the manual
+            # family pick — the bridge chip's VID:PID identifies the
+            # cable, not the printer, even though a profile may pin that
+            # VID). UNKNOWN devices also stay on "generic".
+            classification = classify(usb_info, self._registry)
+            if (
+                classification.kind is DeviceKind.NATIVE_PRINTER
+                and classification.suggested_profile in self._all_profiles
+            ):
+                profile_select.value = classification.suggested_profile
             else:
                 profile_select.value = "generic"
 
@@ -258,30 +296,6 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
             radio_cups.disabled = False
             radio_cups.value = True
             profile_select.value = "generic"
-
-    def _match_profile_by_vid_pid(
-        self, vendor_id: int, product_id: int
-    ) -> str | None:
-        """Match VID:PID against profile catalog without importing pyusb.
-
-        Returns the profile name if matched, None otherwise.
-        Exact VID+PID match takes priority over VID-only match.
-        """
-        exact_match: str | None = None
-        vid_match: str | None = None
-
-        for name, profile in self._all_profiles.items():
-            if profile is None:
-                continue
-            p_vid = getattr(profile, "usb_vendor_id", None)
-            p_pid = getattr(profile, "usb_product_id", None)
-            if p_vid is not None and p_vid == vendor_id:
-                if p_pid is not None and p_pid == product_id:
-                    exact_match = name
-                elif p_pid is None and vid_match is None:
-                    vid_match = name
-
-        return exact_match or vid_match
 
     def _on_connect(self) -> None:
         """Build PrinterSelection from current widget state and dismiss."""
@@ -393,20 +407,10 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
 
         # Clear and repopulate OptionList
         option_list = self.query_one("#device-list", OptionList)
+        log = self.query_one("#diagnostics-log", Log)
         option_list.clear_options()
         self._device_entries = []
-
-        for i, usb_dev in enumerate(self._discovery.usb_devices):
-            if usb_dev.product_name:
-                label = f"{usb_dev.product_name} (USB {usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
-            else:
-                label = f"USB Device ({usb_dev.vendor_id:04x}:{usb_dev.product_id:04x})"
-            option_list.add_option(label)
-            self._device_entries.append({
-                "type": "usb",
-                "index": i,
-                "usb_info": usb_dev,
-            })
+        self._add_usb_device_options(option_list, log)
 
         for i, cups_pr in enumerate(self._discovery.cups_printers):
             suffix = f": {cups_pr.model}" if cups_pr.model else ""
@@ -432,7 +436,6 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         connect_btn.disabled = not self._device_entries
 
         # Log new counts
-        log = self.query_one("#diagnostics-log", Log)
         if self._discovery.usb_devices:
             log.write_line(f"{len(self._discovery.usb_devices)} USB device(s) found")
         if self._discovery.cups_printers:
