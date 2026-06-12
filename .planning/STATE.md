@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Printer Fleet & Standalone
-status: planning
+status: roadmapped
 last_updated: "2026-06-12T17:48:04.677Z"
 last_activity: 2026-06-12
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** v1.6 milestone (Printer Fleet & Standalone) — defining requirements. Broad USB dot-matrix detection matrix + per-family profiles with richer direct-mode control, code refactoring (debt list, module structure, driver/profile architecture), PyInstaller standalone build. Formalizes the untracked codepage/`text_codec`/`text_fallback` work.
+**Current focus:** v1.6 milestone (Printer Fleet & Standalone) — roadmapped into 4 phases (27-30). Refactor first (package split, ProfileRegistry, Classification seam, tech debt, codepage formalization), then fleet detection + bridge registry, then per-family profile catalog, then PyInstaller standalone build last.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap complete, Phase 27 ready to plan)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-12 — Milestone v1.6 started
+Status: Roadmapped — awaiting phase planning
+Last activity: 2026-06-12 — v1.6 roadmap created (Phases 27-30, 29 requirements mapped)
 
 ## Performance Metrics
 
@@ -66,6 +66,20 @@ Carry-forward still in force:
 - `_make_*_app()` closure-factory pattern for one-shot Textual launchers; `App._exit_code` attribute idiom for return-code propagation.
 - Import-locally + patch-at-source-module test convention for cli.py helpers.
 
+### v1.6 Roadmap Notes
+
+- **Strict phase ordering** (research-backed): Refactor (27) → Fleet detection (28) → Profile catalog (29) → Packaging (30). Refactor must stay isolated from feature/behavior changes so failures stay diagnosable. PyInstaller freezes last — only after the module graph is stable.
+- **DIR-01 (codepage formalization) lands in Phase 27**, not later — other families extend it, so it must become tracked + tested before being extended nine times.
+- **Package refactor uses move-with-shim** (three separately-green steps): move-with-re-export → repoint internals → migrate tests. Big-bang moves break ~700 tests via stale mock patch targets.
+- **Bridge VIDs live in a separate `BRIDGE_CHIP_VIDS` set, never in the ProfileRegistry** — CH340/FTDI VID:PIDs collide with Arduinos/GPS dongles; never auto-select or auto-skip a bridge match.
+- **Leave-empty-when-unsure rule** extends to all nine new families; every non-empty byte field cites manual + page + assumed emulation mode; unverified families tagged `human_needed`.
+
+### Hardware-Verification Flags (human_needed expected during v1.6)
+
+- **Phase 28 — bridge-chip interface-class behavior:** Does a CH341 USB-LPT adapter in parallel mode enumerate as class 7 or CDC/vendor-specific? Determines whether the class-7 fast path survives or must become advisory. Needs a real CH341 + `lsusb -v`. MEDIUM confidence until verified.
+- **Phase 28/29 — native-USB PIDs beyond Epson LX-350 (0x0046) / LQ-350 (0x0047):** All other model-level PIDs are LOW confidence. Registry VID-only fallback is the safe default; per-model PIDs fill in via `diagnose`-on-real-device over time.
+- **Phase 30 — libusb bundling + macOS clean-machine run:** Exact dylib path varies by arch; ad-hoc vs notarized signing is a project decision (Apple Developer account $99/yr). Needs a real build iteration on Intel + Apple Silicon. PortAudio bundling also requires clean-machine verification.
+
 ### Deferred Items
 
 Items acknowledged and deferred at milestone close on 2026-06-12:
@@ -82,20 +96,21 @@ None.
 
 ### Blockers/Concerns
 
-Carried into next milestone:
+Carried into v1.6:
 
 - Real-hardware verification of style ESC sequences (see Deferred Items above) — includes Juki underline ESC -1/-0 on the physical 6100/2200.
 - Per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode is fully trusted.
 - Juki 9100 control codes still extrapolated from 6100 (carried since v1.4).
-- Post-v1.5 codepage/transliteration work (commits d70aded, 7ccdff5) landed outside GSD tracking — no phase artifacts, no requirements. Consider formalizing/back-filling in v1.6.
+- Post-v1.5 codepage/transliteration work (commits d70aded, 7ccdff5) — now formalized as DIR-01 in Phase 27.
+- Multiple-printer selection scope (TBD): the REF-03 device-index fix enables selecting among several USB printers; clarify during Phase 27 planning whether full multi-printer selection is in v1.6 scope or just the index-bug fix.
 
 ## Session Continuity
 
 Last session: 2026-06-12
-Stopped at: Milestone v1.5 completed and archived
+Stopped at: v1.6 roadmap created (Phases 27-30)
 Resume file: None
-Next action: Start the next milestone with /gsd-new-milestone
+Next action: Plan Phase 27 with /gsd:plan-phase 27
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd:plan-phase 27`

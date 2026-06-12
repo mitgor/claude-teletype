@@ -92,37 +92,38 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-01 | — | Pending |
-| DET-02 | — | Pending |
-| DET-03 | — | Pending |
-| DET-04 | — | Pending |
-| DET-05 | — | Pending |
-| DET-06 | — | Pending |
-| DET-07 | — | Pending |
-| PROF-01 | — | Pending |
-| PROF-02 | — | Pending |
-| PROF-03 | — | Pending |
-| PROF-04 | — | Pending |
-| PROF-05 | — | Pending |
-| PROF-06 | — | Pending |
-| PROF-07 | — | Pending |
-| PROF-08 | — | Pending |
-| DIR-01 | — | Pending |
-| DIR-02 | — | Pending |
-| DIR-03 | — | Pending |
-| DIR-04 | — | Pending |
-| REF-01 | — | Pending |
-| REF-02 | — | Pending |
-| REF-03 | — | Pending |
-| REF-04 | — | Pending |
-| REF-05 | — | Pending |
-| REF-06 | — | Pending |
-| PKG-01 | — | Pending |
-| PKG-02 | — | Pending |
-| PKG-03 | — | Pending |
-| PKG-04 | — | Pending |
+| DET-01 | Phase 28 | Pending |
+| DET-02 | Phase 27 | Pending |
+| DET-03 | Phase 28 | Pending |
+| DET-04 | Phase 28 | Pending |
+| DET-05 | Phase 28 | Pending |
+| DET-06 | Phase 28 | Pending |
+| DET-07 | Phase 29 | Pending |
+| PROF-01 | Phase 29 | Pending |
+| PROF-02 | Phase 29 | Pending |
+| PROF-03 | Phase 29 | Pending |
+| PROF-04 | Phase 29 | Pending |
+| PROF-05 | Phase 29 | Pending |
+| PROF-06 | Phase 29 | Pending |
+| PROF-07 | Phase 29 | Pending |
+| PROF-08 | Phase 29 | Pending |
+| DIR-01 | Phase 27 | Pending |
+| DIR-02 | Phase 29 | Pending |
+| DIR-03 | Phase 29 | Pending |
+| DIR-04 | Phase 28 | Pending |
+| REF-01 | Phase 27 | Pending |
+| REF-02 | Phase 27 | Pending |
+| REF-03 | Phase 27 | Pending |
+| REF-04 | Phase 27 | Pending |
+| REF-05 | Phase 27 | Pending |
+| REF-06 | Phase 27 | Pending |
+| PKG-01 | Phase 30 | Pending |
+| PKG-02 | Phase 30 | Pending |
+| PKG-03 | Phase 30 | Pending |
+| PKG-04 | Phase 30 | Pending |
 
-**Coverage:** 29 requirements defined, mapping pending roadmap.
+**Coverage:** 29/29 requirements mapped across Phases 27-30. No orphans.
 
 ---
 *Requirements defined: 2026-06-12*
+*Roadmap mapped: 2026-06-12*
