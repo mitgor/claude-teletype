@@ -331,10 +331,10 @@ def _load_catalog() -> dict[str, PrinterProfile]:
     Importing the catalog at profiles.py module top would close the
     import cycle and crash at load time.
     """
-    from claude_teletype.printing.catalog import epson, oki
+    from claude_teletype.printing.catalog import epson, oki, star
 
     merged: dict[str, PrinterProfile] = {}
-    for module in (epson, oki):
+    for module in (epson, oki, star):
         merged.update(module.PROFILES)
     return merged
 
@@ -392,6 +392,53 @@ BUILTIN_PROFILES["oki-ml-epson"] = dataclasses.replace(
     name="oki-ml-epson",
     description="MICROLINE in Epson FX mode",
     usb_vendor_id=None,
+)
+
+# Panasonic KX-P / Tally emulation aliases (R021). The KX-P dot matrix
+# line ships both Epson ESC/P and IBM Proprinter emulations selectable
+# from the printer's own setup menu / DIP switches; Tally (later
+# TallyGenicom) dot matrix machines likewise offer Epson and IBM modes.
+# Each alias carries NO new bytes — it states which emulation the
+# printer must be switched to. Both replace(escp)-derived aliases MUST
+# null usb_vendor_id: inheriting Epson's 0x04B8 would log a registry
+# VID collision and steal escp's auto-detect slot (D007). replace(ppds)
+# aliases inherit None (ppds is unpinned) — nothing to null.
+BUILTIN_PROFILES["panasonic-kxp-epson"] = dataclasses.replace(
+    BUILTIN_PROFILES["escp"],
+    name="panasonic-kxp-epson",
+    description=(
+        "Panasonic KX-P dot matrix in Epson ESC/P emulation — the "
+        "printer's setup menu / DIP emulation setting must match"
+    ),
+    usb_vendor_id=None,
+)
+
+BUILTIN_PROFILES["panasonic-kxp-ibm"] = dataclasses.replace(
+    BUILTIN_PROFILES["ppds"],
+    name="panasonic-kxp-ibm",
+    description=(
+        "Panasonic KX-P dot matrix in IBM Proprinter emulation — the "
+        "printer's setup menu / DIP emulation setting must match"
+    ),
+)
+
+BUILTIN_PROFILES["tally-epson"] = dataclasses.replace(
+    BUILTIN_PROFILES["escp"],
+    name="tally-epson",
+    description=(
+        "Tally / TallyGenicom dot matrix in Epson ESC/P emulation — the "
+        "printer's emulation menu must match"
+    ),
+    usb_vendor_id=None,
+)
+
+BUILTIN_PROFILES["tally-ibm"] = dataclasses.replace(
+    BUILTIN_PROFILES["ppds"],
+    name="tally-ibm",
+    description=(
+        "Tally / TallyGenicom dot matrix in IBM Proprinter emulation — "
+        "the printer's emulation menu must match"
+    ),
 )
 
 # Backward-compat alias: "juki" was renamed to "juki-6100" — keep the old

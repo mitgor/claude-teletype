@@ -104,10 +104,14 @@ BRIDGE_CHIP_VIDS: dict[int, str] = {
     vid: chip.note for vid, chip in BRIDGE_CHIPS.items()
 }
 
-# Vendors known to ship native USB printers but with no profile in the
-# catalog yet (S03 ships them). A hit classifies NATIVE_PRINTER with no
-# suggested_profile: real printer, nothing to suggest — keeps the device
-# out of the bridge/unknown buckets without guessing a command set.
+# Vendors known to ship native USB printers. A hit classifies
+# NATIVE_PRINTER with no suggested_profile: real printer, nothing to
+# suggest — keeps the device out of the bridge/unknown buckets without
+# guessing a command set. Star (star-line) and Lexmark (lexmark-forms)
+# now carry registry VID pins that fire BEFORE this fallthrough, so for
+# those two this table is only a backstop when the registry profile is
+# overridden away; IBM stays suggestion-less on purpose (a VID on ppds
+# would cascade into every replace(ppds) alias — D007).
 # MEDIUM confidence — VIDs from usb.ids.
 NATIVE_PRINTER_VENDOR_VIDS: dict[int, str] = {
     0x0519: "Star Micronics",

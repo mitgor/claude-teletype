@@ -168,6 +168,36 @@ class TestClassifyNative:
         assert profile.name == "lexmark-forms"
         assert profile.usb_vendor_id == 0x043D
 
+    def test_star_vid_suggests_star_line(self):
+        """A printer-class Star device (any PID) suggests star-line.
+
+        S03 T04 pinned 0x0519 on the star-line profile: the registry
+        VID-only match fires BEFORE the NATIVE_PRINTER_VENDOR_VIDS
+        fallthrough, upgrading S02's bare "Star Micronics" vendor hint
+        to a real suggestion (R010/D007).
+        """
+        result = classify(
+            UsbDeviceInfo(
+                vendor_id=0x0519, product_id=0x1234, printer_class=True
+            ),
+            _registry(),
+        )
+        assert result.kind is DeviceKind.NATIVE_PRINTER
+        assert result.suggested_profile == "star-line"
+
+    def test_star_line_suggestion_resolves_in_registry(self):
+        """The star-line suggestion is a real registry key (MEM015 guard)."""
+        suggestion = classify(
+            UsbDeviceInfo(
+                vendor_id=0x0519, product_id=0x1234, printer_class=True
+            ),
+            _registry(),
+        ).suggested_profile
+        assert suggestion is not None
+        profile = ProfileRegistry(BUILTIN_PROFILES).get(suggestion)
+        assert profile.name == "star-line"
+        assert profile.usb_vendor_id == 0x0519
+
     def test_suggestion_comes_from_registry(self):
         """classify delegates the native suggestion to registry.match_vidpid."""
         registry = MagicMock()
@@ -323,8 +353,26 @@ class TestDetectNativeProfile:
         assert profile is None
 
     def test_vendor_hint_returns_none(self):
-        """Q7 negative: Star classifies NATIVE_PRINTER but carries no
-        suggested_profile, so the fallback yields None, not a guess."""
+        """Q7 negative: IBM classifies NATIVE_PRINTER but carries no
+        suggested_profile, so the fallback yields None, not a guess.
+
+        (Was a Star device until S03 T04 pinned 0x0519 on star-line —
+        IBM's 0x04B3 is now the suggestion-less vendor hint: it is
+        deliberately pinned NOWHERE because a VID on ppds would cascade
+        into every replace(ppds) alias, D007.)
+        """
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(vendor_id=0x04B3, product_id=0x0001)
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is None
+
+    def test_star_device_resolves_star_line(self):
+        """S03 T04: a discovered Star device now resolves to star-line
+        through the registry's VID-only index (R010/R020)."""
         with patch(
             "claude_teletype.printing.discovery.discover_all",
             return_value=_discovery_with(
@@ -332,7 +380,8 @@ class TestDetectNativeProfile:
             ),
         ):
             profile = detect_native_profile(_registry())
-        assert profile is None
+        assert profile is not None
+        assert profile.name == "star-line"
 
     def test_empty_discovery_returns_none(self):
         with patch(
@@ -379,7 +428,7 @@ class TestDetectNativeProfile:
                 UsbDeviceInfo(
                     vendor_id=0x1A86, product_id=0x7523, printer_class=False
                 ),  # CH340 bridge — skipped
-                UsbDeviceInfo(vendor_id=0x0519, product_id=0x0001),  # Star hint — no suggestion
+                UsbDeviceInfo(vendor_id=0x04B3, product_id=0x0001),  # IBM hint — no suggestion
                 UsbDeviceInfo(vendor_id=0x2730, product_id=0x2002),  # Citizen — native
             ),
         ):

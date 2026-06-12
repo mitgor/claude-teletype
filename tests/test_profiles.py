@@ -92,7 +92,7 @@ def test_printer_profile_capability_fields_are_frozen():
 
 def test_builtin_profiles_count():
     """BUILTIN_PROFILES entry count: literals + aliases + catalog profiles."""
-    assert len(BUILTIN_PROFILES) == 15
+    assert len(BUILTIN_PROFILES) == 21
 
 
 def test_builtin_profiles_keys():
@@ -107,6 +107,12 @@ def test_builtin_profiles_keys():
         "oki-ml-ibm",
         "oki-ml-epson",
         "oki-microline-native",
+        "star-line",
+        "epson-tm",
+        "panasonic-kxp-epson",
+        "panasonic-kxp-ibm",
+        "tally-epson",
+        "tally-ibm",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
 
@@ -396,6 +402,149 @@ def test_oki_microline_native_no_usb_ids():
     p = BUILTIN_PROFILES["oki-microline-native"]
     assert p.usb_vendor_id is None
     assert p.usb_product_id is None
+
+
+def test_star_line_cited_bytes():
+    """star-line fields exactly as cited (STAR Command Spec Rev. 1.91).
+
+    ESC @ init (§3-3-15, p. 3-74), ESC E / ESC F emphasized (§3-3-3,
+    p. 3-10), ESC - 1/0 underline (§3-3-3, p. 3-11), ESC z 1 line feed
+    (§3-3-4, p. 3-19), ESC GS t 1 -> CodePage437 (§3-3-1).
+    """
+    p = BUILTIN_PROFILES["star-line"]
+    assert p.name == "star-line"
+    assert p.init_sequence == b"\x1b@"        # ESC @ — command initialization
+    assert p.reset_sequence == b"\x1b@"
+    assert p.line_spacing == b"\x1bz\x01"     # ESC z 1 — 1/6 inch
+    assert p.bold_on == b"\x1bE"              # ESC E — emphasized on
+    assert p.bold_off == b"\x1bF"             # ESC F — emphasized off
+    assert p.underline_on == b"\x1b-\x01"     # ESC - 1
+    assert p.underline_off == b"\x1b-\x00"    # ESC - 0
+    assert p.codepage_command == b"\x1b\x1dt\x01"  # ESC GS t 1 — CP437
+    assert p.text_codec == "cp437"
+    assert p.crlf is False                    # bare LF prints + feeds
+    assert p.formfeed_on_close is False       # FF is a black-mark feed
+
+
+def test_star_line_verified_absences_are_empty():
+    """Star line mode has no italic and no cpi-select command — empty, no gap."""
+    p = BUILTIN_PROFILES["star-line"]
+    assert p.italic_on == b""
+    assert p.italic_off == b""
+    assert p.char_pitch == b""
+
+
+def test_star_line_vid_pinned():
+    """star-line pins 0x0519 (Star Micronics, sole claimant — D007), no PID."""
+    p = BUILTIN_PROFILES["star-line"]
+    assert p.usb_vendor_id == 0x0519
+    assert p.usb_product_id is None
+
+
+def test_star_line_gaps_are_recorded_not_fabricated():
+    """Cut sequence and real column count stay open with human_needed (R022)."""
+    p = BUILTIN_PROFILES["star-line"]
+    assert p.end_of_response_sequence == b""
+    assert len(p.human_needed) == 2
+    assert "end_of_response" in p.human_needed[0]
+    assert "columns" in p.human_needed[1]
+
+
+def test_epson_tm_escpos_impact_shape():
+    """epson-tm: ESC/POS impact (TM-U220 class) — binary-parameter bold pin.
+
+    The bold bytes are the ESC/POS-vs-ESC/P trap guard: ESC E n with
+    BINARY n, never the bare ESC E that escp uses (a bare ESC E in
+    ESC/POS eats the next text byte as its parameter).
+    """
+    p = BUILTIN_PROFILES["epson-tm"]
+    assert p.name == "epson-tm"
+    assert p.init_sequence == b"\x1b@"      # ESC @ — ESC/POS initialize
+    assert p.reset_sequence == b"\x1b@"
+    assert p.bold_on == b"\x1bE\x01"        # ESC E 1 — binary parameter
+    assert p.bold_off == b"\x1bE\x00"       # ESC E 0 — binary parameter
+    assert p.underline_on == b"\x1b-\x01"   # ESC - 1
+    assert p.underline_off == b"\x1b-\x00"  # ESC - 0
+    assert p.italic_on == b""               # ESC/POS has no italic
+    assert p.crlf is False                  # ESC/POS is LF-only
+    assert p.formfeed_on_close is False     # receipt printers ignore \f
+    assert p.instant_output is False        # 9-pin impact, NOT thermal-fast
+    assert p.columns == 35                  # Font A, 76mm paper (TRG §1.3.1)
+
+
+def test_epson_tm_codepage_pc437():
+    """epson-tm selects PC437 via ESC t 0 (TM-U220 TRG Rev. H, Appendix C.1)."""
+    p = BUILTIN_PROFILES["epson-tm"]
+    assert p.codepage_command == b"\x1bt\x00"  # ESC t 0 — Page 0 = PC437
+    assert p.text_codec == "cp437"
+
+
+def test_epson_tm_no_usb_ids():
+    """epson-tm carries NO VID/PID: 0x04B8 is VID-only-claimed by escp (D007)."""
+    p = BUILTIN_PROFILES["epson-tm"]
+    assert p.usb_vendor_id is None
+    assert p.usb_product_id is None
+
+
+def test_epson_tm_cut_gap_recorded_not_fabricated():
+    """No GS V cut: autocutter varies by TM-U220 sub-model (R022).
+
+    Type A/B have the autocutter; Type D has a manual cutter (TM-U220
+    TRG Rev. H §1.5.1) — the gap is recorded, not guessed.
+    """
+    p = BUILTIN_PROFILES["epson-tm"]
+    assert p.end_of_response_sequence == b""
+    assert len(p.human_needed) == 1
+    assert "end_of_response" in p.human_needed[0]
+
+
+@pytest.mark.parametrize(
+    ("alias", "base"),
+    [
+        ("panasonic-kxp-epson", "escp"),
+        ("panasonic-kxp-ibm", "ppds"),
+        ("tally-epson", "escp"),
+        ("tally-ibm", "ppds"),
+    ],
+)
+def test_panasonic_tally_aliases_byte_equal_their_base(alias, base):
+    """R021 emulation aliases carry no new bytes — pure dataclasses.replace."""
+    a = BUILTIN_PROFILES[alias]
+    b = BUILTIN_PROFILES[base]
+    assert a.name == alias
+    for field_name in (
+        "init_sequence", "reset_sequence", "line_spacing", "char_pitch",
+        "bold_on", "bold_off",
+        "italic_on", "italic_off",
+        "underline_on", "underline_off",
+        "end_of_response_sequence",
+        "crlf", "formfeed_on_close", "columns",
+        "codepage_command", "text_codec", "human_needed",
+    ):
+        assert getattr(a, field_name) == getattr(b, field_name), (
+            f"{alias}.{field_name} diverges from {base}"
+        )
+
+
+@pytest.mark.parametrize("alias", ["panasonic-kxp-epson", "tally-epson"])
+def test_escp_derived_aliases_null_the_epson_vid(alias):
+    """Negative test for the replace(escp) footgun: usb_vendor_id MUST be None.
+
+    An inherited 0x04B8 would log a registry VID collision and steal
+    escp's VID-only auto-detect slot (D007).
+    """
+    a = BUILTIN_PROFILES[alias]
+    assert a.usb_vendor_id is None, f"{alias} must NOT inherit escp's 0x04B8"
+    assert a.usb_product_id is None
+    assert BUILTIN_PROFILES["escp"].usb_vendor_id == 0x04B8
+
+
+@pytest.mark.parametrize("alias", ["panasonic-kxp-ibm", "tally-ibm"])
+def test_ppds_derived_aliases_inherit_no_vid(alias):
+    """replace(ppds) aliases stay unpinned — ppds itself carries no VID (D007)."""
+    a = BUILTIN_PROFILES[alias]
+    assert a.usb_vendor_id is None
+    assert a.usb_product_id is None
 
 
 def test_pcl_profile_esc_sequences():
