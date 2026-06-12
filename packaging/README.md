@@ -34,12 +34,49 @@ Output lands in `dist/claude-teletype/`:
 
 ## Smoke check (dev machine)
 
+After every build, run the checked-in frozen smoke gate from the repo root:
+
 ```sh
-dist/claude-teletype/claude-teletype --help
-dist/claude-teletype/claude-teletype diagnose
-test -f dist/claude-teletype/_internal/libusb-1.0.dylib
-test -f dist/claude-teletype/_internal/_sounddevice_data/portaudio-binaries/libportaudio.dylib
+bash packaging/smoke_frozen.sh
 ```
+
+It asserts, against `dist/claude-teletype/`:
+
+1. `--help` exits 0.
+2. `diagnose` exits 0 and renders the full no-USB degradation surface:
+   the `Profile Capabilities` table, the `star-line` row, and the
+   "Built-in profiles only" footnote (R029 without hardware).
+3. The pyusb dependency row reads **Installed** and no row reads
+   "Not installed" — the R027 quiet-failure guard. A bundle built without
+   `uv sync --extra usb` still exits 0 everywhere; only this check
+   catches it.
+4. `otool -L` over every bundled `.dylib`/`.so` shows **zero** load-command
+   references to `/opt/homebrew` or `/usr/local`. A leaked Homebrew path
+   works on the dev machine and breaks only on a clean machine.
+5. Clean-machine approximation: `diagnose` re-run under
+   `env -i HOME=$(mktemp -d) PATH=/usr/bin:/bin` still exits 0 and renders
+   the capability table (no Homebrew PATH, no dev shell, fresh HOME).
+
+Each check prints `PASS`/`FAIL`; the script exits non-zero on any failure
+and ends with `FROZEN SMOKE: ALL PASS`.
+
+### What the smoke script does NOT prove (R028 — human needed)
+
+The script is a headless approximation. A physical clean-machine pass
+(no Homebrew, no dev Python) must still verify, by hand:
+
+- Launch on a real clean machine: detection, simulator, and print paths
+  all work.
+- Double-clicking `Claude Teletype.app` opens Terminal running the TUI.
+- USB hardware behavior: a real printer is detected, and unplugging USB
+  degrades to the CUPS/simulator fallback.
+
+Two surfaces are **environment-dependent by design** and intentionally
+outside the smoke gate: the openai voice backend needs `OPENAI_API_KEY`
+in the environment, and the claude backend needs the `claude` CLI on the
+user's PATH. On a clean machine without them, both degrade with their
+existing `BackendError` messages — that is correct behavior, not a
+packaging defect.
 
 ## Signing
 
