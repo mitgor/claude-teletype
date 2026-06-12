@@ -1,0 +1,201 @@
+"""Printer selection and driver-factory functions.
+
+Moved from the former top-level printer.py (selection slice). Turns a
+user/saved choice into a concrete PrinterDriver.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from claude_teletype.printing.discovery import (
+    DiscoveryResult,
+    PrinterSelection,
+    _find_usb_printer,
+)
+from claude_teletype.printing.drivers import (
+    CupsPrinterDriver,
+    FilePrinterDriver,
+    NullPrinterDriver,
+    PrinterDriver,
+    ProfilePrinterDriver,
+)
+from claude_teletype.printing.profiles import PrinterProfile, get_profile
+
+
+def select_printer(printers: list[dict[str, str]]) -> str | None:
+    """Interactively select a CUPS printer from the discovered list.
+
+    Returns the printer name, or None if no printers available.
+    """
+    if not printers:
+        return None
+    if len(printers) == 1:
+        print(f"Selected printer: {printers[0]['name']}")
+        return printers[0]["name"]
+
+    print("Available USB printers:")
+    for i, p in enumerate(printers, 1):
+        print(f"  {i}. {p['name']}  ({p['uri']})")
+
+    while True:
+        try:
+            choice = input(f"Select printer [1-{len(printers)}]: ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(printers):
+                print(f"Selected printer: {printers[idx]['name']}")
+                return printers[idx]["name"]
+        except (ValueError, EOFError):
+            pass
+        print(f"Please enter a number between 1 and {len(printers)}.")
+
+
+def match_saved_printer(
+    saved_type: str,
+    saved_id: str,
+    discovery: DiscoveryResult,
+) -> PrinterSelection | None:
+    """Check if a saved printer config matches a currently connected device.
+
+    Returns a PrinterSelection if matched, None if the saved printer is not found.
+    USB devices are matched by VID:PID (hex string like "1234:5678").
+    CUPS printers are matched by queue name.
+    """
+    if not saved_type or saved_type == "skip":
+        return None
+
+    if saved_type == "usb" and saved_id:
+        # Parse VID:PID from saved_id
+        parts = saved_id.split(":")
+        if len(parts) == 2:
+            try:
+                vid = int(parts[0], 16)
+                pid = int(parts[1], 16)
+            except ValueError:
+                return None
+            for i, dev in enumerate(discovery.usb_devices):
+                if dev.vendor_id == vid and dev.product_id == pid:
+                    return PrinterSelection(
+                        connection_type="usb",
+                        device_index=i,
+                        profile_name="generic",
+                    )
+
+    elif saved_type == "cups" and saved_id:
+        for cups_pr in discovery.cups_printers:
+            if cups_pr.name == saved_id and cups_pr.enabled:
+                return PrinterSelection(
+                    connection_type="cups",
+                    cups_printer_name=cups_pr.name,
+                    profile_name="generic",
+                )
+
+    return None
+
+
+def create_driver_for_selection(
+    selection: PrinterSelection,
+    discovery: DiscoveryResult,
+    all_profiles: dict[str, PrinterProfile] | None = None,
+) -> PrinterDriver:
+    """Convert a PrinterSelection from the setup screen into a PrinterDriver.
+
+    Args:
+        selection: User's choice from PrinterSetupScreen.
+        discovery: Discovery results (for context, not currently used for USB).
+        all_profiles: Profile catalog for profile wrapping. If None, uses BUILTIN_PROFILES.
+
+    Returns:
+        Configured PrinterDriver (possibly wrapped in ProfilePrinterDriver).
+    """
+    from claude_teletype.printing.profiles import BUILTIN_PROFILES
+
+    if selection.connection_type == "skip":
+        return NullPrinterDriver()
+
+    driver: PrinterDriver | None = None
+
+    if selection.connection_type == "usb":
+        driver = _find_usb_printer()
+    elif selection.connection_type == "cups":
+        if selection.cups_printer_name:
+            driver = CupsPrinterDriver(selection.cups_printer_name)
+
+    if driver is None:
+        return NullPrinterDriver()
+
+    # Wrap with profile if not generic
+    if selection.profile_name and selection.profile_name != "generic":
+        profiles = all_profiles or BUILTIN_PROFILES
+        profile = profiles.get(selection.profile_name)
+        if profile is not None:
+            driver = ProfilePrinterDriver(driver, profile)
+
+    return driver
+
+
+def discover_printer(
+    device_override: str | None = None,
+    juki: bool = False,
+    profile: PrinterProfile | None = None,
+) -> PrinterDriver:
+    """Select the best available printer backend.
+
+    Priority:
+    1. User-specified --device path -> FilePrinterDriver
+    2. Direct USB via pyusb (when profile has ESC codes) -> UsbPrinterDriver
+    3. CUPS USB printer discovery (interactive selection) -> CupsPrinterDriver
+    4. Linux /dev/usb/lp* probe -> FilePrinterDriver
+    5. Fallback -> NullPrinterDriver
+
+    When a non-generic profile is provided, wraps the selected driver in
+    ProfilePrinterDriver. The juki parameter is deprecated; use
+    profile=get_profile("juki") instead.
+    """
+    # Backward compat: juki=True without explicit profile
+    if juki and profile is None:
+        profile = get_profile("juki")
+
+    # Resolve the discovery/selection helpers through the claude_teletype.printer
+    # re-export shim at call time so legacy test patches targeting
+    # ``claude_teletype.printer.discover_usb_device`` /
+    # ``claude_teletype.printer.discover_cups_printers`` /
+    # ``claude_teletype.printer.select_printer`` still intercept the calls.
+    # (Phase 27 Plan 03 migrates these patch targets to the new module paths;
+    # until then this lazy lookup preserves the single-module seam.) The
+    # import is local to avoid an import cycle with the shim.
+    from claude_teletype import printer as _shim
+
+    driver: PrinterDriver | None = None
+    use_profile = profile is not None and profile.name != "generic"
+
+    if device_override:
+        driver = FilePrinterDriver(device_override)
+    else:
+        if use_profile:
+            usb_driver = _shim.discover_usb_device()
+            if usb_driver is not None:
+                driver = usb_driver
+                print(f"USB direct: {usb_driver}", file=sys.stderr)
+
+        if driver is None:
+            cups_printers = _shim.discover_cups_printers()
+            selected = _shim.select_printer(cups_printers)
+            if selected:
+                driver = CupsPrinterDriver(selected)
+                if use_profile:
+                    print(f"CUPS: {selected}", file=sys.stderr)
+            elif sys.platform == "linux":
+                for dev in ["/dev/usb/lp0", "/dev/usb/lp1"]:
+                    if Path(dev).exists():
+                        driver = FilePrinterDriver(dev)
+                        break
+
+    if driver is None:
+        driver = NullPrinterDriver()
+
+    if use_profile and not isinstance(driver, NullPrinterDriver):
+        driver = ProfilePrinterDriver(driver, profile)
+
+    return driver
