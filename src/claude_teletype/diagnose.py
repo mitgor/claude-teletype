@@ -54,6 +54,7 @@ def _classification_row(
 def run_diagnose() -> None:
     """Run printer diagnostics and print structured Rich output."""
     console = Console()
+    registry = ProfileRegistry(BUILTIN_PROFILES)
     result = discover_all()
 
     console.print()
@@ -87,7 +88,6 @@ def run_diagnose() -> None:
     # --- USB Devices ---
     if result.pyusb_available and result.libusb_available:
         if result.usb_devices:
-            registry = ProfileRegistry(BUILTIN_PROFILES)
             usb_table = Table(
                 title="USB Devices (printer-class and bridge adapters)",
                 show_header=True,
@@ -118,6 +118,33 @@ def run_diagnose() -> None:
         console.print("[dim]USB device scanning unavailable (pyusb not installed)[/dim]")
     else:
         console.print("[dim]USB device scanning unavailable (libusb not found)[/dim]")
+    console.print()
+
+    # --- Profile Capabilities (R025) ---
+    # Rendered UNCONDITIONALLY: the table is static catalog data,
+    # independent of USB availability (decision D008).
+    cap_table = Table(title="Profile Capabilities", show_header=True)
+    cap_table.add_column("Profile", style="cyan")
+    cap_table.add_column("Description", style="dim")
+    cap_table.add_column("Bold")
+    cap_table.add_column("Italic")
+    cap_table.add_column("Underline")
+    cap_table.add_column("Codepage")
+    cap_table.add_column("Human verification needed", style="yellow")
+    for name, profile in sorted(registry.all().items()):
+        cap_table.add_row(
+            name,
+            profile.description,
+            "yes" if profile.bold_on else "—",
+            "yes" if profile.italic_on else "—",
+            "yes" if profile.underline_on else "—",
+            profile.text_codec or "—",
+            ", ".join(profile.human_needed) or "—",
+        )
+    console.print(cap_table)
+    console.print(
+        "[dim]Built-in profiles only — custom TOML profiles are not shown.[/dim]"
+    )
     console.print()
 
     # --- CUPS Printers ---

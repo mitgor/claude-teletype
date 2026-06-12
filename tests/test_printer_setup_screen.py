@@ -117,6 +117,18 @@ async def test_profile_select_populated():
 
 
 @pytest.mark.asyncio
+async def test_new_catalog_families_selectable():
+    """S03 integration: new catalog families flow into the setup Select
+    automatically via all_profiles — this pins the wiring (T05)."""
+    app = SetupTestApp(discovery=DISCOVERY_BOTH)
+    async with app.run_test(size=(80, 40)) as pilot:
+        profile_select = app.screen.query_one("#profile-select", Select)
+        option_values = {opt[1] for opt in profile_select._options}
+        for name in ("star-line", "escp2", "epson-tm", "lexmark-forms"):
+            assert name in option_values, f"new family not selectable: {name}"
+
+
+@pytest.mark.asyncio
 async def test_connect_disabled_when_no_devices():
     """SETUP-01 edge case: Connect button disabled with empty discovery."""
     app = SetupTestApp(discovery=DISCOVERY_EMPTY)

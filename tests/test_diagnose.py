@@ -368,3 +368,52 @@ class TestDiagnoseClassificationMatrix:
 
         assert "unknown" in output
         assert "Traceback" not in output
+
+
+class TestProfileCapabilitiesTable:
+    """R025: unconditional per-profile capability summary with human_needed."""
+
+    def test_capability_table_renders_without_usb(self):
+        """The table is static catalog data — it renders even with no pyusb (D008)."""
+        from claude_teletype.printing.discovery import DiscoveryResult
+
+        output = _run_diagnose_wide(DiscoveryResult(pyusb_available=False))
+
+        assert "Profile Capabilities" in output
+        for column in (
+            "Profile", "Description", "Bold", "Italic", "Underline",
+            "Codepage", "Human verification needed",
+        ):
+            assert column in output
+
+    def test_escp2_row_shows_bold_and_codepage(self):
+        """The escp2 row carries bold=yes and the cp437 codec landed in T01."""
+        from claude_teletype.printing.discovery import DiscoveryResult
+
+        output = _run_diagnose_wide(DiscoveryResult(pyusb_available=False))
+
+        escp2_lines = [
+            line for line in output.splitlines() if "│ escp2 " in line
+        ]
+        assert escp2_lines, "no escp2 row found in capability table"
+        row = escp2_lines[0]
+        assert "yes" in row
+        assert "cp437" in row
+
+    def test_human_needed_flags_render(self):
+        """A profile with human_needed entries surfaces them in the table."""
+        from claude_teletype.printing.discovery import DiscoveryResult
+
+        output = _run_diagnose_wide(DiscoveryResult(pyusb_available=False))
+
+        # epson-tm records the autocutter sub-model gap (T04).
+        assert "autocutter" in output
+
+    def test_builtin_only_footnote_present(self):
+        """The documented D008 limitation footnote renders below the table."""
+        from claude_teletype.printing.discovery import DiscoveryResult
+
+        output = _run_diagnose_wide(DiscoveryResult(pyusb_available=False))
+
+        assert "Built-in profiles only" in output
+        assert "custom TOML profiles are not shown" in output

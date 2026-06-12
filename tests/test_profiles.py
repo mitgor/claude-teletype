@@ -4,10 +4,12 @@ USB auto-detection moved to detection.detect_native_profile (T04); its
 tests live in tests/test_detection.py.
 """
 
+import logging
 from dataclasses import FrozenInstanceError
 
 import pytest
 
+from claude_teletype.printing.detection import KNOWN_MODEL_PIDS
 from claude_teletype.printing.profiles import (
     BUILTIN_PROFILES,
     PrinterProfile,
@@ -15,6 +17,7 @@ from claude_teletype.printing.profiles import (
     load_custom_profiles,
     resolve_style,
 )
+from claude_teletype.printing.registry import ProfileRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -1253,3 +1256,63 @@ def test_ibm_profile_in_available_list():
     """'ibm' appears in the 'Available:' message when an unknown profile is requested."""
     with pytest.raises(ValueError, match="ibm"):
         get_profile("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Catalog-wide canaries (T05)
+# ---------------------------------------------------------------------------
+
+
+def test_builtin_registry_emits_no_vid_collision_warning(caplog):
+    """ProfileRegistry(BUILTIN_PROFILES) must construct silently.
+
+    The registry's VID-collision logger.warning is the durable canary for
+    D007 pinning mistakes: two built-ins claiming the same bare VID would
+    silently shadow each other in auto-detect. This pins the warning ABSENT
+    for the shipped catalog — if it ever fires, a catalog entry pinned a
+    VID it must not own.
+    """
+    with caplog.at_level(logging.WARNING, logger="claude_teletype.printing.registry"):
+        ProfileRegistry(BUILTIN_PROFILES)
+    collision_records = [
+        r for r in caplog.records if "Profile VID collision" in r.getMessage()
+    ]
+    assert collision_records == []
+
+
+def test_known_model_pids_all_resolve_in_registry():
+    """Every KNOWN_MODEL_PIDS suggestion resolves via registry.get() (MEM015).
+
+    A suggestion string that doesn't match a catalog key would render in
+    the diagnose matrix but explode when the user accepts it in setup.
+    """
+    registry = ProfileRegistry(BUILTIN_PROFILES)
+    for vidpid, suggested_name in KNOWN_MODEL_PIDS.items():
+        profile = registry.get(suggested_name)  # must not raise ValueError
+        assert profile.name == suggested_name, (
+            f"KNOWN_MODEL_PIDS[{vidpid!r}] = {suggested_name!r} resolved to "
+            f"a profile named {profile.name!r}"
+        )
+
+
+NEW_S03_CATALOG_NAMES = (
+    "escp2",
+    "epson-tm",
+    "oki-ml-ibm",
+    "oki-ml-epson",
+    "oki-microline-native",
+    "star-line",
+    "panasonic-kxp-epson",
+    "panasonic-kxp-ibm",
+    "tally-epson",
+    "tally-ibm",
+    "lexmark-forms",
+)
+
+
+@pytest.mark.parametrize("name", NEW_S03_CATALOG_NAMES)
+def test_new_s03_catalog_name_resolves(name):
+    """All 11 S03 catalog names resolve through the registry without ValueError."""
+    registry = ProfileRegistry(BUILTIN_PROFILES)
+    profile = registry.get(name)
+    assert profile.name == name
