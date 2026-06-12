@@ -17,6 +17,22 @@ from typing import Any
 
 from claude_teletype.printing.detection import BRIDGE_CHIP_VIDS
 from claude_teletype.printing.drivers import UsbPrinterDriver
+from claude_teletype.printing.usb_backend import get_frozen_backend
+
+
+def _no_backend_diagnostic() -> str:
+    """Frozen-aware NoBackendError message.
+
+    A frozen (PyInstaller) app bundles its own libusb-1.0.dylib, so telling
+    a clean-machine user to ``brew install libusb`` would be misleading —
+    the bundle never looks at Homebrew paths.
+    """
+    if getattr(sys, "frozen", False):
+        return (
+            "libusb backend not found (bundled libusb-1.0.dylib missing or "
+            "unloadable). Falling back to CUPS/simulator."
+        )
+    return "libusb backend not found. Install with: brew install libusb"
 
 
 @dataclass
@@ -121,10 +137,10 @@ def _find_usb_printer(
         return None
 
     try:
-        devices = list(usb.core.find(find_all=True))
+        devices = list(usb.core.find(find_all=True, backend=get_frozen_backend()))
     except usb.core.NoBackendError:
         if verbose:
-            diagnostics.append("libusb backend not found. Install with: brew install libusb")
+            diagnostics.append(_no_backend_diagnostic())
         return None
 
     USB_PRINTER_CLASS = 7
@@ -216,7 +232,9 @@ def kernel_driver_holds_printer(vendor_id: int, product_id: int) -> bool:
         return False
 
     try:
-        dev = usb.core.find(idVendor=vendor_id, idProduct=product_id)
+        dev = usb.core.find(
+            idVendor=vendor_id, idProduct=product_id, backend=get_frozen_backend()
+        )
     except Exception:
         return False
     if dev is None:
@@ -405,12 +423,10 @@ def discover_all() -> DiscoveryResult:
             result.pyusb_available = False
         else:
             try:
-                devices = list(usb.core.find(find_all=True))
+                devices = list(usb.core.find(find_all=True, backend=get_frozen_backend()))
                 result.libusb_available = True
             except usb.core.NoBackendError:
-                result.diagnostics.append(
-                    "libusb backend not found. Install with: brew install libusb"
-                )
+                result.diagnostics.append(_no_backend_diagnostic())
                 devices = []
 
             USB_PRINTER_CLASS = 7
