@@ -92,7 +92,7 @@ def test_printer_profile_capability_fields_are_frozen():
 
 def test_builtin_profiles_count():
     """BUILTIN_PROFILES entry count: literals + aliases + catalog profiles."""
-    assert len(BUILTIN_PROFILES) == 12
+    assert len(BUILTIN_PROFILES) == 15
 
 
 def test_builtin_profiles_keys():
@@ -104,6 +104,9 @@ def test_builtin_profiles_keys():
         "citizen-cts2000",
         "escp2",
         "lexmark-forms",
+        "oki-ml-ibm",
+        "oki-ml-epson",
+        "oki-microline-native",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
 
@@ -303,6 +306,96 @@ def test_lexmark_forms_alias_shape():
     assert lex.codepage_command == ppds.codepage_command
     assert lex.text_codec == ppds.text_codec
     assert ppds.usb_vendor_id is None, "ppds itself must stay unpinned (D007)"
+
+
+def test_oki_ml_ibm_alias_matches_ppds_post_enrichment():
+    """oki-ml-ibm: replace(ppds) AFTER T02 enrichment — bytes identical (R018).
+
+    The ML320/321 Turbo factory-setting emulation is IBM Proprinter III
+    (ML320/321 Turbo User's Guide, Emulations p. 33).
+    """
+    oki_ibm = BUILTIN_PROFILES["oki-ml-ibm"]
+    ppds = BUILTIN_PROFILES["ppds"]
+    assert oki_ibm.name == "oki-ml-ibm"
+    assert oki_ibm.init_sequence == ppds.init_sequence == b""
+    assert oki_ibm.reset_sequence == ppds.reset_sequence == b""
+    assert oki_ibm.line_spacing == ppds.line_spacing
+    assert oki_ibm.char_pitch == ppds.char_pitch
+    assert oki_ibm.bold_on == ppds.bold_on
+    assert oki_ibm.italic_on == ppds.italic_on
+    assert oki_ibm.underline_on == ppds.underline_on
+    assert oki_ibm.codepage_command == ppds.codepage_command
+    assert oki_ibm.text_codec == ppds.text_codec == "cp437"
+    assert oki_ibm.human_needed == ppds.human_needed
+    assert oki_ibm.usb_vendor_id is None  # ppds is unpinned; nothing inherited
+
+
+def test_oki_ml_epson_alias_matches_escp_with_vid_nulled():
+    """oki-ml-epson: escp bytes, but usb_vendor_id MUST be None (D007).
+
+    Negative test for the replace(escp) footgun: an inherited 0x04B8
+    would log a registry VID collision and steal escp's auto-detect slot.
+    """
+    oki_fx = BUILTIN_PROFILES["oki-ml-epson"]
+    escp = BUILTIN_PROFILES["escp"]
+    assert oki_fx.name == "oki-ml-epson"
+    for field_name in (
+        "init_sequence", "reset_sequence", "line_spacing", "char_pitch",
+        "bold_on", "bold_off",
+        "italic_on", "italic_off",
+        "underline_on", "underline_off",
+        "crlf", "formfeed_on_close", "columns",
+    ):
+        assert getattr(oki_fx, field_name) == getattr(escp, field_name), (
+            f"oki-ml-epson.{field_name} diverges from escp"
+        )
+    assert oki_fx.usb_vendor_id is None, "must NOT inherit escp's 0x04B8 (D007)"
+    assert oki_fx.usb_product_id is None
+    assert escp.usb_vendor_id == 0x04B8, "escp keeps its own VID claim"
+
+
+def test_oki_microline_native_cited_bytes():
+    """oki-microline-native fields exactly as cited (ML320/321 UG pp. 106-107).
+
+    The native command set is NOT Epson-compatible: emphasized (bold) is
+    ESC T / ESC I, underline is ESC C / ESC D, 10 cpi is bare RS.
+    """
+    p = BUILTIN_PROFILES["oki-microline-native"]
+    assert p.name == "oki-microline-native"
+    assert p.line_spacing == b"\x1b6"     # ESC 6 — 1/6" spacing (p. 106)
+    assert p.char_pitch == b"\x1e"        # RS — 10 cpi (p. 106)
+    assert p.bold_on == b"\x1bT"          # ESC T — emphasized on (p. 106)
+    assert p.bold_off == b"\x1bI"         # ESC I — emphasized off (p. 106)
+    assert p.italic_on == b"\x1b!/"       # ESC ! / — italic on (p. 106)
+    assert p.italic_off == b"\x1b!*"      # ESC ! * — italic off (p. 106)
+    assert p.underline_on == b"\x1bC"     # ESC C — underline on (p. 107)
+    assert p.underline_off == b"\x1bD"    # ESC D — underline off (p. 107)
+    assert p.crlf is False                # native LF includes CR (p. 106)
+    assert p.formfeed_on_close is True    # FF documented (p. 106)
+    assert p.columns == 80
+
+
+def test_oki_microline_native_gaps_are_recorded_not_fabricated():
+    """Unverifiable native fields stay empty with human_needed entries (R022/R023).
+
+    The User's Guide names Software I-Prime / CAN without semantics and
+    documents no code-page select — both gaps must be operator-visible.
+    """
+    p = BUILTIN_PROFILES["oki-microline-native"]
+    assert p.init_sequence == b""
+    assert p.reset_sequence == b""
+    assert p.codepage_command == b""
+    assert p.text_codec == ""
+    assert len(p.human_needed) == 2
+    assert "init/reset" in p.human_needed[0]
+    assert "codepage_command" in p.human_needed[1]
+
+
+def test_oki_microline_native_no_usb_ids():
+    """oki-microline-native carries NO VID/PID: 0x06BC belongs to oki-3390 (D007)."""
+    p = BUILTIN_PROFILES["oki-microline-native"]
+    assert p.usb_vendor_id is None
+    assert p.usb_product_id is None
 
 
 def test_pcl_profile_esc_sequences():

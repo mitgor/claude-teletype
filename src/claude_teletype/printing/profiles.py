@@ -331,10 +331,10 @@ def _load_catalog() -> dict[str, PrinterProfile]:
     Importing the catalog at profiles.py module top would close the
     import cycle and crash at load time.
     """
-    from claude_teletype.printing.catalog import epson
+    from claude_teletype.printing.catalog import epson, oki
 
     merged: dict[str, PrinterProfile] = {}
-    for module in (epson,):
+    for module in (epson, oki):
         merged.update(module.PROFILES)
     return merged
 
@@ -365,6 +365,33 @@ BUILTIN_PROFILES["lexmark-forms"] = dataclasses.replace(
         "Lexmark Forms Printer (23xx/24xx/25xx) — IBM PPDS command set"
     ),
     usb_vendor_id=0x043D,  # Lexmark International
+)
+
+# OKI MICROLINE 320/321 Turbo emulation aliases (R018). The machine ships
+# three emulations — "Epson FX (ESC/P)", "IBM Proprinter III (PPSII) —
+# factory setting", "OKI DATA MICROLINE Standard" (ML320/321 Turbo User's
+# Guide, Emulations p. 33) — so the IBM and Epson modes map byte-for-byte
+# onto the existing ppds/escp profiles. Neither alias pins a USB id:
+# 0x06BC is VID-only-claimed by oki-3390 (D007), and the ML320/321 is a
+# parallel-port-era machine. The native third emulation is the catalog's
+# opt-in oki-microline-native profile.
+BUILTIN_PROFILES["oki-ml-ibm"] = dataclasses.replace(
+    BUILTIN_PROFILES["ppds"],
+    name="oki-ml-ibm",
+    description=(
+        "OKI MICROLINE 320/321 Turbo in IBM Proprinter III emulation "
+        "(the factory setting per the OKI User's Guide p. 33) — ppds bytes"
+    ),
+)
+
+# oki-ml-epson MUST null the usb_vendor_id inherited from escp: leaving
+# Epson's 0x04B8 in place would log a registry VID collision AND steal
+# escp's VID-only auto-detect slot (last registered wins — D007).
+BUILTIN_PROFILES["oki-ml-epson"] = dataclasses.replace(
+    BUILTIN_PROFILES["escp"],
+    name="oki-ml-epson",
+    description="MICROLINE in Epson FX mode",
+    usb_vendor_id=None,
 )
 
 # Backward-compat alias: "juki" was renamed to "juki-6100" — keep the old
