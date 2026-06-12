@@ -8,11 +8,14 @@ import pytest
 from claude_teletype.printing.detection import (
     BRIDGE_CHIP_VIDS,
     BRIDGE_CHIPS,
+    KNOWN_MODEL_PIDS,
+    NATIVE_PRINTER_VENDOR_VIDS,
     Classification,
     DeviceKind,
     classify,
+    detect_native_profile,
 )
-from claude_teletype.printing.discovery import UsbDeviceInfo
+from claude_teletype.printing.discovery import DiscoveryResult, UsbDeviceInfo
 from claude_teletype.printing.profiles import BUILTIN_PROFILES
 from claude_teletype.printing.registry import ProfileRegistry
 
@@ -170,3 +173,170 @@ class TestClassificationType:
         assert DeviceKind.NATIVE_PRINTER.value == "native"
         assert DeviceKind.BRIDGE.value == "bridge"
         assert DeviceKind.UNKNOWN.value == "unknown"
+
+
+def _miss_registry() -> MagicMock:
+    """A registry whose VID:PID index never matches.
+
+    Isolates the native-matrix fallthrough tiers: with the real builtin
+    registry, Epson's VID-only entry would shadow the KNOWN_MODEL_PIDS hit.
+    """
+    registry = MagicMock()
+    registry.match_vidpid.return_value = None
+    return registry
+
+
+class TestClassifyNativeMatrix:
+    """R010 native matrix: KNOWN_MODEL_PIDS pins and vendor-VID hints."""
+
+    @pytest.mark.parametrize(("vid", "pid"), sorted(KNOWN_MODEL_PIDS))
+    def test_known_model_pid_suggests_profile(self, vid, pid):
+        """Epson LX-350/LQ-350 pins classify NATIVE_PRINTER with escp."""
+        result = classify(UsbDeviceInfo(vendor_id=vid, product_id=pid), _miss_registry())
+        assert result.kind is DeviceKind.NATIVE_PRINTER
+        assert result.suggested_profile == KNOWN_MODEL_PIDS[(vid, pid)]
+
+    def test_registry_match_beats_known_model_pid(self):
+        """A registry (custom-profile) VID:PID claim wins over the table."""
+        registry = MagicMock()
+        registry.match_vidpid.return_value = BUILTIN_PROFILES["ppds"]
+
+        result = classify(
+            UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0046),
+            registry,
+        )
+        assert result.kind is DeviceKind.NATIVE_PRINTER
+        assert result.suggested_profile == "ppds"
+
+    @pytest.mark.parametrize("vid", sorted(NATIVE_PRINTER_VENDOR_VIDS))
+    def test_vendor_hint_is_native_without_suggestion(self, vid):
+        """Star/Lexmark/IBM VIDs classify NATIVE_PRINTER, suggest nothing."""
+        result = classify(
+            UsbDeviceInfo(vendor_id=vid, product_id=0x1234),
+            _miss_registry(),
+        )
+        assert result.kind is DeviceKind.NATIVE_PRINTER
+        assert result.suggested_profile is None
+        assert result.transport_note == ""
+
+    def test_model_pin_beats_vendor_hint(self):
+        """An exact model pin outranks a bare vendor hint for the same dev."""
+        with patch.dict(
+            "claude_teletype.printing.detection.KNOWN_MODEL_PIDS",
+            {(0x0519, 0x0001): "escp"},
+        ):
+            result = classify(
+                UsbDeviceInfo(vendor_id=0x0519, product_id=0x0001),
+                _miss_registry(),
+            )
+        assert result.suggested_profile == "escp"
+
+    def test_unlisted_device_still_unknown(self):
+        result = classify(
+            UsbDeviceInfo(vendor_id=0xDEAD, product_id=0xBEEF),
+            _miss_registry(),
+        )
+        assert result.kind is DeviceKind.UNKNOWN
+
+
+def _discovery_with(*devices: UsbDeviceInfo) -> DiscoveryResult:
+    return DiscoveryResult(
+        pyusb_available=True,
+        libusb_available=True,
+        usb_devices=list(devices),
+    )
+
+
+class TestDetectNativeProfile:
+    """CLI bare-launch fallback: classify()-routed, never guesses (R011)."""
+
+    def test_native_device_returns_profile(self):
+        """A discovered Epson device resolves to the escp profile."""
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is not None
+        assert profile.name == "escp"
+
+    def test_bridge_only_discovery_returns_none(self):
+        """R011 negative: the CH341 Juki bridge must never yield a profile,
+        even though the juki-6100 profile pins its VID:PID."""
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(
+                    vendor_id=0x1A86, product_id=0x7584, printer_class=False
+                )
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is None
+
+    def test_vendor_hint_returns_none(self):
+        """Q7 negative: Star classifies NATIVE_PRINTER but carries no
+        suggested_profile, so the fallback yields None, not a guess."""
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(vendor_id=0x0519, product_id=0x0001)
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is None
+
+    def test_empty_discovery_returns_none(self):
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=DiscoveryResult(),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is None
+
+    def test_unknown_device_returns_none(self):
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(vendor_id=0xDEAD, product_id=0xBEEF)
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is None
+
+    def test_unresolvable_suggestion_skipped(self):
+        """A suggestion that is not a registry key is skipped, not raised:
+        classify() returns profile.name, which can diverge from the
+        catalog key for custom profiles."""
+        registry = MagicMock()
+        registry.match_vidpid.return_value = None  # falls to KNOWN_MODEL_PIDS
+        registry.get.side_effect = ValueError("unknown profile")
+
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0046)
+            ),
+        ):
+            profile = detect_native_profile(registry)
+        assert profile is None
+        registry.get.assert_called_once_with("escp")
+
+    def test_first_native_suggestion_wins_over_later_devices(self):
+        """Scan order: bridges/unknowns are passed over; the first device
+        with a real suggestion resolves."""
+        with patch(
+            "claude_teletype.printing.discovery.discover_all",
+            return_value=_discovery_with(
+                UsbDeviceInfo(
+                    vendor_id=0x1A86, product_id=0x7523, printer_class=False
+                ),  # CH340 bridge — skipped
+                UsbDeviceInfo(vendor_id=0x0519, product_id=0x0001),  # Star hint — no suggestion
+                UsbDeviceInfo(vendor_id=0x2730, product_id=0x2002),  # Citizen — native
+            ),
+        ):
+            profile = detect_native_profile(_registry())
+        assert profile is not None
+        assert profile.name == "citizen-cts2000"

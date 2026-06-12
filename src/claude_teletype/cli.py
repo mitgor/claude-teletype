@@ -449,10 +449,10 @@ def _resolve_profile_selection(
     Raises:
         _UnknownProfileError: when ``printer`` names an unknown profile.
     """
+    from claude_teletype.printing.detection import detect_native_profile
     from claude_teletype.printing.profiles import (
         BUILTIN_PROFILES,
         PrinterProfile,
-        auto_detect_profile,
         load_custom_profiles,
     )
     from claude_teletype.printing.registry import ProfileRegistry
@@ -489,8 +489,9 @@ def _resolve_profile_selection(
         # Old config juki = true backward compat
         resolved_profile = registry.get("juki")
     else:
-        # Try USB auto-detection through the already-built registry index
-        resolved_profile = auto_detect_profile(registry=registry)
+        # USB auto-detect through classify() — same detection seam as the
+        # setup screen, so a bridge VID can never auto-suggest a profile.
+        resolved_profile = detect_native_profile(registry)
 
     return registry, resolved_profile
 

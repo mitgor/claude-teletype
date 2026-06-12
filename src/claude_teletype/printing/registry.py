@@ -3,7 +3,7 @@
 ``ProfileRegistry`` merges built-in profiles with custom (TOML-loaded)
 profiles and builds the VID:PID lookup indices ONCE at construction,
 replacing the per-call-site map building that previously lived in
-``profiles.auto_detect_profile`` and the duplicated
+the retired profiles auto-detect path and the duplicated
 ``dict(BUILTIN_PROFILES); .update(custom)`` merges in cli.py.
 
 Index policies (deterministic, asserted in tests/test_registry.py):

@@ -1,9 +1,9 @@
 """Device classification: native printer vs bridge chip vs unknown (DET-02).
 
 Discovery answers "what USB devices are present"; this module answers
-"what is this device". It supersedes the conflated ``auto_detect_profile``
-path, which mixed "found a device" with "know what it is" by returning a
-bare ``PrinterProfile | None``.
+"what is this device". It supersedes the conflated legacy auto-detect
+path (retired from profiles.py), which mixed "found a device" with
+"know what it is" by returning a bare ``PrinterProfile | None``.
 
 ``classify()`` examines one already-enumerated device:
 
@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from claude_teletype.printing.discovery import UsbDeviceInfo
     from claude_teletype.printing.profiles import PrinterProfile
+    from claude_teletype.printing.registry import ProfileRegistry
 
 @dataclass(frozen=True)
 class BridgeChip:
@@ -103,6 +104,25 @@ BRIDGE_CHIP_VIDS: dict[int, str] = {
     vid: chip.note for vid, chip in BRIDGE_CHIPS.items()
 }
 
+# Vendors known to ship native USB printers but with no profile in the
+# catalog yet (S03 ships them). A hit classifies NATIVE_PRINTER with no
+# suggested_profile: real printer, nothing to suggest — keeps the device
+# out of the bridge/unknown buckets without guessing a command set.
+# MEDIUM confidence — VIDs from usb.ids.
+NATIVE_PRINTER_VENDOR_VIDS: dict[int, str] = {
+    0x0519: "Star Micronics",
+    0x043D: "Lexmark",
+    0x04B3: "IBM",
+}
+
+# Specific (VID, PID) models pinned to a profile suggestion.
+# HIGH confidence — IDs via the-sz USB ID DB. Both are ESC/P2 machines;
+# the suggestion repoints to escp2 when S03 ships that profile.
+KNOWN_MODEL_PIDS: dict[tuple[int, int], str] = {
+    (0x04B8, 0x0046): "escp",  # Epson LX-350
+    (0x04B8, 0x0047): "escp",  # Epson LQ-350
+}
+
 
 class DeviceKind(enum.Enum):
     """What kind of device a discovered USB device is."""
@@ -170,4 +190,52 @@ def classify(dev: UsbDeviceInfo, registry: _RegistryLike) -> Classification:
             suggested_profile=profile.name,
         )
 
+    # Native matrix (R010): the registry miss falls through to curated
+    # model pins first (exact beats vendor-wide), then bare vendor hints.
+    # Registry precedence above means a custom profile claiming the same
+    # VID:PID still wins over these tables.
+    model_suggestion = KNOWN_MODEL_PIDS.get((dev.vendor_id, dev.product_id))
+    if model_suggestion is not None:
+        return Classification(
+            kind=DeviceKind.NATIVE_PRINTER,
+            suggested_profile=model_suggestion,
+        )
+
+    if dev.vendor_id in NATIVE_PRINTER_VENDOR_VIDS:
+        # Known printer vendor, no shipped profile: NATIVE_PRINTER with
+        # no suggestion (dataclass defaults represent exactly this).
+        return Classification(kind=DeviceKind.NATIVE_PRINTER)
+
     return Classification(kind=DeviceKind.UNKNOWN)
+
+
+def detect_native_profile(registry: ProfileRegistry) -> PrinterProfile | None:
+    """Bare-launch auto-detect fallback: first native suggestion's profile.
+
+    Replaces the retired profiles auto-detect path (R010/R011). Every discovered device
+    goes through ``classify()`` — the same seam the setup screen uses — so
+    BRIDGE devices can never produce a profile (a CH341's VID identifies
+    the cable, not the printer behind it), and a vendor-hint
+    NATIVE_PRINTER with no ``suggested_profile`` yields nothing rather
+    than a guess.
+
+    Returns None when discovery finds nothing, finds only bridges or
+    unknowns, or the suggestion does not resolve in the registry (custom
+    profiles may carry a ``name`` that diverges from their catalog key).
+    """
+    # Function-local import: discovery imports this module at load time
+    # (BRIDGE_CHIP_VIDS), so the reverse import must not run at module load.
+    from claude_teletype.printing.discovery import discover_all
+
+    result = discover_all()
+    for dev in result.usb_devices:
+        classification = classify(dev, registry)
+        if (
+            classification.kind is DeviceKind.NATIVE_PRINTER
+            and classification.suggested_profile
+        ):
+            try:
+                return registry.get(classification.suggested_profile)
+            except ValueError:
+                continue
+    return None

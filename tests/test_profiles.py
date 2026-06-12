@@ -1,49 +1,20 @@
-"""Tests for printer profile dataclass, registry, custom loading, and auto-detection."""
+"""Tests for printer profile dataclass, registry, custom loading, and styles.
+
+USB auto-detection moved to detection.detect_native_profile (T04); its
+tests live in tests/test_detection.py.
+"""
 
 from dataclasses import FrozenInstanceError
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from claude_teletype.printing.profiles import (
     BUILTIN_PROFILES,
     PrinterProfile,
-    auto_detect_profile,
     get_profile,
     load_custom_profiles,
     resolve_style,
 )
-
-
-def _make_usb_device(vid: int, pid: int, interface_class: int = 7) -> MagicMock:
-    """Create a mock USB device with proper iteration support for pyusb-style enumeration."""
-    mock_intf = MagicMock()
-    mock_intf.bInterfaceClass = interface_class
-
-    mock_cfg = MagicMock()
-    # Make configuration iterable over interfaces
-    mock_cfg.__iter__ = lambda self: iter([mock_intf])
-
-    mock_dev = MagicMock()
-    mock_dev.idVendor = vid
-    mock_dev.idProduct = pid
-    # Make device iterable over configurations
-    mock_dev.__iter__ = lambda self: iter([mock_cfg])
-
-    return mock_dev
-
-
-def _patch_usb(mock_usb_core):
-    """Create a sys.modules patch dict where usb.core resolves correctly.
-
-    Python's import of 'usb.core' first gets sys.modules['usb'], then
-    accesses .core on it. With a plain MagicMock for 'usb', the .core
-    attribute is an auto-generated MagicMock, not our mock_usb_core.
-    Fix: set mock_usb.core = mock_usb_core explicitly.
-    """
-    mock_usb = MagicMock()
-    mock_usb.core = mock_usb_core
-    return {"usb": mock_usb, "usb.core": mock_usb_core}
 
 
 # ---------------------------------------------------------------------------
@@ -887,100 +858,6 @@ def test_builtin_profiles_paired_style_symmetry():
                     f"— off-codes without on-codes would fire without ever "
                     f"opening the corresponding mode."
                 )
-
-
-# ---------------------------------------------------------------------------
-# auto_detect_profile()
-# ---------------------------------------------------------------------------
-
-
-def test_auto_detect_profile_no_pyusb():
-    """auto_detect_profile returns None when pyusb is not available."""
-    with patch.dict("sys.modules", {"usb": None, "usb.core": None}):
-        result = auto_detect_profile()
-        assert result is None
-
-
-def test_auto_detect_profile_no_backend():
-    """auto_detect_profile returns None when no USB backend is available."""
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.side_effect = Exception("No backend available")
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile()
-        assert result is None
-
-
-def test_auto_detect_profile_matching_vid_pid():
-    """auto_detect_profile returns matching profile for known VID:PID."""
-    mock_dev = _make_usb_device(vid=0x04B8, pid=0x0005)  # Epson printer
-
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.return_value = [mock_dev]
-
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile()
-        assert result is not None
-        assert result.name == "escp"
-
-
-def test_auto_detect_profile_no_matching_device():
-    """auto_detect_profile returns None when no device matches."""
-    mock_dev = _make_usb_device(vid=0x1234, pid=0x5678)  # Unknown vendor
-
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.return_value = [mock_dev]
-
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile()
-        assert result is None
-
-
-def test_auto_detect_profile_vid_only_match():
-    """auto_detect_profile matches VID-only when profile has no PID."""
-    # HP profile has VID 0x03F0 but no PID
-    mock_dev = _make_usb_device(vid=0x03F0, pid=0x9999)  # Any HP product
-
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.return_value = [mock_dev]
-
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile()
-        assert result is not None
-        assert result.name == "pcl"
-
-
-def test_auto_detect_profile_exact_match_priority():
-    """Exact VID+PID match takes priority over VID-only match."""
-    # Set up: extra_profiles with exact PID match for Epson
-    extra = {
-        "epson-exact": PrinterProfile(
-            name="epson-exact",
-            usb_vendor_id=0x04B8,
-            usb_product_id=0x0005,
-        )
-    }
-
-    mock_dev = _make_usb_device(vid=0x04B8, pid=0x0005)
-
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.return_value = [mock_dev]
-
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile(extra_profiles=extra)
-        assert result is not None
-        assert result.name == "epson-exact"
-
-
-def test_auto_detect_profile_skips_non_printer_class():
-    """auto_detect_profile ignores USB devices that are not printer class 7."""
-    mock_dev = _make_usb_device(vid=0x04B8, pid=0x0005, interface_class=3)  # HID, not printer
-
-    mock_usb_core = MagicMock()
-    mock_usb_core.find.return_value = [mock_dev]
-
-    with patch.dict("sys.modules", _patch_usb(mock_usb_core)):
-        result = auto_detect_profile()
-        assert result is None
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ from claude_teletype.printing.detection import (
     Classification,
     DeviceKind,
     classify,
+    detect_native_profile,
 )
 from claude_teletype.printing.discovery import (
     CupsPrinterInfo,
@@ -39,7 +40,6 @@ from claude_teletype.printing.drivers import (
 from claude_teletype.printing.profiles import (
     BUILTIN_PROFILES,
     PrinterProfile,
-    auto_detect_profile,
     get_profile,
     load_custom_profiles,
     resolve_style,
@@ -71,10 +71,10 @@ __all__ = [
     "ProfileRegistry",
     "UsbDeviceInfo",
     "UsbPrinterDriver",
-    "auto_detect_profile",
     "chunk_writes",
     "classify",
     "create_driver_for_selection",
+    "detect_native_profile",
     "discover_all",
     "discover_cups_printers",
     "discover_macos_usb_printers",

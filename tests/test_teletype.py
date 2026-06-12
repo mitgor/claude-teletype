@@ -372,7 +372,7 @@ def test_cli_teletype_device_fallback(mock_verbose, mock_sys, mock_tty, mock_ter
     assert "Falling back to device file" in result.output
 
 
-@patch("claude_teletype.printing.profiles.auto_detect_profile", return_value=None)
+@patch("claude_teletype.printing.detection.detect_native_profile", return_value=None)
 @patch("claude_teletype.teletype.run_teletype")
 @patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
 def test_cli_teletype_passes_no_profile(mock_verbose, mock_run_teletype, _mock_detect):
