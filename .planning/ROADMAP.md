@@ -95,7 +95,14 @@ Full details: [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
   3. Discovery produces an explicit `Classification` (NATIVE_PRINTER / BRIDGE / UNKNOWN) result, replacing the conflated `auto_detect_profile()` path
   4. USB driver selection picks a device by identity (not first-of-class re-discovery), and `discovery=None` no longer carries two meanings
   5. `codepage_command` / `text_codec` / `text_fallback` are tracked, test-covered, and settable from custom TOML profiles
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+- [ ] 27-01-PLAN.md — Package split Step 1: move modules into printing/rendering/screens + re-export shims (suite green)
+- [ ] 27-02-PLAN.md — Package split Step 2: repoint internal imports to canonical paths; move call-assertion patch targets
+- [ ] 27-03-PLAN.md — Package split Step 3: migrate test imports + patch targets; delete shims
+- [ ] 27-04-PLAN.md — ProfileRegistry (REF-02) + cli profile-resolution dedup (REF-05)
+- [ ] 27-05-PLAN.md — Classification seam (DET-02) + device-by-identity selection (REF-03) + discovery sentinel split (REF-04); tree clean for REF-06 review
+- [ ] 27-06-PLAN.md — DIR-01 codepage formalization: custom-TOML fixture + load/consumption tests
 
 ### Phase 28: Fleet Detection & Bridge Registry
 **Goal**: Users can plug in either a USB-LPT bridge or a modern native-USB impact printer and be routed correctly — the app never guesses the printer behind a bridge and degrades gracefully when the OS owns the device.
@@ -162,7 +169,7 @@ Full details: [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 | 24. TUI File Picker | v1.5 | 2/2 | ✓ Complete | 2026-04-28 |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 2/2 | ✓ Complete | 2026-04-28 |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 3/3 | ✓ Complete | 2026-04-28 |
-| 27. Refactor — Package Split, Registry & Detection Seam | v1.6 | 0/? | Not started | - |
+| 27. Refactor — Package Split, Registry & Detection Seam | v1.6 | 0/6 | Planned | - |
 | 28. Fleet Detection & Bridge Registry | v1.6 | 0/? | Not started | - |
 | 29. Per-Family Profile Catalog | v1.6 | 0/? | Not started | - |
 | 30. Standalone macOS Packaging | v1.6 | 0/? | Not started | - |
