@@ -1,236 +1,246 @@
-# Stack Research
+# Stack Research — v1.6 "Printer Fleet & Standalone"
 
-**Domain:** Printer setup TUI features for existing Python CLI/TUI app
-**Researched:** 2026-04-02
-**Confidence:** HIGH
+**Domain:** USB dot-matrix printer detection + ESC/P control-code generation + standalone packaging (subsequent milestone, additive to shipped v1.5)
+**Researched:** 2026-06-12
+**Confidence:** HIGH (bridge-chip VID:PIDs from canonical usb.ids; PyInstaller version + hooks verified on PyPI/docs; ESC/POS-vs-ESC/P library scope verified via Context7 + PyPI)
 
-## Scope
+> Scope note: The validated v1.5 stack (Python 3.12+, Textual 7.x, Rich, Typer, sounddevice/numpy, openai SDK, tomllib/platformdirs, pyusb optional) is NOT re-researched. This document covers ONLY the three v1.6 questions: (a) broad USB detection + VID:PID data, (b) PyInstaller packaging, (c) ESC/P command-generation libraries.
 
-This research covers ONLY the stack additions/changes needed for v1.4 Printer Setup TUI features:
-1. Interactive printer setup/selection screen (Textual-based)
-2. Running `uv sync --extra usb` from within the app to auto-install pyusb
-3. A `claude-teletype diagnose` CLI subcommand
-4. Persisting printer selection to TOML config
+---
 
-Existing stack (Python 3.12+, Textual 7.x, Typer, Rich, pyusb, tomllib, platformdirs) is validated and NOT re-researched.
+## TL;DR Recommendations
 
-## Verdict: No New Dependencies Required
+| Question | Recommendation | One-liner |
+|----------|----------------|-----------|
+| (a) VID:PID source | **Vendor a curated VID:PID data module** (Python dict, not full usb.ids), seeded from canonical `usb.ids` | You need ~40 specific IDs, not 25,704 lines; curated table is reviewable, citable, and lets you attach the right profile per device |
+| (a) Detection gap | **Add a second detection path: bridge-chip VID:PID allowlist** alongside the existing class-7 filter | CH340/CH341/PL2305/FTDI bridges enumerate as class 255/CDC, NEVER class 7 — current code can't see them |
+| (b) Packaging | **PyInstaller 6.20.0, `--onedir` (NOT onefile), with ad-hoc codesign + optional notarization** | onedir avoids the per-launch temp-extraction tax and libusb dylib resolution bugs; PyInstaller ships hooks for sounddevice + pyusb already |
+| (c) ESC/P library | **Do NOT adopt any library — keep hand-rolled byte profiles** | Every Python "escpos" library is thermal-receipt ESC/POS, not Epson ESC/P / ESC/P2 dot-matrix, and none speak IBM Proprinter PPDS; they also own the transport, conflicting with your pyusb seam |
 
-All four features can be built with the existing dependency set. No new pip packages needed. No pyproject.toml changes required.
+---
 
-## Recommended Stack Additions
+## (a) USB Detection & VID:PID Data
 
-### New Capabilities From Existing Libraries
+### Recommended Stack
 
-| Library | Current Version | New Usage | Why No Addition Needed |
-|---------|----------------|-----------|----------------------|
-| Textual | 7.5.0 (installed), >=7.0.0 (pinned) | Full `Screen` (not ModalScreen) for printer setup wizard | Already has `OptionList`, `RadioSet`, `RadioButton`, `Static`, `Button`, `LoadingIndicator` -- all needed widgets ship with Textual 7.x |
-| Textual | 7.5.0 | `@work(thread=True)` decorator for async subprocess (`uv sync`) | Worker pattern already used in `tui.py` for streaming |
-| Typer | >=0.23.0 | New `diagnose` subcommand | Same pattern as existing `config show`/`config init` subcommands |
-| subprocess | stdlib | Run `uv sync --extra usb` | Already used for CUPS `lpstat` and `lp` commands in printer.py |
-| shutil | stdlib | `shutil.which("uv")` to find uv binary | Already used for `shutil.which("claude")` in cli.py |
-| Rich | >=14.0.0 | `Table` for structured diagnose output | Already a dependency, Console already instantiated in cli.py |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| pyusb (existing) | >=1.3.0 | USB enumeration + bulk writes | Already validated; no change needed for the transport layer |
+| libusb (existing, `brew install libusb`) | 1.0.x | pyusb backend | Already a documented runtime dep |
+| **Curated VID:PID data module** (new, in-repo) | n/a | Map VID:PID → printer family / bridge type → profile | Authoritative, reviewable, citable; avoids shipping a 1MB+ usb.ids you'd have to parse at runtime |
 
-### Core Technologies (Unchanged)
+### Decision: vendor a curated data file, do NOT hardcode inline, do NOT ship full usb.ids
 
-| Technology | Version | Purpose | Status |
-|------------|---------|---------|--------|
-| Python | >=3.12 | Runtime | No change |
-| Textual | 7.5.0 (installed), >=7.0.0 (pinned) | TUI framework | No version bump needed |
-| Typer | >=0.23.0 | CLI argument parsing | No change |
-| Rich | >=14.0.0 | CLI formatting for diagnose output | No change |
-| pyusb | >=1.3.0 (optional) | USB device enumeration | No change -- this is what we help users install |
+Three options were weighed:
 
-## Integration Points
+| Option | Verdict | Reasoning |
+|--------|---------|-----------|
+| Hardcode IDs inline in `profiles.py` / detection code | ✗ Avoid | Scatters magic numbers across logic; hard to review/audit against sources; couples data churn to code churn |
+| Ship the full `usb.ids` (25,704 lines) + parse at runtime | ✗ Avoid | You need ~40 IDs, not the whole registry; parsing adds startup cost + a file-bundling problem for PyInstaller; most entries are irrelevant non-printers |
+| **Vendor a curated Python dict module** (e.g. `usb_ids.py` / `device_db.py`) | ✓ Recommend | Small, diff-able, each entry carries a source comment + the profile to attach; pure data, no parse step; trivially bundles into PyInstaller as code |
 
-### 1. Printer Setup Screen (Textual Screen)
+This matches the project's existing **"data-driven profiles via frozen dataclass"** decision — the VID:PID table is the same philosophy applied to detection. Each entry should carry: `vid`, `pid`, family/bridge label, suggested profile name, and a `# usb.ids` source comment.
 
-**Use `Screen`, not `ModalScreen`.** The setup screen is a full startup flow, not a modal overlay on an existing screen.
+### Authoritative source: canonical usb.ids
 
-**Why `Screen[dict | None]`:** Follows the existing `ModalScreen[dict | None]` pattern from `SettingsScreen` but as a full screen. The result type carries the selected printer config back to the app. `None` means "skip setup, use defaults."
+The single citable authority is the Linux USB ID Repository, mirrored everywhere:
 
+- Primary: `http://www.linux-usb.org/usb.ids` (note: HTTPS cert has an altname mismatch — fetch over HTTP or via a package mirror)
+- Mirror in `usbutils` package; also `systemd/hwdata`
+- This is the same database `lsusb`, libusb, and udev resolve names against — the de-facto standard.
+
+Verify entries against the vendor datasheet where the bridge mode matters (parallel vs serial mode share a VID but differ by PID).
+
+### Bridge-chip VID:PIDs (verified against usb.ids 2026-06-12)
+
+These are the **USB-LPT bridge** devices that reach vintage parallel printers. CRITICAL: none of these are USB printer class (7) — they are vendor-specific (255) or CDC. **The existing `_find_usb_printer` class-7 filter will never match them.**
+
+| VID:PID | Device | Mode | Notes |
+|---------|--------|------|-------|
+| `1a86:5584` | WCH CH341 | **parallel** ("usb to printer port converter") | THE key vintage-printer path; the bridge already handled for CR+LF atomicity |
+| `1a86:5512` | WCH CH341 | EPP/MEM/I2C (EPP/I2C adapter) | Parallel-capable variant |
+| `1a86:5523` | WCH CH341 | serial | Serial mode — likely not a printer path but enumerate for completeness |
+| `1a86:7522` / `1a86:7523` | WCH CH340 | serial | CH340 is serial-only; include for diagnostics/recognition |
+| `067b:2305` | Prolific **PL2305** | **parallel port** | Classic USB-to-parallel cable chip |
+| `067b:2303` / `067b:aaa3` | Prolific PL2303(x) | serial | Serial; recognize but not a printer path |
+| `0403:6001` | FTDI FT232 (UART) | serial | Common; serial |
+| `0403:6010`/`6011`/`6014` | FTDI FT2232/FT4232/FT232H | UART/**FIFO** | FT245-style FIFO mode can drive parallel; treat per-cable |
+| `0403:601e`/`601f` | FTDI FT600/FT601 | FIFO | FIFO bridges |
+
+Generic IEEE-1284 USB-parallel bridges also exist under many vendor IDs (verified present in usb.ids as product strings): `"USB-Parallel Bridge"`, `"UC-1284 Printer Port"`, `"UC-1284B Printer Port"`, `"USB-1284 BRIDGE"`, `"USB To Parallel adapter"`, `"Bi-directional to Parallel Printer Converter"`, `"F5U120-PC Parallel Printer Port"` (Belkin), `"GLUSB98PT Parallel Port"`. These are best matched by a fallback heuristic (interface class 7 OR known bridge VID:PID) rather than an exhaustive enumeration.
+
+### Printer-family vendor IDs (verified against usb.ids 2026-06-12)
+
+For modern native-USB impact/receipt models, these are the vendor IDs to anchor the family profiles. Per-model PIDs vary widely — match by VID + class 7, then refine by PID where a specific model is known:
+
+| VID | Vendor | Families in scope |
+|-----|--------|-------------------|
+| `04b8` | Seiko Epson Corp. | Epson FX/LQ/LX (ESC/P, ESC/P2), TM (ESC/POS) |
+| `06bc` | Oki Data Corp. | OKI Microline |
+| `04d7` | Oki Semiconductor | (secondary OKI) |
+| `0519` | Star Micronics Co., Ltd | Star |
+| `08bd` / `1343` | Citizen Watch Co. / Citizen Systems | Citizen |
+| `04da` | Panasonic (Matsushita) | Panasonic KX-P |
+| `0619` | Seiko Instruments, Inc. | Seiko |
+| `043d` | Lexmark International | IBM/Lexmark Proprinter (PPDS) |
+| `04b3` | IBM Corp. | IBM Proprinter / Infoprint |
+| `04f9` | Brother Industries | (adjacent dot-matrix) |
+| `03f0` | HP, Inc | (PCL — already profiled) |
+
+> Tally / TallyGenicom does not have a single stable USB-IF vendor block in usb.ids; many Tally units shipped parallel-only and reach the host via a bridge chip (use the bridge VID:PID path), or under a reseller VID. Flag Tally native-USB detection as LOW confidence — match via bridge path primarily.
+
+### Integration point with existing code
+
+`printer.py::_find_usb_printer()` currently does:
 ```python
-from textual.screen import Screen
-from textual.widgets import OptionList, RadioSet, RadioButton, Button, Static, LoadingIndicator
+if intf.bInterfaceClass != USB_PRINTER_CLASS:  # class 7
+    continue
+```
+This is correct for native-USB printers but **silently skips every bridge chip**. The v1.6 change is to add a **second match path**:
 
-class PrinterSetupScreen(Screen[dict | None]):
-    """Full-screen printer setup wizard. Dismisses with selected config or None (skip)."""
+1. Keep the class-7 scan (native printers).
+2. Add: for each enumerated device, if `(idVendor, idProduct)` is in the curated bridge allowlist, treat it as a printer candidate and find its bulk-OUT endpoint regardless of interface class.
+3. Suggest the profile from the curated table (bridge → "generic ESC/P" or user-selected; native → family profile by VID).
+
+This reuses the existing `UsbDeviceInfo` / `DiscoveryResult` dataclasses and the `PrinterSelection` flow — the data table just feeds richer `usb_vendor_id`/`usb_product_id` fields already present on `PrinterProfile`.
+
+---
+
+## (b) PyInstaller Packaging (macOS primary, Linux bonus)
+
+### Recommended Stack
+
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **PyInstaller** | **6.20.0** (released 2026-04-22) | Freeze app to standalone bundle | Current stable; supports Python <3.15 >=3.8 (covers 3.12); "works with code signing on macOS"; ships hooks for sounddevice and pyusb |
+| (built-in hooks, no extra install) | bundled | sounddevice PortAudio dylib + pyusb | PyInstaller already carries `hook-sounddevice` (bundles PortAudio binary) and a pyusb import hook |
+
+Install as a dev/build dependency only (not a runtime dep):
+```bash
+uv add --dev pyinstaller
 ```
 
-**Key Textual widgets for the setup screen:**
+### Decision: `--onedir`, NOT `--onefile`
 
-| Widget | Purpose | Notes |
-|--------|---------|-------|
-| `OptionList` | Display discovered USB devices and CUPS printers as selectable list | Better than `ListView` for simple single-selection; fires `OptionList.OptionSelected` message |
-| `RadioSet` + `RadioButton` | Connection method selection (Direct USB vs CUPS queue) and profile selection (juki/escp/ppds/pcl/generic) | Mutually exclusive selection, fires `RadioSet.Changed` |
-| `Static` | Diagnostic info display (devices found, connection status) | Already used throughout the app |
-| `Button` | Confirm/Skip actions | Already used in SettingsScreen |
-| `LoadingIndicator` | Show during pyusb install (`uv sync`) | Built into Textual 7.x |
-| `Label` | Section headers | Already used in SettingsScreen |
+| Mode | Verdict | Reasoning |
+|------|---------|-----------|
+| `--onefile` | ✗ Avoid | Extracts to a temp dir on every launch (slow startup, antivirus friction); historically the source of "Unable to find libusb-1.0" resolution bugs because the dylib path is a moving temp target; harder to codesign/notarize cleanly |
+| **`--onedir`** | ✓ Recommend | No per-launch extraction; dylibs (libusb, PortAudio) sit at predictable relative paths; standard bundle layout; codesigning/notarization works on the bundle tree. Distribute as a zipped bundle or `.dmg` |
 
-**Screen flow via `push_screen`:**
-```python
-# In TeletypeApp.on_mount():
-if not self._has_saved_printer():
-    self.push_screen(PrinterSetupScreen(...), callback=self._on_setup_complete)
+This is a TUI/CLI tool, so you build a plain console-mode onedir executable rather than a `--windowed` `.app` (a terminal app needs a controlling TTY; `--windowed` suppresses the console). If a double-clickable `.app` is wanted later, wrap the onedir bundle in a launcher that opens Terminal.
+
+### Known packaging concerns (concrete spec-file guidance)
+
+1. **libusb dylib** — PyInstaller's pyusb hook handles the import, but the native `libusb-1.0.dylib` (from `brew install libusb`) must be bundled. Add it explicitly to `binaries` in the spec:
+   ```python
+   # libusb path from: brew --prefix libusb -> .../lib/libusb-1.0.0.dylib
+   binaries=[('/opt/homebrew/lib/libusb-1.0.0.dylib', '.')],
+   ```
+   On Apple Silicon vs Intel the prefix differs (`/opt/homebrew` vs `/usr/local`) — resolve via `brew --prefix libusb` in the build script, don't hardcode.
+
+2. **sounddevice / PortAudio** — covered by the bundled `hook-sounddevice`; the PortAudio dylib ships from the sounddevice wheel automatically. Verify the dylib is present in the onedir output; no manual action expected.
+
+3. **Hidden imports** — Textual and Typer load widgets/commands dynamically. Add as needed:
+   ```python
+   hiddenimports=['claude_teletype.backends.openai_backend',  # plugin-style modules
+                  'claude_teletype.backends.openrouter_backend',
+                  # Textual occasionally needs explicit widget modules
+                  ]
+   ```
+   The openai SDK and Textual are generally well-handled by recent PyInstaller; run the frozen build and grep the warn-log for `missing module` rather than pre-listing speculatively.
+
+4. **TOML data / config templates** — your handwritten config template and any packaged `.toml` defaults must go in `datas=[...]`. platformdirs is pure-Python and freezes cleanly.
+
+5. **The curated VID:PID table** — because it's a Python module (not a data file), it freezes automatically with no `datas` entry. (Another reason to prefer the module over a vendored `usb.ids` file.)
+
+6. **universal2** — only achievable if Python + every wheel (numpy, sounddevice, the libusb dylib) are universal2. Easiest path: build separately on Apple Silicon and Intel, or ship arm64-only and document Rosetta. Flag as a build-matrix decision, not a code decision.
+
+### Codesigning & notarization (macOS)
+
+- **Ad-hoc signing** (`codesign --sign -`) lets the bundle run locally and on the build machine, but Gatekeeper will block downloaded copies.
+- **Developer ID signing + notarization** is required for distribution outside the App Store (download without right-click-open). Flow: codesign every dylib + the main binary with a Developer ID Application cert (with `--options runtime` for hardened runtime), zip, submit via `notarytool`, then `xcrun stapler staple`.
+- Hardened runtime + a bundled non-Apple `libusb` dylib requires the dylib be signed with the same identity; unsigned nested dylibs fail notarization. The build script must sign nested binaries.
+- Flag for the milestone: **notarization needs an Apple Developer account ($99/yr)**. If unavailable, document "right-click → Open" as the install instruction (ad-hoc sign only). This is a project decision to surface in the roadmap, not a blocker.
+
+### Linux (bonus)
+
+PyInstaller onedir works; libusb is typically present as a system package (`libusb-1.0-0`), so bundling is optional but recommended for portability. No codesigning. Lower priority per the project's macOS-primary constraint.
+
+---
+
+## (c) ESC/P / ESC/POS / IBM Proprinter Command-Generation Libraries
+
+### Decision: adopt NOTHING — keep the hand-rolled byte profiles
+
+This is the strongest recommendation in this document. Verified via Context7 + PyPI: **every Python "escpos" package targets thermal-receipt ESC/POS, not the dot-matrix command sets you need.**
+
+| Library | Version | What it actually is | Why NOT for this project |
+|---------|---------|---------------------|--------------------------|
+| `python-escpos` | 1.0.x / 3.x dev | "ESC/POS **thermal** receipt printers" | Command set is cut/cash-drawer/QR/barcode — meaningless on impact printers; **owns the transport** (USB/serial/network connection objects), conflicting with your pyusb bulk-write seam; no ESC/P2 or PPDS |
+| `escpos-python`, `escposprinter`, `PyESCPOS`, `python-printer-escpos` | various | Same ESC/POS thermal scope | Same mismatch; varying maintenance; redundant |
+
+Critical distinctions the libraries get wrong for your domain:
+
+- **ESC/POS ≠ ESC/P.** ESC/POS is Epson's *receipt-printer* language (cut paper, open drawer, print logo). ESC/P and ESC/P2 are Epson's *dot-matrix/inkjet* page languages (pitch, NLQ fonts, vertical tabs, graphics) — overlapping prefix bytes but different semantics. The libraries implement the former.
+- **IBM Proprinter PPDS is entirely absent** from every Python library — there is no maintained PPDS generator. Your hand-rolled IBM PPDS profile (already shipped in v1.5) is the only viable path.
+- **OKI Microline, Star, Citizen, Panasonic KX-P, Tally** native modes are likewise not covered.
+- **Architecture conflict:** python-escpos is built around a `Printer` object that opens and owns the connection. Your design deliberately separates byte-generation (profiles) from transport (`PrinterDriver` Protocol + pyusb bulk writes + the CH341 CR+LF atomicity quirk). Adopting a library would mean fighting it to inject your transport — a net loss.
+
+This validates the existing **"Encoding-table-as-contract"** and **"hand-written renderer (no library)"** decisions. Continue the conservative **leave-empty-where-undocumented** rule. The only "library" worth consulting is the published manuals (Epson ESC/P Reference, IBM Proprinter Programmer's Manual) — as data sources for byte values, not as code dependencies.
+
+> Narrow exception to keep in mind, not adopt: if a future thermal TM-series receipt path needs barcodes/QR, python-escpos could generate *just those byte blobs* offline. Out of scope for v1.6; note only.
+
+---
+
+## Installation Summary
+
+```bash
+# Runtime: no new runtime dependencies. (pyusb/libusb already documented.)
+
+# Build-time only:
+uv add --dev pyinstaller   # 6.20.0
+
+# Build (macOS, onedir):
+pyinstaller claude-teletype.spec        # spec carries libusb binary + datas + hiddenimports
+# then codesign nested dylibs + main binary, notarize, staple (if distributing)
 ```
 
-**Confidence:** HIGH -- `Screen[ResultType]` with typed dismiss() verified in Textual docs and already used as `ModalScreen[dict | None]` in settings_screen.py. All widgets verified in Textual 7.x widget gallery.
+No new runtime packages. The VID:PID table is in-repo Python (no dependency). No ESC/P library.
 
-### 2. Running `uv sync --extra usb` From Within the App
+---
 
-**Approach:** `subprocess.run()` with `shutil.which("uv")` -- no new dependencies.
-
-**Critical design decisions:**
-
-| Decision | Recommendation | Rationale |
-|----------|---------------|-----------|
-| Find uv binary | `shutil.which("uv")` | Same pattern as `check_claude_installed()` uses `shutil.which("claude")` |
-| Detect if uv-managed | Check for `uv.lock` in project root, or `os.environ.get("UV_EXECUTABLE")` | UV_EXECUTABLE is set by uv when it spawns subprocesses |
-| Working directory | Run from project root (where `pyproject.toml` lives) | `uv sync` needs pyproject.toml context |
-| Find project root | Walk up from `__file__` looking for `pyproject.toml` | Standard Python pattern |
-| Async execution | Use Textual `@work(thread=True)` decorator | Keeps TUI responsive during install; already used in tui.py for streaming |
-| Error handling | Capture stderr, show in setup screen diagnostic area | User needs to see what went wrong |
-| Post-install import | Call `importlib.invalidate_caches()` then retry `import usb.core` | Python caches module paths; invalidation needed after install |
-| Restart guidance | Show "pyusb installed -- restart to detect USB devices" if import still fails | sys.path may not include new install location in running process |
-
-**Implementation pattern:**
-```python
-import shutil
-import subprocess
-
-def install_pyusb() -> tuple[bool, str]:
-    """Attempt to install pyusb via uv sync. Returns (success, message)."""
-    uv = shutil.which("uv")
-    if uv is None:
-        return False, "uv not found. Install pyusb manually: pip install pyusb"
-
-    project_root = _find_project_root()
-    if project_root is None:
-        return False, "Could not find pyproject.toml. Run: uv sync --extra usb"
-
-    result = subprocess.run(
-        [uv, "sync", "--extra", "usb"],
-        cwd=str(project_root),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if result.returncode != 0:
-        return False, f"uv sync failed: {result.stderr.strip()}"
-
-    try:
-        import importlib
-        importlib.invalidate_caches()
-        import usb.core
-        return True, "pyusb installed successfully"
-    except ImportError:
-        return False, "pyusb installed. Restart the app to detect USB devices."
-```
-
-**Confidence:** HIGH -- subprocess.run() pattern already used in printer.py for CUPS. shutil.which() already used in cli.py. uv sync --extra syntax verified in uv docs.
-
-### 3. Diagnose CLI Subcommand
-
-**Use `@app.command()` not a sub-Typer.** The diagnose command is a single flat command (`claude-teletype diagnose`), not a group with subcommands.
-
-**Typer integration is safe:** The existing `_PromptFriendlyGroup` hack in cli.py handles the conflict between the positional `prompt` argument and subcommand names. Adding `diagnose` as an `@app.command()` works because `_PromptFriendlyGroup.parse_args()` checks `self.list_commands(ctx)` for known subcommand names. "diagnose" will be recognized as a command, not consumed as a prompt.
-
-**Rich Table for output:** Use existing `console = Console()` with `rich.table.Table` for structured diagnostic data. Rich is already a dependency.
-
-```python
-@app.command()
-def diagnose():
-    """Show printer diagnostic information."""
-    from rich.table import Table
-    # Reuse discover_cups_printers(), discover_usb_device_verbose(),
-    # discover_macos_usb_printers() from printer.py
-```
-
-**Confidence:** HIGH -- same subcommand pattern as existing `config show`/`config init`. _PromptFriendlyGroup verified to handle additional command names.
-
-### 4. Persisting Printer Selection to TOML Config
-
-**Extend existing `TeletypeConfig` dataclass and `save_config()`.** No new libraries.
-
-New fields needed in `TeletypeConfig`:
-
-| Field | Type | Default | TOML Location | Purpose |
-|-------|------|---------|---------------|---------|
-| `cups_printer` | `str` | `""` | `[printer]` | CUPS queue name when using CUPS connection |
-
-**Note:** The existing `device` field already handles direct USB device paths. The existing `printer_profile` field already stores the profile name. The only missing piece is a CUPS printer name field.
-
-**The `save_config()` function** already writes TOML by hand (string template, not tomli-w) because it preserves comments. Adding new `[printer]` fields follows the exact same pattern -- append lines to the `[printer]` section.
-
-**Skip-on-relaunch logic:** On startup, check if `printer_profile` is set to something other than "generic" AND the target device/CUPS queue still exists. If yes, skip setup screen. If no (device unplugged, CUPS queue removed), show setup screen again.
-
-**Confidence:** HIGH -- extends existing config.py patterns. save_config() hand-formats TOML strings; adding fields is trivial.
-
-## What NOT to Add
+## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `pycups` (Python CUPS bindings) | Heavyweight C extension, requires CUPS development headers to compile. Only need `lpstat -v` output and `lp -o raw` to send jobs | `subprocess.run(["lpstat", "-v"])` -- already working in printer.py |
-| `python-usb-monitor` or `pyudev` | Only useful for live USB hotplug events; setup screen runs once at startup, not continuously | Enumerate once with existing `usb.core.find(find_all=True)` |
-| `tomli-w` for config writing | Already decided against in v1.2 -- tomli-w cannot write comments, hand-formatted template preserves documentation | Continue using the string-template approach in `save_config()` |
-| `textual-wizard` or similar | No official Textual wizard library; building with Screen + widgets is straightforward | Compose widgets directly in `PrinterSetupScreen` |
-| `pip` as install backend | App is a uv project (`uv.lock` exists); mixing pip and uv causes resolver conflicts | Always prefer `uv sync --extra usb` |
-| `importlib.metadata` for pyusb detection | Overly complex for a simple "is it importable?" check | `try: import usb.core` -- already the pattern in profiles.py |
-| Any new Textual version pin | Textual 7.5.0 has all needed widgets; no reason to bump | Keep `textual>=7.0.0` |
+| python-escpos / any `escpos` PyPI package | Thermal-receipt ESC/POS only; no ESC/P2, no IBM PPDS; owns transport | Continue hand-rolled byte profiles |
+| Shipping/parsing full `usb.ids` at runtime | 25k lines for ~40 needed IDs; parse cost; PyInstaller bundling friction | Curated in-repo Python VID:PID dict, seeded from usb.ids |
+| PyInstaller `--onefile` | Temp-extraction startup tax; libusb dylib path instability; harder notarization | `--onedir` |
+| `--windowed` mode | Suppresses the console a TUI needs | Console-mode onedir; optional Terminal-launcher wrapper |
+| Hardcoding `/opt/homebrew/lib/...` libusb path in the spec | Breaks on Intel macs and CI | Resolve via `brew --prefix libusb` in build script |
+| Relying on class-7 filter alone for detection | Bridge chips (CH340/CH341/PL2305/FTDI) are class 255/CDC, never class 7 | Add a bridge VID:PID allowlist second path |
 
-## Stack Patterns by Variant
-
-**If pyusb is already installed:**
-- USB devices appear in the setup screen's device list
-- Profile selection offered for each USB printer-class device
-- No install prompt shown
-
-**If pyusb is NOT installed:**
-- Setup screen shows "USB detection unavailable"
-- Offers "Install USB support" button that runs `uv sync --extra usb`
-- Falls back to showing CUPS printers only (via `lpstat`)
-- After install, prompts restart or re-enumerates if import succeeds
-
-**If neither pyusb nor CUPS printers found:**
-- Setup screen shows "No printers detected"
-- Offers manual device path entry (text input for `/dev/usb/lp0`)
-- Offers "Continue without printer" to use simulator mode
-
-**If running in --no-tui mode:**
-- Skip the TUI setup screen entirely
-- Use existing auto-detection logic (unchanged)
-- The `diagnose` command works independently of TUI
+---
 
 ## Version Compatibility
 
 | Package | Compatible With | Notes |
 |---------|-----------------|-------|
-| Textual >=7.0.0 | `Screen[result_type]` | Generic Screen with typed dismiss() stable in 7.x |
-| Textual >=7.0.0 | OptionList, RadioSet, RadioButton, LoadingIndicator | All shipped since Textual 0.27+, stable in 7.x |
-| Textual 7.5.0 | `@work(thread=True)` | Worker pattern stable since Textual 0.18+ |
-| Typer >=0.23.0 | `@app.command()` alongside `@app.callback()` | Works with _PromptFriendlyGroup hack |
-| pyusb >=1.3.0 | libusb 1.0.x via homebrew | macOS requires `brew install libusb` separately |
+| pyinstaller 6.20.0 | Python 3.8–3.14 | Covers project's 3.12+; supports macOS 10.15+ universal2 builds |
+| pyinstaller 6.x | sounddevice >=0.5, pyusb >=1.3 | Built-in hooks present for both; verify libusb dylib in onedir output |
+| libusb 1.0.x (Homebrew) | pyusb 1.3.0 | Bundle the dylib explicitly in spec `binaries`; sign for hardened runtime |
 
-## pyproject.toml Changes
-
-**None required.** All dependencies already declared:
-- `textual>=7.0.0` -- has all needed widgets
-- `typer>=0.23.0` -- supports subcommands
-- `rich>=14.0.0` -- has Table, Console for diagnostics
-- `pyusb>=1.3.0` in `[project.optional-dependencies] usb` -- what we are helping users install
+---
 
 ## Sources
 
-- Textual widget gallery: https://textual.textualize.io/widget_gallery/ -- verified OptionList, RadioSet, RadioButton, LoadingIndicator availability (HIGH confidence)
-- Textual Screen docs: https://textual.textualize.io/guide/screens/ -- Screen[ResultType] pattern (HIGH confidence)
-- Textual OptionList: https://textual.textualize.io/widgets/option_list/ -- single-select list widget (HIGH confidence)
-- Textual RadioSet: https://textual.textualize.io/widgets/radioset/ -- mutually exclusive selection (HIGH confidence)
-- uv CLI reference: https://docs.astral.sh/uv/reference/cli/ -- `uv sync --extra` flags (HIGH confidence)
-- uv environment variables: https://docs.astral.sh/uv/reference/environment/ -- UV_EXECUTABLE detection (HIGH confidence)
-- Existing codebase: settings_screen.py (ModalScreen pattern), cli.py (Typer subcommand pattern, shutil.which), printer.py (CUPS/USB discovery), config.py (save_config pattern) -- all verified by code inspection
-- Installed Textual version: 7.5.0 (verified via `uv run python -c "import textual; print(textual.__version__)"`)
+- `http://www.linux-usb.org/usb.ids` (canonical Linux USB ID Repository, fetched 2026-06-12) — bridge-chip and printer-vendor VID:PID entries (CH340/CH341 `1a86`, Prolific `067b` incl. PL2305 `2305`, FTDI `0403`, Epson `04b8`, OKI Data `06bc`, Star `0519`, Citizen `08bd`/`1343`, Panasonic `04da`, Seiko `0619`, Lexmark `043d`, IBM `04b3`, generic IEEE-1284 bridge product strings) — **HIGH**
+- PyPI `pyinstaller` page (fetched 2026-06-12) — version 6.20.0, release date 2026-04-22, Python 3.12 support, macOS codesigning + universal2 notes — **HIGH**
+- PyInstaller 6.20.0 docs (usage / spec-files / when-things-go-wrong) — hooks, hidden imports, binaries/datas, onefile-vs-onedir behavior — **HIGH**
+- PyInstaller PR #4498 (sounddevice hook) + issue #2633 (libusb bundling) — confirms built-in sounddevice/pyusb hooks and the historical libusb-resolution pitfall driving the onedir recommendation — **MEDIUM** (verified against current docs)
+- Context7 `/python-escpos/python-escpos` + PyPI escpos listings — confirms all Python escpos libraries are thermal-receipt ESC/POS scope, no ESC/P2 / PPDS — **HIGH**
+- Existing code `src/claude_teletype/printer.py::_find_usb_printer` (read 2026-06-12) — confirms class-7-only filter gap for bridge chips — **HIGH**
 
 ---
-*Stack research for: v1.4 Printer Setup TUI*
-*Researched: 2026-04-02*
+*Stack research for: v1.6 USB printer fleet detection + standalone packaging*
+*Researched: 2026-06-12*
