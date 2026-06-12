@@ -138,6 +138,36 @@ class TestClassifyNative:
         assert result.kind is DeviceKind.NATIVE_PRINTER
         assert result.suggested_profile == expected.name
 
+    def test_lexmark_vid_suggests_lexmark_forms(self):
+        """A printer-class Lexmark device (any PID) suggests lexmark-forms.
+
+        S03 T02 pinned 0x043D on the lexmark-forms profile: the registry
+        VID-only match fires BEFORE the NATIVE_PRINTER_VENDOR_VIDS
+        fallthrough, upgrading S02's bare "Lexmark" vendor hint to a
+        real suggestion (R010/D007).
+        """
+        result = classify(
+            UsbDeviceInfo(
+                vendor_id=0x043D, product_id=0xABCD, printer_class=True
+            ),
+            _registry(),
+        )
+        assert result.kind is DeviceKind.NATIVE_PRINTER
+        assert result.suggested_profile == "lexmark-forms"
+
+    def test_lexmark_forms_suggestion_resolves_in_registry(self):
+        """The lexmark-forms suggestion is a real registry key (MEM015 guard)."""
+        suggestion = classify(
+            UsbDeviceInfo(
+                vendor_id=0x043D, product_id=0xABCD, printer_class=True
+            ),
+            _registry(),
+        ).suggested_profile
+        assert suggestion is not None
+        profile = ProfileRegistry(BUILTIN_PROFILES).get(suggestion)
+        assert profile.name == "lexmark-forms"
+        assert profile.usb_vendor_id == 0x043D
+
     def test_suggestion_comes_from_registry(self):
         """classify delegates the native suggestion to registry.match_vidpid."""
         registry = MagicMock()

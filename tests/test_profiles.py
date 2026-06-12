@@ -92,7 +92,7 @@ def test_printer_profile_capability_fields_are_frozen():
 
 def test_builtin_profiles_count():
     """BUILTIN_PROFILES entry count: literals + aliases + catalog profiles."""
-    assert len(BUILTIN_PROFILES) == 11
+    assert len(BUILTIN_PROFILES) == 12
 
 
 def test_builtin_profiles_keys():
@@ -103,6 +103,7 @@ def test_builtin_profiles_keys():
         "oki-3390",
         "citizen-cts2000",
         "escp2",
+        "lexmark-forms",
     }
     assert set(BUILTIN_PROFILES.keys()) == expected
 
@@ -248,13 +249,60 @@ def test_escp2_no_human_needed_entries():
 
 
 def test_ppds_profile_esc_sequences():
-    """IBM PPDS profile has correct ESC @ init and DC2 pitch."""
+    """IBM PPDS profile: NO init/reset (verified absence), DC2 pitch.
+
+    The ProPrinter XL24 Quick Reference documents no initialize/reset
+    command in the IBM ProPrinter tables — the former ESC @ here was
+    uncited Epson syntax (S03 T02 enrichment removed it per R022).
+    """
     p = BUILTIN_PROFILES["ppds"]
     assert p.name == "ppds"
-    assert p.init_sequence == b"\x1b@"
-    assert p.reset_sequence == b"\x1b@"
+    assert p.init_sequence == b""
+    assert p.reset_sequence == b""
     assert p.line_spacing == b"\x1b\x32"
     assert p.char_pitch == b"\x12"                   # DC2
+
+
+def test_ppds_codepage_cp437():
+    """ppds selects CP437 via ESC [ T 4 0 NUL NUL 1 181 (XL24 QR Table 7).
+
+    Code-page number travels MSB first: 1*256 + 181 = 437.
+    """
+    p = BUILTIN_PROFILES["ppds"]
+    assert p.codepage_command == b"\x1b[T\x04\x00\x00\x00\x01\xb5"
+    assert p.text_codec == "cp437"
+
+
+def test_ppds_human_needed_names_init_gap():
+    """The unresolved PPDS init question is recorded, not fabricated (R022)."""
+    p = BUILTIN_PROFILES["ppds"]
+    assert len(p.human_needed) == 1
+    assert "init/reset" in p.human_needed[0]
+
+
+def test_ibm_alias_inherits_ppds_enrichment():
+    """ibm is built with replace(ppds) AFTER enrichment — bytes identical."""
+    ibm = BUILTIN_PROFILES["ibm"]
+    ppds = BUILTIN_PROFILES["ppds"]
+    assert ibm.init_sequence == ppds.init_sequence == b""
+    assert ibm.reset_sequence == ppds.reset_sequence == b""
+    assert ibm.codepage_command == ppds.codepage_command
+    assert ibm.text_codec == ppds.text_codec == "cp437"
+    assert ibm.human_needed == ppds.human_needed
+
+
+def test_lexmark_forms_alias_shape():
+    """lexmark-forms: PPDS bytes + pinned Lexmark VID, no PID (D007/R010)."""
+    lex = BUILTIN_PROFILES["lexmark-forms"]
+    ppds = BUILTIN_PROFILES["ppds"]
+    assert lex.name == "lexmark-forms"
+    assert lex.usb_vendor_id == 0x043D               # Lexmark International
+    assert lex.usb_product_id is None                # VID-only suggestion
+    assert lex.init_sequence == ppds.init_sequence
+    assert lex.reset_sequence == ppds.reset_sequence
+    assert lex.codepage_command == ppds.codepage_command
+    assert lex.text_codec == ppds.text_codec
+    assert ppds.usb_vendor_id is None, "ppds itself must stay unpinned (D007)"
 
 
 def test_pcl_profile_esc_sequences():
