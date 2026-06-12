@@ -4,13 +4,13 @@ milestone: v1.6
 milestone_name: Printer Fleet & Standalone
 status: executing
 stopped_at: v1.6 roadmap created (Phases 27-30)
-last_updated: "2026-06-12T18:39:58.821Z"
+last_updated: "2026-06-12T19:28:04.342Z"
 last_activity: 2026-06-12 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,11 +21,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 27 — Refactor — Package Split, Registry & Detection Seam
+**Current focus:** Phase 27 — refactor-package-split-registry-detection-seam
 
 ## Current Position
 
-Phase: 27 (Refactor — Package Split, Registry & Detection Seam) — EXECUTING
+Phase: 27 (refactor-package-split-registry-detection-seam) — EXECUTING
 Plan: 1 of 6
 Status: Executing Phase 27
 Last activity: 2026-06-12 -- Phase 27 execution started
