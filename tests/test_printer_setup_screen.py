@@ -4,14 +4,13 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Log, OptionList, Select
 
-from claude_teletype.printer import (
+from claude_teletype.printing.discovery import (
     CupsPrinterInfo,
     DiscoveryResult,
-    PrinterSelection,
     UsbDeviceInfo,
 )
-from claude_teletype.printer_setup_screen import PrinterSetupScreen
-from claude_teletype.profiles import BUILTIN_PROFILES
+from claude_teletype.printing.profiles import BUILTIN_PROFILES
+from claude_teletype.screens.printer_setup import PrinterSetupScreen
 
 # --- Test fixtures ---
 

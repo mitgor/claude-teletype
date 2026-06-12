@@ -2,15 +2,14 @@
 
 from unittest.mock import MagicMock, patch
 
-from claude_teletype.printer import (
+from claude_teletype.printing.discovery import DiscoveryResult, PrinterSelection
+from claude_teletype.printing.drivers import (
     CupsPrinterDriver,
-    DiscoveryResult,
     NullPrinterDriver,
-    PrinterSelection,
     ProfilePrinterDriver,
     UsbPrinterDriver,
-    create_driver_for_selection,
 )
+from claude_teletype.printing.selection import create_driver_for_selection
 
 
 class TestCreateDriverForSelection:
@@ -36,7 +35,6 @@ class TestCreateDriverForSelection:
 
     def test_cups_with_profile_returns_profile_driver(self):
         """connection_type='cups' with non-generic profile wraps in ProfilePrinterDriver."""
-        from claude_teletype.profiles import BUILTIN_PROFILES
 
         sel = PrinterSelection(
             connection_type="cups",
@@ -53,7 +51,7 @@ class TestCreateDriverForSelection:
         """connection_type='usb' when _find_usb_printer returns None -> NullPrinterDriver."""
         sel = PrinterSelection(connection_type="usb")
         discovery = DiscoveryResult()
-        with patch("claude_teletype.printer._find_usb_printer", return_value=None):
+        with patch("claude_teletype.printing.discovery._find_usb_printer", return_value=None):
             driver = create_driver_for_selection(sel, discovery)
         assert isinstance(driver, NullPrinterDriver)
 
@@ -66,7 +64,7 @@ class TestCreateDriverForSelection:
         sel = PrinterSelection(connection_type="usb", profile_name="generic")
         discovery = DiscoveryResult()
         with patch(
-            "claude_teletype.printer._find_usb_printer",
+            "claude_teletype.printing.discovery._find_usb_printer",
             return_value=mock_usb_driver,
         ):
             driver = create_driver_for_selection(sel, discovery)
@@ -82,7 +80,7 @@ class TestCreateDriverForSelection:
         sel = PrinterSelection(connection_type="usb", profile_name="juki")
         discovery = DiscoveryResult()
         with patch(
-            "claude_teletype.printer._find_usb_printer",
+            "claude_teletype.printing.discovery._find_usb_printer",
             return_value=mock_usb_driver,
         ):
             driver = create_driver_for_selection(sel, discovery)

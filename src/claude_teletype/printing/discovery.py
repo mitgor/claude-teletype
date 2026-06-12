@@ -402,14 +402,11 @@ def discover_all() -> DiscoveryResult:
 
     # 3. CUPS discovery (always, regardless of pyusb)
     #
-    # Resolve discover_cups_printers through the claude_teletype.printer shim at
-    # call time so legacy test patches targeting
-    # ``claude_teletype.printer.discover_cups_printers`` still intercept the call
-    # (Plan 03 migrates these patch targets). Local import avoids a cycle.
-    from claude_teletype import printer as _shim
-
+    # Plain module-global call: test patches targeting
+    # ``claude_teletype.printing.discovery.discover_cups_printers``
+    # intercept it directly.
     try:
-        cups_raw = _shim.discover_cups_printers()
+        cups_raw = discover_cups_printers()
         for p in cups_raw:
             result.cups_printers.append(
                 CupsPrinterInfo(

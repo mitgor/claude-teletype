@@ -9,7 +9,7 @@ from textual.app import App
 from textual.screen import ModalScreen, Screen
 from textual.widgets import DirectoryTree, Static
 
-from claude_teletype.file_picker_screen import (
+from claude_teletype.screens.file_picker import (
     HIDDEN_DIRS,
     FilePickerScreen,
     MarkdownDirectoryTree,

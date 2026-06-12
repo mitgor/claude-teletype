@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from claude_teletype.profiles import get_profile
+from claude_teletype.printing.profiles import get_profile
 from claude_teletype.teletype import run_teletype
 
 
@@ -302,8 +302,8 @@ def test_enter_echoes_newline_to_stderr(mock_sys, mock_tty, mock_termios):
 # ---------------------------------------------------------------------------
 
 
-@patch("claude_teletype.printer.discover_usb_device_verbose")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cli_teletype_shows_diagnostics_on_failure(mock_run, mock_verbose):
     """--teletype shows diagnostic messages when USB discovery fails."""
     from typer.testing import CliRunner
@@ -321,8 +321,8 @@ def test_cli_teletype_shows_diagnostics_on_failure(mock_run, mock_verbose):
     assert "No USB printer available" in result.output
 
 
-@patch("claude_teletype.printer.discover_usb_device_verbose")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cli_teletype_shows_cups_info(mock_run, mock_verbose):
     """--teletype shows CUPS USB printers when USB discovery fails."""
     from typer.testing import CliRunner
@@ -350,7 +350,7 @@ def test_cli_teletype_shows_cups_info(mock_run, mock_verbose):
 @patch("claude_teletype.teletype.termios")
 @patch("claude_teletype.teletype.tty")
 @patch("claude_teletype.teletype.sys")
-@patch("claude_teletype.printer.discover_usb_device_verbose")
+@patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
 def test_cli_teletype_device_fallback(mock_verbose, mock_sys, mock_tty, mock_termios, tmp_path):
     """--teletype --device falls back to FilePrinterDriver when USB fails."""
     from typer.testing import CliRunner
@@ -372,15 +372,15 @@ def test_cli_teletype_device_fallback(mock_verbose, mock_sys, mock_tty, mock_ter
     assert "Falling back to device file" in result.output
 
 
-@patch("claude_teletype.profiles.auto_detect_profile", return_value=None)
+@patch("claude_teletype.printing.profiles.auto_detect_profile", return_value=None)
 @patch("claude_teletype.teletype.run_teletype")
-@patch("claude_teletype.printer.discover_usb_device_verbose")
+@patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
 def test_cli_teletype_passes_no_profile(mock_verbose, mock_run_teletype, _mock_detect):
     """--teletype without --printer passes profile=None."""
-    from claude_teletype.cli import app
-    from claude_teletype.printer import UsbPrinterDriver
-
     from typer.testing import CliRunner
+
+    from claude_teletype.cli import app
+    from claude_teletype.printing.drivers import UsbPrinterDriver
 
     mock_driver = MagicMock(spec=UsbPrinterDriver)
     mock_verbose.return_value = (mock_driver, ["USB printer found: endpoint OUT 1"])
@@ -392,13 +392,13 @@ def test_cli_teletype_passes_no_profile(mock_verbose, mock_run_teletype, _mock_d
 
 
 @patch("claude_teletype.teletype.run_teletype")
-@patch("claude_teletype.printer.discover_usb_device_verbose")
+@patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
 def test_cli_teletype_passes_juki_profile(mock_verbose, mock_run_teletype):
     """--teletype --juki passes profile=juki_profile."""
-    from claude_teletype.cli import app
-    from claude_teletype.printer import UsbPrinterDriver
-
     from typer.testing import CliRunner
+
+    from claude_teletype.cli import app
+    from claude_teletype.printing.drivers import UsbPrinterDriver
 
     mock_driver = MagicMock(spec=UsbPrinterDriver)
     mock_verbose.return_value = (mock_driver, ["USB printer found: endpoint OUT 1"])

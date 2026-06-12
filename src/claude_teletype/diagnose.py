@@ -13,7 +13,7 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from claude_teletype.printer import DiscoveryResult, discover_all
+from claude_teletype.printing.discovery import discover_all
 
 
 def run_diagnose() -> None:

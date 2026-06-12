@@ -25,7 +25,7 @@ from claude_teletype.config import (
     resolve_sources,
     write_default_config,
 )
-from claude_teletype.pacer import pace_characters
+from claude_teletype.rendering.pacer import pace_characters
 
 
 class _PromptFriendlyGroup(typer.core.TyperGroup):
@@ -101,13 +101,13 @@ async def _chat_async(
         transcript_dir: Directory for transcript files (default: ./transcripts).
         backend: LLM backend to use for streaming.
     """
-    from claude_teletype.output import make_output_fn
+    from claude_teletype.rendering.output import make_output_fn
 
     destinations = [sys.stdout.write]
 
     printer_write = None
     if printer is not None and printer.is_connected:
-        from claude_teletype.printer import make_printer_output
+        from claude_teletype.printing.drivers import make_printer_output
 
         printer_write = make_printer_output(printer)
         destinations.append(printer_write)
@@ -278,11 +278,12 @@ def _render_markdown_to_driver(
     """
     import time
 
-    from claude_teletype.markdown import MarkdownRenderer
-    from claude_teletype.pacer import CHAR_DELAYS, classify_char
-    from claude_teletype.printer import chunk_writes, discover_printer
+    from claude_teletype.printing.drivers import chunk_writes
+    from claude_teletype.printing.selection import discover_printer
+    from claude_teletype.rendering.markdown import MarkdownRenderer
+    from claude_teletype.rendering.pacer import CHAR_DELAYS, classify_char
+    from claude_teletype.rendering.wordwrap import WordWrapper
     from claude_teletype.transcript import write_printed_file
-    from claude_teletype.wordwrap import WordWrapper
 
     if speed_mode not in ("typewriter", "instant"):
         typer.echo(
@@ -432,7 +433,7 @@ def _resolve_print_context(
     config = merge_cli_flags(config, delay=delay, device=device)
 
     # Profile resolution -- mirrors main() lines ~325-371 (per Plan 25-01 D-03).
-    from claude_teletype.profiles import (
+    from claude_teletype.printing.profiles import (
         BUILTIN_PROFILES,
         PrinterProfile,
         auto_detect_profile,
@@ -556,7 +557,7 @@ def _make_markdown_picker_app(
     """
     from textual.app import App
 
-    from claude_teletype.file_picker_screen import FilePickerScreen
+    from claude_teletype.screens.file_picker import FilePickerScreen
 
     class MarkdownPickerApp(App):
         """Minimal one-shot picker launcher for `claude-teletype print` (CLI-02).
@@ -776,7 +777,7 @@ def main(
     effective_no_tui = no_tui or config.no_tui
 
     # Profile resolution: --printer flag > --juki flag > config.printer_profile > config.juki > auto-detect > generic
-    from claude_teletype.profiles import (
+    from claude_teletype.printing.profiles import (
         PrinterProfile,
         auto_detect_profile,
         get_profile,
@@ -789,7 +790,7 @@ def main(
     ) if config.custom_profiles else {}
 
     # Merge built-in + custom for lookup
-    from claude_teletype.profiles import BUILTIN_PROFILES
+    from claude_teletype.printing.profiles import BUILTIN_PROFILES
 
     all_profiles = dict(BUILTIN_PROFILES)
     all_profiles.update(custom_profiles_dict)
@@ -873,12 +874,12 @@ def main(
         effective_no_tui = True
 
     if teletype:
-        from claude_teletype.printer import (
-            FilePrinterDriver,
+        from claude_teletype.printing.discovery import (
             discover_cups_printers,
             discover_macos_usb_printers,
             discover_usb_device_verbose,
         )
+        from claude_teletype.printing.drivers import FilePrinterDriver
         from claude_teletype.teletype import run_teletype
 
         usb_driver, diagnostics = discover_usb_device_verbose()
@@ -927,7 +928,8 @@ def main(
 
     # Discover printer: use discover_all() for TUI (setup screen handles selection)
     # or discover_printer() for --no-tui mode (direct selection)
-    from claude_teletype.printer import create_driver_for_selection, discover_all, discover_printer
+    from claude_teletype.printing.discovery import discover_all
+    from claude_teletype.printing.selection import create_driver_for_selection, discover_printer
 
     if effective_no_tui:
         # --no-tui mode: use existing direct discovery (no setup screen)
@@ -950,7 +952,7 @@ def main(
                 and config.saved_printer_type
                 and config.saved_printer_type != "skip"
             ):
-                from claude_teletype.printer import match_saved_printer
+                from claude_teletype.printing.selection import match_saved_printer
                 saved_match = match_saved_printer(
                     config.saved_printer_type,
                     config.saved_printer_id,

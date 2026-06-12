@@ -168,7 +168,7 @@ class TeletypeApp(App):
         """
         if self._discovery is None:
             return False
-        from claude_teletype.printer import NullPrinterDriver
+        from claude_teletype.printing.drivers import NullPrinterDriver
         return self.printer is None or isinstance(self.printer, NullPrinterDriver)
 
     def compose(self) -> ComposeResult:
@@ -191,7 +191,7 @@ class TeletypeApp(App):
         self._transcript_close = close_fn
 
         if self.printer is not None and self.printer.is_connected:
-            from claude_teletype.printer import make_printer_output
+            from claude_teletype.printing.drivers import make_printer_output
 
             self._printer_write = make_printer_output(self.printer)
 
@@ -221,7 +221,7 @@ class TeletypeApp(App):
 
     def _show_setup_screen(self) -> None:
         """Push the printer setup screen (deferred via call_after_refresh)."""
-        from claude_teletype.printer_setup_screen import PrinterSetupScreen
+        from claude_teletype.screens.printer_setup import PrinterSetupScreen
 
         self.push_screen(
             PrinterSetupScreen(
@@ -244,7 +244,8 @@ class TeletypeApp(App):
             self.query_one("#prompt", Input).focus()
             return
 
-        from claude_teletype.printer import create_driver_for_selection, make_printer_output
+        from claude_teletype.printing.drivers import make_printer_output
+        from claude_teletype.printing.selection import create_driver_for_selection
 
         driver = create_driver_for_selection(
             result, self._discovery, all_profiles=self._all_profiles
@@ -316,7 +317,7 @@ class TeletypeApp(App):
 
     def _printer_info(self) -> str:
         """Return printer status string like 'juki/usb/connected' or 'none'."""
-        from claude_teletype.printer import (
+        from claude_teletype.printing.drivers import (
             CupsPrinterDriver,
             FilePrinterDriver,
             ProfilePrinterDriver,
@@ -382,7 +383,7 @@ class TeletypeApp(App):
 
     def action_enter_typewriter(self) -> None:
         """Switch to typewriter mode (no LLM, direct keyboard to screen+printer)."""
-        from claude_teletype.typewriter_screen import TypewriterScreen
+        from claude_teletype.screens.typewriter import TypewriterScreen
 
         self.push_screen(TypewriterScreen(
             base_delay_ms=self.base_delay_ms,
@@ -405,13 +406,13 @@ class TeletypeApp(App):
         binding-agnostic so the BINDINGS line can be changed (e.g. to
         ctrl+shift+o or ctrl+p) without touching this method.
         """
-        from claude_teletype.file_picker_screen import FilePickerScreen
+        from claude_teletype.screens.file_picker import FilePickerScreen
 
         self.push_screen(FilePickerScreen(), callback=self._handle_picker_result)
 
     def action_open_settings(self) -> None:
         """Open the settings modal to edit runtime configuration."""
-        from claude_teletype.settings_screen import SettingsScreen
+        from claude_teletype.screens.settings import SettingsScreen
 
         self.push_screen(
             SettingsScreen(
@@ -473,7 +474,7 @@ class TeletypeApp(App):
         # without a closure.
         self._pending_print_path = path
 
-        from claude_teletype.speed_mode_screen import SpeedModeScreen
+        from claude_teletype.screens.speed_mode import SpeedModeScreen
 
         self.push_screen(
             SpeedModeScreen(default_mode=default_mode),
@@ -513,10 +514,10 @@ class TeletypeApp(App):
         plain-text only, no ESC bytes) and ``write_printed_file`` records a
         "Printed file: <abs path>" header followed by the body (TXN-01).
         """
-        from claude_teletype.markdown import MarkdownRenderer
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
+        from claude_teletype.rendering.markdown import MarkdownRenderer
+        from claude_teletype.rendering.wordwrap import WordWrapper
         from claude_teletype.transcript import write_printed_file
-        from claude_teletype.wordwrap import WordWrapper
 
         if self.printer is None or not self.printer.is_connected:
             self.notify(
@@ -552,7 +553,7 @@ class TeletypeApp(App):
             import time
 
             from claude_teletype.audio import make_bell_output
-            from claude_teletype.pacer import CHAR_DELAYS, classify_char
+            from claude_teletype.rendering.pacer import CHAR_DELAYS, classify_char
 
             base_delay = (self.base_delay_ms or 0.0) / 1000.0
             bell_fn = (
@@ -696,11 +697,13 @@ class TeletypeApp(App):
         Uses TUI-safe discovery (no interactive prompts, no stderr prints)
         when the current printer is disconnected or absent.
         """
-        from claude_teletype.printer import (
-            CupsPrinterDriver,
-            ProfilePrinterDriver,
+        from claude_teletype.printing.discovery import (
             discover_cups_printers,
             discover_usb_device,
+        )
+        from claude_teletype.printing.drivers import (
+            CupsPrinterDriver,
+            ProfilePrinterDriver,
             make_printer_output,
         )
 
@@ -852,9 +855,9 @@ class TeletypeApp(App):
             extract_model_name,
         )
         from claude_teletype.errors import ERROR_MESSAGES, classify_error, is_retryable
-        from claude_teletype.output import make_output_fn
-        from claude_teletype.pacer import pace_characters
-        from claude_teletype.wordwrap import WordWrapper
+        from claude_teletype.rendering.output import make_output_fn
+        from claude_teletype.rendering.pacer import pace_characters
+        from claude_teletype.rendering.wordwrap import WordWrapper
 
         log = self.query_one("#output", Log)
 

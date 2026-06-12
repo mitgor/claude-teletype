@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_teletype.file_picker_screen import FilePickerScreen
-from claude_teletype.printer import NullPrinterDriver
+from claude_teletype.printing.drivers import NullPrinterDriver
+from claude_teletype.screens.file_picker import FilePickerScreen
 from claude_teletype.tui import TeletypeApp
 
 # ------------------------------------------------------------------
@@ -135,7 +135,7 @@ async def test_picker_dismiss_path_pushes_speed_dialog(tmp_path: Path):
     Picker dismiss with a Path now pushes SpeedModeScreen for the user
     to choose typewriter vs instant before the render runs.
     """
-    from claude_teletype.speed_mode_screen import SpeedModeScreen
+    from claude_teletype.screens.speed_mode import SpeedModeScreen
 
     target = (tmp_path / "doc.md").resolve()
     target.write_text("# Doc\n")
@@ -224,8 +224,8 @@ def _make_app_with_capturing_driver(
 @pytest.mark.asyncio
 async def test_speed_mode_default_follows_profile_instant_output(tmp_path: Path):
     """FLOW-02: SpeedModeScreen.default_mode follows active profile.instant_output."""
-    from claude_teletype.profiles import BUILTIN_PROFILES
-    from claude_teletype.speed_mode_screen import SpeedModeScreen
+    from claude_teletype.printing.profiles import BUILTIN_PROFILES
+    from claude_teletype.screens.speed_mode import SpeedModeScreen
 
     target = (tmp_path / "doc.md").resolve()
     target.write_text("# Doc\n")
@@ -255,8 +255,8 @@ async def test_speed_mode_default_follows_profile_instant_output(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_speed_mode_default_typewriter_for_juki(tmp_path: Path):
     """FLOW-02: juki profile (instant_output=False) defaults to 'typewriter'."""
-    from claude_teletype.profiles import BUILTIN_PROFILES
-    from claude_teletype.speed_mode_screen import SpeedModeScreen
+    from claude_teletype.printing.profiles import BUILTIN_PROFILES
+    from claude_teletype.screens.speed_mode import SpeedModeScreen
 
     target = (tmp_path / "doc.md").resolve()
     target.write_text("# Doc\n")
@@ -398,7 +398,7 @@ async def test_renderer_close_called_on_print_exception(tmp_path: Path):
     async with app.run_test(size=(80, 30)) as pilot:
         # Patch MarkdownRenderer.close to observe the FLOW-05 finally call
         with patch(
-            "claude_teletype.markdown.MarkdownRenderer.close",
+            "claude_teletype.rendering.markdown.MarkdownRenderer.close",
         ) as close_mock:
             # Drive the pipeline straight to render via internal helper
             # (avoids screen-stack timing dependencies for cancel-safety

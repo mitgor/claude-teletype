@@ -1,7 +1,7 @@
 """Tests for the multiplexed output function factory."""
 
-from claude_teletype.output import make_output_fn
-from claude_teletype.pacer import pace_characters
+from claude_teletype.rendering.output import make_output_fn
+from claude_teletype.rendering.pacer import pace_characters
 
 
 def test_single_destination_receives_every_character():

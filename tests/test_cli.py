@@ -287,7 +287,7 @@ class TestPromptBackwardCompat:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ):
             from claude_teletype.config import TeletypeConfig
 
@@ -315,7 +315,7 @@ class TestPromptBackwardCompat:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ), patch(
             "claude_teletype.tui.TeletypeApp"
         ) as mock_tui_cls, patch(
@@ -344,7 +344,7 @@ class TestSetupPrinterFlag:
     def test_setup_flag_keeps_discovery_for_setup_screen(self):
         """With --setup-printer, even a saved-matching printer doesn't skip setup."""
         from claude_teletype.config import TeletypeConfig
-        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+        from claude_teletype.printing.discovery import CupsPrinterInfo, DiscoveryResult
 
         with patch(
             "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
@@ -355,7 +355,7 @@ class TestSetupPrinterFlag:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_all"
+            "claude_teletype.printing.discovery.discover_all"
         ) as mock_discover, patch(
             "claude_teletype.tui.TeletypeApp"
         ) as mock_tui_cls, patch(
@@ -392,7 +392,7 @@ class TestSetupPrinterFlag:
     def test_no_setup_flag_uses_smart_match(self):
         """Control: without flag, matching saved CUPS queue routes via smart-startup."""
         from claude_teletype.config import TeletypeConfig
-        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+        from claude_teletype.printing.discovery import CupsPrinterInfo, DiscoveryResult
 
         with patch(
             "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
@@ -403,9 +403,9 @@ class TestSetupPrinterFlag:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_all"
+            "claude_teletype.printing.discovery.discover_all"
         ) as mock_discover, patch(
-            "claude_teletype.printer.create_driver_for_selection"
+            "claude_teletype.printing.selection.create_driver_for_selection"
         ) as mock_create, patch(
             "claude_teletype.tui.TeletypeApp"
         ) as mock_tui_cls, patch(
@@ -455,7 +455,7 @@ class TestPrinterFlag:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ) as mock_discover:
             from claude_teletype.config import TeletypeConfig
 
@@ -486,7 +486,7 @@ class TestPrinterFlag:
         ) as mock_env, patch(
             "claude_teletype.cli.merge_cli_flags"
         ) as mock_merge, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ):
             from claude_teletype.config import TeletypeConfig
 
@@ -547,7 +547,7 @@ class TestConfigMerge:
         ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ):
             result = runner.invoke(app, ["--no-tui", "hello"])
 
@@ -568,7 +568,7 @@ class TestConfigMerge:
         ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ):
             result = runner.invoke(app, ["--no-tui", "--delay", "30", "hello"])
 
@@ -589,7 +589,7 @@ class TestConfigMerge:
         ), patch(
             "claude_teletype.cli.asyncio.run"
         ) as mock_run, patch(
-            "claude_teletype.printer.discover_printer", return_value=None
+            "claude_teletype.printing.selection.discover_printer", return_value=None
         ):
             result = runner.invoke(app, ["--no-tui", "hello"])
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from claude_teletype.printing import discovery as _discovery
 from claude_teletype.printing.discovery import (
     DiscoveryResult,
     PrinterSelection,
@@ -116,13 +117,10 @@ def create_driver_for_selection(
     driver: PrinterDriver | None = None
 
     if selection.connection_type == "usb":
-        # Resolve _find_usb_printer through the claude_teletype.printer shim at
-        # call time so legacy test patches targeting
-        # ``claude_teletype.printer._find_usb_printer`` still intercept the call
-        # (Plan 03 migrates these patch targets). Local import avoids a cycle.
-        from claude_teletype import printer as _shim
-
-        driver = _shim._find_usb_printer()
+        # Resolve _find_usb_printer through the discovery module at call time
+        # so test patches targeting
+        # ``claude_teletype.printing.discovery._find_usb_printer`` intercept it.
+        driver = _discovery._find_usb_printer()
     elif selection.connection_type == "cups":
         if selection.cups_printer_name:
             driver = CupsPrinterDriver(selection.cups_printer_name)
@@ -162,16 +160,13 @@ def discover_printer(
     if juki and profile is None:
         profile = get_profile("juki")
 
-    # Resolve the discovery/selection helpers through the claude_teletype.printer
-    # re-export shim at call time so legacy test patches targeting
-    # ``claude_teletype.printer.discover_usb_device`` /
-    # ``claude_teletype.printer.discover_cups_printers`` /
-    # ``claude_teletype.printer.select_printer`` still intercept the calls.
-    # (Phase 27 Plan 03 migrates these patch targets to the new module paths;
-    # until then this lazy lookup preserves the single-module seam.) The
-    # import is local to avoid an import cycle with the shim.
-    from claude_teletype import printer as _shim
-
+    # Resolve the discovery helpers through the discovery module at call time
+    # so test patches targeting
+    # ``claude_teletype.printing.discovery.discover_usb_device`` /
+    # ``claude_teletype.printing.discovery.discover_cups_printers``
+    # intercept the calls. select_printer is a plain global lookup in this
+    # module, so ``claude_teletype.printing.selection.select_printer`` patches
+    # intercept it directly.
     driver: PrinterDriver | None = None
     use_profile = profile is not None and profile.name != "generic"
 
@@ -179,14 +174,14 @@ def discover_printer(
         driver = FilePrinterDriver(device_override)
     else:
         if use_profile:
-            usb_driver = _shim.discover_usb_device()
+            usb_driver = _discovery.discover_usb_device()
             if usb_driver is not None:
                 driver = usb_driver
                 print(f"USB direct: {usb_driver}", file=sys.stderr)
 
         if driver is None:
-            cups_printers = _shim.discover_cups_printers()
-            selected = _shim.select_printer(cups_printers)
+            cups_printers = _discovery.discover_cups_printers()
+            selected = select_printer(cups_printers)
             if selected:
                 driver = CupsPrinterDriver(selected)
                 if use_profile:

@@ -4,7 +4,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Input, Select, Static, Switch
 
-from claude_teletype.settings_screen import SettingsScreen
+from claude_teletype.screens.settings import SettingsScreen
 from claude_teletype.tui import ConfirmSwapScreen
 
 DEFAULT_KWARGS = {

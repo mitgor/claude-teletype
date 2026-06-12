@@ -1,6 +1,6 @@
 """Tests for streaming word-wrap algorithm."""
 
-from claude_teletype.wordwrap import WordWrapper
+from claude_teletype.rendering.wordwrap import WordWrapper
 
 
 def _wrap(text: str, width: int) -> str:

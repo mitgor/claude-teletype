@@ -7,7 +7,7 @@ import typer
 from textual.widgets import Footer, Header, Input, Log, Static
 
 from claude_teletype.cli import check_claude_installed
-from claude_teletype.settings_screen import SettingsScreen
+from claude_teletype.screens.settings import SettingsScreen
 from claude_teletype.tui import TeletypeApp
 
 
@@ -236,7 +236,7 @@ def test_check_claude_installed_found():
 
 async def test_enter_typewriter_mode():
     """ctrl+t pushes TypewriterScreen onto TeletypeApp."""
-    from claude_teletype.typewriter_screen import TypewriterScreen
+    from claude_teletype.screens.typewriter import TypewriterScreen
 
     app = TeletypeApp(no_audio=True)
     async with app.run_test() as pilot:
@@ -331,8 +331,8 @@ async def test_open_settings_via_shortcut():
 
 def test_profile_hotswap_wraps_connected_driver():
     """Switching profile wraps an existing connected driver in ProfilePrinterDriver."""
-    from claude_teletype.printer import ProfilePrinterDriver
-    from claude_teletype.profiles import get_profile
+    from claude_teletype.printing.drivers import ProfilePrinterDriver
+    from claude_teletype.printing.profiles import get_profile
 
     mock_driver = MagicMock()
     mock_driver.is_connected = True
@@ -363,8 +363,8 @@ def test_profile_hotswap_wraps_connected_driver():
 
 def test_profile_hotswap_discovers_usb_when_null():
     """Switching profile from NullPrinter triggers TUI-safe USB discovery."""
-    from claude_teletype.printer import NullPrinterDriver, ProfilePrinterDriver
-    from claude_teletype.profiles import get_profile
+    from claude_teletype.printing.drivers import NullPrinterDriver, ProfilePrinterDriver
+    from claude_teletype.printing.profiles import get_profile
 
     juki_profile = get_profile("juki")
     mock_usb = MagicMock()
@@ -377,7 +377,7 @@ def test_profile_hotswap_discovers_usb_when_null():
         all_profiles={"generic": MagicMock(), "juki": juki_profile},
     )
 
-    with patch("claude_teletype.printer.discover_usb_device", return_value=mock_usb), \
+    with patch("claude_teletype.printing.discovery.discover_usb_device", return_value=mock_usb), \
          patch("claude_teletype.config.load_config"), \
          patch("claude_teletype.config.save_config"):
         app._apply_settings({
@@ -394,8 +394,8 @@ def test_profile_hotswap_discovers_usb_when_null():
 
 def test_profile_hotswap_cups_fallback_when_no_usb():
     """Switching profile falls back to CUPS auto-select when USB unavailable."""
-    from claude_teletype.printer import CupsPrinterDriver, ProfilePrinterDriver
-    from claude_teletype.profiles import get_profile
+    from claude_teletype.printing.drivers import CupsPrinterDriver, ProfilePrinterDriver
+    from claude_teletype.printing.profiles import get_profile
 
     juki_profile = get_profile("juki")
 
@@ -408,8 +408,8 @@ def test_profile_hotswap_cups_fallback_when_no_usb():
 
     cups_list = [{"name": "Juki_6100", "uri": "usb://Juki/6100"}]
 
-    with patch("claude_teletype.printer.discover_usb_device", return_value=None), \
-         patch("claude_teletype.printer.discover_cups_printers", return_value=cups_list), \
+    with patch("claude_teletype.printing.discovery.discover_usb_device", return_value=None), \
+         patch("claude_teletype.printing.discovery.discover_cups_printers", return_value=cups_list), \
          patch("claude_teletype.config.load_config"), \
          patch("claude_teletype.config.save_config"):
         app._apply_settings({

@@ -69,7 +69,7 @@ class TypewriterScreen(Screen):
     def on_mount(self) -> None:
         """Wire up the keystroke queue and multiplexed output destinations."""
         from claude_teletype.audio import make_bell_output, make_keystroke_output
-        from claude_teletype.printer import make_printer_output
+        from claude_teletype.printing.drivers import make_printer_output
         from claude_teletype.rendering.output import make_output_fn
 
         self._key_queue = asyncio.Queue()

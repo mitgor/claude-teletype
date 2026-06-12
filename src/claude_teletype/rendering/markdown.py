@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from claude_teletype.profiles import PrinterProfile, resolve_style
+from claude_teletype.printing.profiles import PrinterProfile, resolve_style
 
 __all__ = ["MarkdownRenderer"]
 

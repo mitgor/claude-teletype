@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claude_teletype.profiles import (
+from claude_teletype.printing.profiles import (
     BUILTIN_PROFILES,
     PrinterProfile,
     auto_detect_profile,

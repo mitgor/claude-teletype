@@ -11,7 +11,7 @@ These tests use Typer's CliRunner (same pattern as tests/test_cli.py).
 Patch-target convention: ``_render_markdown_to_driver`` imports its narrow
 deps (``MarkdownRenderer``, ``WordWrapper``, ``discover_printer``) LOCALLY
 inside the function body. Patches must therefore target the SOURCE modules
-(e.g., ``claude_teletype.printer.discover_printer``), NOT
+(e.g., ``claude_teletype.printing.selection.discover_printer``), NOT
 ``claude_teletype.cli.discover_printer``. The picker factory
 ``_make_markdown_picker_app`` is patched at ``claude_teletype.cli.``
 because the dispatch in ``print_md`` resolves it through the cli module
@@ -56,16 +56,16 @@ class TestPrintCli01ExplicitPath:
 
     def test_print_with_valid_path_exits_zero(self, tmp_path):
         md = _write_md(tmp_path)
-        with patch("claude_teletype.printer.discover_printer") as mock_disc:
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc:
             mock_disc.return_value = _make_mock_driver()
             result = runner.invoke(app, ["print", str(md)])
         assert result.exit_code == 0, result.output
 
     def test_print_calls_markdown_renderer_with_file_text(self, tmp_path):
         md = _write_md(tmp_path, content="# Test\n\nbody\n")
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_renderer_cls:
             mock_disc.return_value = _make_mock_driver()
             mock_renderer = MagicMock()
@@ -79,12 +79,12 @@ class TestPrintCli01ExplicitPath:
     def test_print_calls_wrapper_flush_after_render(self, tmp_path):
         md = _write_md(tmp_path)
         parent = MagicMock()
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
                 patch(
-                    "claude_teletype.wordwrap.WordWrapper",
+                    "claude_teletype.rendering.wordwrap.WordWrapper",
                 ) as mock_wrap_cls, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_renderer_cls:
             mock_disc.return_value = _make_mock_driver()
             mock_wrap = MagicMock()
@@ -107,9 +107,9 @@ class TestPrintCli01ExplicitPath:
 
     def test_print_closes_driver_in_finally_on_render_error(self, tmp_path):
         md = _write_md(tmp_path)
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_renderer_cls:
             driver = _make_mock_driver()
             mock_disc.return_value = driver
@@ -159,7 +159,7 @@ class TestPrintCli04PathValidation:
         ), f"Expected regular-file error: {combined}"
 
     def test_print_does_not_open_driver_on_bad_path(self, tmp_path):
-        with patch("claude_teletype.printer.discover_printer") as mock_disc:
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc:
             result = runner.invoke(
                 app, ["print", str(tmp_path / "no.md")],
             )
@@ -177,9 +177,9 @@ class TestPrintCli03ConfigChain:
 
     def test_print_honors_printer_flag(self, tmp_path):
         md = _write_md(tmp_path)
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_renderer_cls:
             mock_disc.return_value = _make_mock_driver()
             mock_renderer_cls.return_value = MagicMock()
@@ -198,8 +198,8 @@ class TestPrintCli03ConfigChain:
 
     def test_print_honors_device_flag(self, tmp_path):
         md = _write_md(tmp_path)
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
-                patch("claude_teletype.markdown.MarkdownRenderer") as mock_render:
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
+                patch("claude_teletype.rendering.markdown.MarkdownRenderer") as mock_render:
             mock_disc.return_value = _make_mock_driver()
             mock_render.return_value = MagicMock()
             result = runner.invoke(
@@ -217,10 +217,10 @@ class TestPrintCli03ConfigChain:
         with patch("claude_teletype.cli.CONFIG_FILE", config_file), \
                 patch("claude_teletype.config.CONFIG_FILE", config_file), \
                 patch(
-                    "claude_teletype.printer.discover_printer",
+                    "claude_teletype.printing.selection.discover_printer",
                 ) as mock_disc, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_renderer_cls:
             mock_disc.return_value = _make_mock_driver()
             mock_renderer_cls.return_value = MagicMock()
@@ -251,8 +251,8 @@ class TestPrintCli03ConfigChain:
         config chain runs end-to-end."""
         md = _write_md(tmp_path)
         monkeypatch.setenv("CLAUDE_TELETYPE_DELAY", "10")
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
-                patch("claude_teletype.markdown.MarkdownRenderer") as mock_render:
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
+                patch("claude_teletype.rendering.markdown.MarkdownRenderer") as mock_render:
             mock_disc.return_value = _make_mock_driver()
             mock_render.return_value = MagicMock()
             result = runner.invoke(app, ["print", str(md)])
@@ -276,12 +276,12 @@ class TestPrintRenderingPipeline:
         config = TeletypeConfig()
 
         parent = MagicMock()
-        with patch("claude_teletype.printer.discover_printer") as mock_disc, \
+        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
                 patch(
-                    "claude_teletype.wordwrap.WordWrapper",
+                    "claude_teletype.rendering.wordwrap.WordWrapper",
                 ) as mock_wrap_cls, \
                 patch(
-                    "claude_teletype.markdown.MarkdownRenderer",
+                    "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_render_cls:
             mock_driver = _make_mock_driver()
             mock_disc.return_value = mock_driver
@@ -325,7 +325,7 @@ class TestPrintRenderingPipeline:
         # Driver WITHOUT end_response (NullPrinterDriver-shaped)
         mock_driver = _make_mock_driver(with_end_response=False)
         with patch(
-            "claude_teletype.printer.discover_printer",
+            "claude_teletype.printing.selection.discover_printer",
             return_value=mock_driver,
         ):
             rc = _render_markdown_to_driver(md, config, {}, None)
@@ -344,7 +344,7 @@ class TestPrintRenderingPipeline:
         # Don't create the file -- read_text raises FileNotFoundError
         config = TeletypeConfig()
         with patch(
-            "claude_teletype.printer.discover_printer",
+            "claude_teletype.printing.selection.discover_printer",
         ) as mock_disc:
             rc = _render_markdown_to_driver(bad_path, config, {}, None)
         assert rc == 1
@@ -427,7 +427,7 @@ class TestPrintCli02PickerMode:
         """Direct unit test: on_mount must push a FilePickerScreen."""
         from claude_teletype.cli import _make_markdown_picker_app
         from claude_teletype.config import TeletypeConfig
-        from claude_teletype.file_picker_screen import FilePickerScreen
+        from claude_teletype.screens.file_picker import FilePickerScreen
 
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
@@ -520,9 +520,9 @@ class TestPrintCli02PickerMode:
         with patch(
             "claude_teletype.cli._make_markdown_picker_app",
         ) as mock_factory, patch(
-            "claude_teletype.printer.discover_printer",
+            "claude_teletype.printing.selection.discover_printer",
         ) as mock_disc, patch(
-            "claude_teletype.markdown.MarkdownRenderer",
+            "claude_teletype.rendering.markdown.MarkdownRenderer",
         ) as mock_renderer_cls:
             mock_disc.return_value = _make_mock_driver()
             mock_renderer_cls.return_value = MagicMock()
@@ -567,7 +567,7 @@ class TestPrintCli26SpeedMode:
             delay = 0.0
             no_audio = True
 
-        with patch("claude_teletype.printer.discover_printer") as discover:
+        with patch("claude_teletype.printing.selection.discover_printer") as discover:
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, None, speed_mode="garbage",
             )
@@ -577,7 +577,7 @@ class TestPrintCli26SpeedMode:
     def test_instant_mode_routes_style_through_chunk_writes(self, tmp_path):
         """FLOW-04: instant mode splits style writes at profile.buffer_bytes."""
         from claude_teletype.cli import _render_markdown_to_driver
-        from claude_teletype.profiles import get_profile
+        from claude_teletype.printing.profiles import get_profile
 
         md = tmp_path / "bold.md"
         md.write_text("**hi**\n")
@@ -598,8 +598,8 @@ class TestPrintCli26SpeedMode:
         del mock_driver.end_response  # getattr-then-call returns None
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
-        ), patch("claude_teletype.printer.chunk_writes") as chunker:
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
+        ), patch("claude_teletype.printing.drivers.chunk_writes") as chunker:
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, profile, speed_mode="instant",
             )
@@ -630,7 +630,7 @@ class TestPrintCli26SpeedMode:
         del mock_driver.end_response
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ), patch("time.sleep") as mock_sleep:
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, None, speed_mode="typewriter",
@@ -660,7 +660,7 @@ class TestPrintCli26SpeedMode:
         del mock_driver.end_response
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, None, speed_mode="typewriter",
@@ -686,7 +686,7 @@ class TestPrintCli26SpeedMode:
         del mock_driver.end_response
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
             bell_factory.return_value = lambda ch: None
             rc = _render_markdown_to_driver(
@@ -722,7 +722,7 @@ class TestPrintCli26TranscriptIntegration:
         del mock_driver.end_response
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ), patch("claude_teletype.transcript.write_printed_file") as wpf:
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, None, transcript_write=None,
@@ -736,7 +736,7 @@ class TestPrintCli26TranscriptIntegration:
         Renders **bold** (escp profile -> ESC E / ESC F) and verifies the
         transcript collector sees only the word 'bold', never \\x1b."""
         from claude_teletype.cli import _render_markdown_to_driver
-        from claude_teletype.profiles import get_profile
+        from claude_teletype.printing.profiles import get_profile
 
         md = tmp_path / "x.md"
         md.write_text("**bold**\n")
@@ -752,7 +752,7 @@ class TestPrintCli26TranscriptIntegration:
         del mock_driver.end_response
 
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ):
             rc = _render_markdown_to_driver(
                 md, FakeConfig(), {}, get_profile("escp"),
@@ -780,7 +780,7 @@ class TestPrintCli26TranscriptIntegration:
 
         captured: list[str] = []
         with patch(
-            "claude_teletype.printer.discover_printer",
+            "claude_teletype.printing.selection.discover_printer",
         ) as discover:
             rc = _render_markdown_to_driver(
                 nonexistent, FakeConfig(), {}, None,
@@ -816,7 +816,7 @@ class TestPrintCli26TranscriptIntegration:
         import claude_teletype.transcript as transcript_mod
         real_wpf = transcript_mod.write_printed_file
         with patch(
-            "claude_teletype.printer.discover_printer", return_value=mock_driver,
+            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
         ), patch(
             "claude_teletype.transcript.write_printed_file",
             wraps=real_wpf,

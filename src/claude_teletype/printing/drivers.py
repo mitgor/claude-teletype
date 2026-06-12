@@ -388,7 +388,7 @@ def make_printer_output(
     invoke it at the end of every response to avoid leaving the last
     word stranded in the buffer.
     """
-    from claude_teletype.wordwrap import WordWrapper
+    from claude_teletype.rendering.wordwrap import WordWrapper
 
     disconnected = False
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from claude_teletype.pacer import CHAR_DELAYS, classify_char, pace_characters
+from claude_teletype.rendering.pacer import CHAR_DELAYS, classify_char, pace_characters
 
 
 class TestClassifyChar:
@@ -40,7 +40,7 @@ class TestPaceCharacters:
         collected: list[str] = []
         text = "Hi!"
 
-        with patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock):
+        with patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock):
             await pace_characters(text, output_fn=collected.append)
 
         assert collected == ["H", "i", "!"]
@@ -51,7 +51,7 @@ class TestPaceCharacters:
         collected: list[str] = []
         text = "a b\nc"
 
-        with patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock):
+        with patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock):
             await pace_characters(text, output_fn=collected.append)
 
         assert collected == ["a", " ", "b", "\n", "c"]
@@ -72,7 +72,7 @@ class TestPaceCharacters:
             base_s * CHAR_DELAYS["space"],  # ' '
         ]
 
-        with patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await pace_characters(text, base_delay_ms=base_ms, output_fn=lambda c: None)
 
         assert mock_sleep.call_count == len(text)
@@ -95,7 +95,7 @@ class TestPaceCharacters:
         custom_ms = 100.0
         custom_s = custom_ms / 1000.0
 
-        with patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await pace_characters(text, base_delay_ms=custom_ms, output_fn=lambda c: None)
 
         assert mock_sleep.call_args_list[0].args[0] == pytest.approx(
@@ -110,7 +110,7 @@ class TestPaceCharacters:
         """Empty string produces no output and no sleep calls."""
         collected: list[str] = []
 
-        with patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await pace_characters("", output_fn=collected.append)
 
         assert collected == []
@@ -120,8 +120,8 @@ class TestPaceCharacters:
     async def test_stdout_fallback(self) -> None:
         """When output_fn is None, writes to sys.stdout."""
         with (
-            patch("claude_teletype.pacer.asyncio.sleep", new_callable=AsyncMock),
-            patch("claude_teletype.pacer.sys.stdout") as mock_stdout,
+            patch("claude_teletype.rendering.pacer.asyncio.sleep", new_callable=AsyncMock),
+            patch("claude_teletype.rendering.pacer.sys.stdout") as mock_stdout,
         ):
             await pace_characters("ab")
 

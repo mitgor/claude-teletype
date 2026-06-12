@@ -18,8 +18,8 @@ import sys
 import termios
 import tty
 
-from claude_teletype.printer import PrinterDriver
-from claude_teletype.profiles import PrinterProfile
+from claude_teletype.printing.drivers import PrinterDriver
+from claude_teletype.printing.profiles import PrinterProfile
 
 
 def run_teletype(driver: PrinterDriver, profile: PrinterProfile | None = None) -> None:

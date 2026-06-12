@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claude_teletype.printer import (
+from claude_teletype.printing.discovery import (
+    discover_cups_printers,
+    discover_macos_usb_printers,
+    discover_usb_device,
+    discover_usb_device_verbose,
+)
+from claude_teletype.printing.drivers import (
     A4_COLUMNS,
     CupsPrinterDriver,
     FilePrinterDriver,
@@ -14,15 +20,10 @@ from claude_teletype.printer import (
     NullPrinterDriver,
     ProfilePrinterDriver,
     UsbPrinterDriver,
-    discover_cups_printers,
-    discover_macos_usb_printers,
-    discover_printer,
-    discover_usb_device,
-    discover_usb_device_verbose,
     make_printer_output,
-    select_printer,
 )
-from claude_teletype.profiles import PrinterProfile, get_profile
+from claude_teletype.printing.profiles import PrinterProfile, get_profile
+from claude_teletype.printing.selection import discover_printer, select_printer
 
 # ---------------------------------------------------------------------------
 # NullPrinterDriver tests
@@ -138,7 +139,7 @@ def test_cups_driver_is_connected():
     assert driver.is_connected is True
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_driver_flushes_on_newline(mock_run: MagicMock):
     """write('A'), write('B') buffers; write('\\n') flushes line via lp."""
     driver = CupsPrinterDriver("TestPrinter")
@@ -155,7 +156,7 @@ def test_cups_driver_flushes_on_newline(mock_run: MagicMock):
     )
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_driver_disconnect_on_subprocess_error(mock_run: MagicMock):
     """After subprocess error on flush, is_connected is False."""
     mock_run.side_effect = subprocess.SubprocessError("fail")
@@ -169,13 +170,13 @@ def test_cups_driver_noop_when_disconnected():
     """When _connected=False, write() does not call subprocess."""
     driver = CupsPrinterDriver("TestPrinter")
     driver._connected = False
-    with patch("claude_teletype.printer.subprocess.run") as mock_run:
+    with patch("claude_teletype.printing.discovery.subprocess.run") as mock_run:
         driver.write("A")
         driver.write("\n")
         mock_run.assert_not_called()
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_driver_flush_on_close(mock_run: MagicMock):
     """write('AB') then close() flushes remaining buffer."""
     driver = CupsPrinterDriver("TestPrinter")
@@ -187,7 +188,7 @@ def test_cups_driver_flush_on_close(mock_run: MagicMock):
     assert mock_run.call_args.kwargs["input"] == b"AB"
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_driver_write_bytes_buffers_until_newline(mock_run: MagicMock):
     """write_bytes buffers ESC sequence; trailing write('\\n') flushes combined."""
     driver = CupsPrinterDriver("TestPrinter")
@@ -205,7 +206,7 @@ def test_cups_driver_write_bytes_noop_when_disconnected():
     """write_bytes does nothing when _connected=False."""
     driver = CupsPrinterDriver("TestPrinter")
     driver._connected = False
-    with patch("claude_teletype.printer.subprocess.run") as mock_run:
+    with patch("claude_teletype.printing.discovery.subprocess.run") as mock_run:
         driver.write_bytes(b"\x1bE")
         mock_run.assert_not_called()
 
@@ -224,7 +225,7 @@ def test_discover_device_override_returns_file_driver(tmp_path: Path):
     driver.close()
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_cups_usb_printer(mock_run: MagicMock):
     """Mock lpstat returning USB printer -> CupsPrinterDriver."""
     mock_run.return_value = MagicMock(
@@ -235,7 +236,7 @@ def test_discover_cups_usb_printer(mock_run: MagicMock):
     assert isinstance(driver, CupsPrinterDriver)
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_cups_ignores_network_printers(mock_run: MagicMock):
     """Mock lpstat returning network printer -> falls through to NullPrinterDriver."""
     mock_run.return_value = MagicMock(
@@ -246,7 +247,7 @@ def test_discover_cups_ignores_network_printers(mock_run: MagicMock):
     assert isinstance(driver, NullPrinterDriver)
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_fallback_null_driver(mock_run: MagicMock):
     """Mock lpstat empty -> NullPrinterDriver."""
     mock_run.return_value = MagicMock(stdout="", returncode=0)
@@ -254,7 +255,7 @@ def test_discover_fallback_null_driver(mock_run: MagicMock):
     assert isinstance(driver, NullPrinterDriver)
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_cups_printers_handles_lpstat_failure(mock_run: MagicMock):
     """Mock lpstat raising FileNotFoundError -> returns empty, falls to Null."""
     mock_run.side_effect = FileNotFoundError("lpstat not found")
@@ -317,7 +318,7 @@ def test_make_printer_output_flush_tolerates_driver_without_end_response():
 
 def test_make_printer_output_compatible_with_make_output_fn(tmp_path: Path):
     """Printer output_fn works with make_output_fn multiplexer."""
-    from claude_teletype.output import make_output_fn
+    from claude_teletype.rendering.output import make_output_fn
 
     dev = tmp_path / "dev"
     dev.touch()
@@ -779,7 +780,7 @@ class TestProfilePrinterDriver:
         Regression: earlier the cut bytes were appended to CupsPrinterDriver's
         line buffer but never reached lp because the buffer only flushed on \\n.
         """
-        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+        with patch("claude_teletype.printing.discovery.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
             cups = CupsPrinterDriver("test_queue")
             profile = PrinterProfile(
@@ -801,7 +802,7 @@ class TestProfilePrinterDriver:
 
     def test_cups_driver_flush_emits_partial_line(self):
         """CupsPrinterDriver.flush() emits the buffered line even without \\n."""
-        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+        with patch("claude_teletype.printing.discovery.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
             cups = CupsPrinterDriver("test_queue")
             cups.write("X")
@@ -813,7 +814,7 @@ class TestProfilePrinterDriver:
 
     def test_cups_driver_flush_noop_when_buffer_empty(self):
         """CupsPrinterDriver.flush() with empty buffer does nothing."""
-        with patch("claude_teletype.printer.subprocess.run") as mock_run:
+        with patch("claude_teletype.printing.discovery.subprocess.run") as mock_run:
             cups = CupsPrinterDriver("test_queue")
             cups.flush()
             assert mock_run.call_count == 0
@@ -1046,8 +1047,8 @@ def test_discover_juki_wraps_file_driver(tmp_path: Path):
     driver._inner.close()
 
 
-@patch("claude_teletype.printer.discover_usb_device")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMock):
     """discover_printer(juki=True) with CUPS printer wraps in ProfilePrinterDriver."""
     mock_usb.return_value = None
@@ -1060,8 +1061,8 @@ def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMoc
     assert isinstance(driver._inner, CupsPrinterDriver)
 
 
-@patch("claude_teletype.printer.discover_usb_device")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_null_not_wrapped(mock_run: MagicMock, mock_usb: MagicMock):
     """discover_printer(juki=True) with no printers returns NullPrinterDriver (not wrapped)."""
     mock_usb.return_value = None
@@ -1250,8 +1251,8 @@ def test_discover_usb_returns_none_when_no_printer_class():
 # ---------------------------------------------------------------------------
 
 
-@patch("claude_teletype.printer.discover_usb_device")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: MagicMock):
     """discover_printer(juki=True) tries USB first; if found, skips CUPS."""
     mock_usb.return_value = UsbPrinterDriver(MagicMock(), MagicMock())
@@ -1261,8 +1262,8 @@ def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: Magi
     mock_run.assert_not_called()  # CUPS not tried
 
 
-@patch("claude_teletype.printer.discover_usb_device")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_usb: MagicMock):
     """discover_printer(juki=True) falls back to CUPS when USB returns None."""
     mock_usb.return_value = None
@@ -1275,8 +1276,8 @@ def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_
     assert isinstance(driver._inner, CupsPrinterDriver)
 
 
-@patch("claude_teletype.printer.discover_usb_device")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.discover_usb_device")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_no_juki_skips_usb(mock_run: MagicMock, mock_usb: MagicMock):
     """discover_printer(juki=False) does not try USB discovery."""
     mock_run.return_value = MagicMock(stdout="", returncode=0)
@@ -1456,7 +1457,7 @@ def _build_mocked_usb(*, kernel_active: bool, intf_class: int = 7):
 
 def test_kernel_driver_holds_printer_true_when_kext_active():
     """kernel_driver_holds_printer() returns True when kernel driver is bound."""
-    from claude_teletype.printer import kernel_driver_holds_printer
+    from claude_teletype.printing.discovery import kernel_driver_holds_printer
 
     mock_usb, mock_core, mock_util = _build_mocked_usb(kernel_active=True)
     with patch.dict(
@@ -1467,7 +1468,7 @@ def test_kernel_driver_holds_printer_true_when_kext_active():
 
 def test_kernel_driver_holds_printer_false_when_kext_inactive():
     """kernel_driver_holds_printer() returns False when no kernel driver is bound."""
-    from claude_teletype.printer import kernel_driver_holds_printer
+    from claude_teletype.printing.discovery import kernel_driver_holds_printer
 
     mock_usb, mock_core, mock_util = _build_mocked_usb(kernel_active=False)
     with patch.dict(
@@ -1478,7 +1479,7 @@ def test_kernel_driver_holds_printer_false_when_kext_inactive():
 
 def test_kernel_driver_holds_printer_false_for_non_printer_class():
     """Vendor-specific (non-printer-class) interfaces don't trigger the macOS kext."""
-    from claude_teletype.printer import kernel_driver_holds_printer
+    from claude_teletype.printing.discovery import kernel_driver_holds_printer
 
     mock_usb, mock_core, mock_util = _build_mocked_usb(
         kernel_active=True, intf_class=0xFF
@@ -1491,7 +1492,7 @@ def test_kernel_driver_holds_printer_false_for_non_printer_class():
 
 def test_kernel_driver_holds_printer_false_when_device_missing():
     """No matching device → False (no false alarm)."""
-    from claude_teletype.printer import kernel_driver_holds_printer
+    from claude_teletype.printing.discovery import kernel_driver_holds_printer
 
     mock_usb_core = MagicMock()
     mock_usb_core.find.return_value = None
@@ -1511,8 +1512,8 @@ def test_kernel_driver_holds_printer_false_when_device_missing():
 # ---------------------------------------------------------------------------
 
 
-@patch("claude_teletype.printer.sys")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.sys")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_macos_discovery_parses_ioreg(mock_run: MagicMock, mock_sys: MagicMock):
     """discover_macos_usb_printers() parses ioreg output for printer devices."""
     mock_sys.platform = "darwin"
@@ -1537,7 +1538,7 @@ def test_macos_discovery_parses_ioreg(mock_run: MagicMock, mock_sys: MagicMock):
     assert result[0]["pid"] == 5678
 
 
-@patch("claude_teletype.printer.sys")
+@patch("claude_teletype.printing.discovery.sys")
 def test_macos_discovery_skips_non_darwin(mock_sys: MagicMock):
     """discover_macos_usb_printers() returns empty on non-macOS."""
     mock_sys.platform = "linux"
@@ -1545,8 +1546,8 @@ def test_macos_discovery_skips_non_darwin(mock_sys: MagicMock):
     assert result == []
 
 
-@patch("claude_teletype.printer.sys")
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.sys")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_macos_discovery_filters_non_printers(mock_run: MagicMock, mock_sys: MagicMock):
     """discover_macos_usb_printers() filters out non-printer devices."""
     mock_sys.platform = "darwin"
@@ -1572,7 +1573,7 @@ def test_macos_discovery_filters_non_printers(mock_run: MagicMock, mock_sys: Mag
 # ---------------------------------------------------------------------------
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_discovery_parses_usb_uri(mock_run: MagicMock):
     """discover_cups_printers() extracts vendor, model, serial from USB URI."""
     mock_run.return_value = MagicMock(
@@ -1586,7 +1587,7 @@ def test_cups_discovery_parses_usb_uri(mock_run: MagicMock):
     assert printers[0]["serial"] == "ABC123"
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_discovery_handles_uri_without_serial(mock_run: MagicMock):
     """discover_cups_printers() works when URI has no serial parameter."""
     mock_run.return_value = MagicMock(
@@ -1600,7 +1601,7 @@ def test_cups_discovery_handles_uri_without_serial(mock_run: MagicMock):
     assert "serial" not in printers[0]
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_discovery_decodes_percent_encoding(mock_run: MagicMock):
     """discover_cups_printers() decodes %20 in vendor/model names."""
     mock_run.return_value = MagicMock(
@@ -1612,7 +1613,7 @@ def test_cups_discovery_decodes_percent_encoding(mock_run: MagicMock):
     assert printers[0]["model"] == "My Model"
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_discovery_marks_disabled_queue(mock_run: MagicMock):
     """lpstat -p ``disabled`` line marks the queue enabled=False."""
     mock_run.return_value = MagicMock(
@@ -1630,7 +1631,7 @@ def test_cups_discovery_marks_disabled_queue(mock_run: MagicMock):
     assert printers["HP_OK"]["enabled"] is True
 
 
-@patch("claude_teletype.printer.subprocess.run")
+@patch("claude_teletype.printing.discovery.subprocess.run")
 def test_cups_discovery_defaults_enabled_when_state_missing(mock_run: MagicMock):
     """When lpstat output has no state line for a queue, default to enabled=True."""
     mock_run.return_value = MagicMock(
@@ -1677,7 +1678,7 @@ class TestCodepageSwitching:
     """
 
     def _make_driver(self):
-        from claude_teletype.profiles import get_profile
+        from claude_teletype.printing.profiles import get_profile
 
         inner = _CapturingDriver()
         drv = ProfilePrinterDriver(inner, get_profile("citizen-cts2000"))
@@ -1735,7 +1736,7 @@ class TestCodepageSwitching:
 
     def test_swap_profile_resets_codepage_flag(self):
         """After swap_profile, the new profile's codepage fires on next non-ASCII."""
-        from claude_teletype.profiles import get_profile
+        from claude_teletype.printing.profiles import get_profile
 
         drv, inner = self._make_driver()
         drv.write("П")
@@ -1806,7 +1807,8 @@ class TestCodepageSwitching:
     def test_text_fallback_disabled_when_empty(self):
         """A profile with empty text_fallback still works the original way."""
         import dataclasses
-        from claude_teletype.profiles import get_profile
+
+        from claude_teletype.printing.profiles import get_profile
 
         base = get_profile("citizen-cts2000")
         no_fallback = dataclasses.replace(base, text_fallback={})
@@ -1819,7 +1821,7 @@ class TestCodepageSwitching:
 
     def test_load_custom_profiles_text_fallback_from_toml(self):
         """Custom TOML profiles can declare a text_fallback dict."""
-        from claude_teletype.profiles import load_custom_profiles
+        from claude_teletype.printing.profiles import load_custom_profiles
 
         raw = {
             "printer": {
@@ -1837,7 +1839,7 @@ class TestCodepageSwitching:
 
     def test_profile_without_text_codec_uses_default_path(self):
         """A profile with no text_codec passes non-ASCII through unchanged."""
-        from claude_teletype.profiles import get_profile
+        from claude_teletype.printing.profiles import get_profile
 
         inner = _CapturingDriver()
         drv = ProfilePrinterDriver(inner, get_profile("escp"))
@@ -1868,26 +1870,26 @@ class TestChunkWrites:
     """
 
     def test_empty_data_is_noop(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         driver = _RecorderDriver()
         chunk_writes(driver, b"", 64)
         assert driver.calls == []
 
     def test_zero_chunk_size_raises(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         with pytest.raises(ValueError, match="positive"):
             chunk_writes(NullPrinterDriver(), b"abc", 0)
 
     def test_negative_chunk_size_raises(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         with pytest.raises(ValueError, match="positive"):
             chunk_writes(NullPrinterDriver(), b"abc", -5)
 
     def test_exact_multiple_emits_n_chunks(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         driver = _RecorderDriver()
         chunk_writes(driver, b"x" * 200, 100)
@@ -1896,7 +1898,7 @@ class TestChunkWrites:
         assert b"".join(driver.calls) == b"x" * 200
 
     def test_ragged_tail(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         driver = _RecorderDriver()
         chunk_writes(driver, b"x" * 250, 100)
@@ -1904,7 +1906,7 @@ class TestChunkWrites:
         assert b"".join(driver.calls) == b"x" * 250
 
     def test_single_byte_chunk(self):
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         driver = _RecorderDriver()
         chunk_writes(driver, b"hello", 1)
@@ -1912,7 +1914,7 @@ class TestChunkWrites:
 
     def test_juki_realistic_512_bytes_chunk_64(self):
         """CH341 USB-LPT bridge byte-fragility scenario (Juki buffer_bytes=64)."""
-        from claude_teletype.printer import chunk_writes
+        from claude_teletype.printing.drivers import chunk_writes
 
         driver = _RecorderDriver()
         chunk_writes(driver, b"\x1bE" * 256, 64)  # 512 bytes total

@@ -2,19 +2,17 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestDiscoverAll:
     """Tests for discover_all() structured discovery."""
 
     def test_pyusb_not_installed_returns_false(self):
         """When pyusb is not installed, discover_all() returns pyusb_available=False."""
-        from claude_teletype.printer import DiscoveryResult, discover_all
+        from claude_teletype.printing.discovery import DiscoveryResult, discover_all
 
         with patch("importlib.util.find_spec", return_value=None):
             with patch(
-                "claude_teletype.printer.discover_cups_printers", return_value=[]
+                "claude_teletype.printing.discovery.discover_cups_printers", return_value=[]
             ):
                 result = discover_all()
 
@@ -26,7 +24,7 @@ class TestDiscoverAll:
 
     def test_pyusb_available_no_libusb_backend(self):
         """When pyusb installed but no libusb backend, returns libusb_available=False."""
-        from claude_teletype.printer import DiscoveryResult, discover_all
+        from claude_teletype.printing.discovery import discover_all
 
         mock_spec = MagicMock()  # truthy value for find_spec
 
@@ -55,7 +53,7 @@ class TestDiscoverAll:
                 {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": MagicMock()},
             ):
                 with patch(
-                    "claude_teletype.printer.discover_cups_printers", return_value=[]
+                    "claude_teletype.printing.discovery.discover_cups_printers", return_value=[]
                 ):
                     result = discover_all()
 
@@ -65,11 +63,11 @@ class TestDiscoverAll:
 
     def test_always_includes_cups_printers(self):
         """discover_all() always calls discover_cups_printers regardless of pyusb."""
-        from claude_teletype.printer import discover_all
+        from claude_teletype.printing.discovery import discover_all
 
         with patch("importlib.util.find_spec", return_value=None):
             with patch(
-                "claude_teletype.printer.discover_cups_printers",
+                "claude_teletype.printing.discovery.discover_cups_printers",
                 return_value=[{"name": "TestPrinter", "uri": "usb://Test/Printer"}],
             ):
                 result = discover_all()
@@ -80,11 +78,11 @@ class TestDiscoverAll:
 
     def test_never_raises_exceptions(self):
         """discover_all() catches all exceptions and records in diagnostics."""
-        from claude_teletype.printer import DiscoveryResult, discover_all
+        from claude_teletype.printing.discovery import DiscoveryResult, discover_all
 
         with patch("importlib.util.find_spec", side_effect=RuntimeError("boom")):
             with patch(
-                "claude_teletype.printer.discover_cups_printers",
+                "claude_teletype.printing.discovery.discover_cups_printers",
                 side_effect=RuntimeError("cups boom"),
             ):
                 # Should not raise
@@ -94,7 +92,7 @@ class TestDiscoverAll:
 
     def test_cups_printers_with_vendor_model_serial(self):
         """CupsPrinterInfo captures vendor, model, serial from CUPS discovery."""
-        from claude_teletype.printer import discover_all
+        from claude_teletype.printing.discovery import discover_all
 
         cups_data = [
             {
@@ -108,7 +106,7 @@ class TestDiscoverAll:
 
         with patch("importlib.util.find_spec", return_value=None):
             with patch(
-                "claude_teletype.printer.discover_cups_printers",
+                "claude_teletype.printing.discovery.discover_cups_printers",
                 return_value=cups_data,
             ):
                 result = discover_all()
@@ -120,7 +118,7 @@ class TestDiscoverAll:
 
     def test_usb_device_info_fields(self):
         """UsbDeviceInfo has all expected fields with correct defaults."""
-        from claude_teletype.printer import UsbDeviceInfo
+        from claude_teletype.printing.discovery import UsbDeviceInfo
 
         dev = UsbDeviceInfo(vendor_id=0x1A86, product_id=0x7584)
         assert dev.vendor_id == 0x1A86
@@ -133,7 +131,7 @@ class TestDiscoverAll:
 
     def test_discovery_result_defaults(self):
         """DiscoveryResult has sensible defaults."""
-        from claude_teletype.printer import DiscoveryResult
+        from claude_teletype.printing.discovery import DiscoveryResult
 
         r = DiscoveryResult()
         assert r.pyusb_available is False
@@ -144,7 +142,7 @@ class TestDiscoverAll:
 
     def test_no_usb_printers_found_diagnostic(self):
         """When pyusb+libusb present but no printer devices, records diagnostic."""
-        from claude_teletype.printer import discover_all
+        from claude_teletype.printing.discovery import discover_all
 
         mock_spec = MagicMock()
         original_find_spec = __import__("importlib.util", fromlist=["find_spec"]).find_spec
@@ -178,7 +176,7 @@ class TestDiscoverAll:
                 {"usb": mock_usb, "usb.core": mock_usb_core, "usb.util": MagicMock()},
             ):
                 with patch(
-                    "claude_teletype.printer.discover_cups_printers", return_value=[]
+                    "claude_teletype.printing.discovery.discover_cups_printers", return_value=[]
                 ):
                     result = discover_all()
 
@@ -196,7 +194,7 @@ class TestDiagnoseCommand:
         from typer.testing import CliRunner
 
         from claude_teletype.cli import app
-        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+        from claude_teletype.printing.discovery import DiscoveryResult
 
         runner = CliRunner()
         mock_result = DiscoveryResult(
@@ -218,7 +216,7 @@ class TestDiagnoseCommand:
         from typer.testing import CliRunner
 
         from claude_teletype.cli import app
-        from claude_teletype.printer import CupsPrinterInfo, DiscoveryResult
+        from claude_teletype.printing.discovery import CupsPrinterInfo, DiscoveryResult
 
         runner = CliRunner()
         mock_result = DiscoveryResult(
@@ -238,7 +236,7 @@ class TestDiagnoseCommand:
         from typer.testing import CliRunner
 
         from claude_teletype.cli import app
-        from claude_teletype.printer import DiscoveryResult
+        from claude_teletype.printing.discovery import DiscoveryResult
 
         runner = CliRunner()
 
@@ -269,7 +267,7 @@ class TestDiagnoseCommand:
     def test_run_diagnose_returns_none(self):
         """run_diagnose() returns None."""
         from claude_teletype.diagnose import run_diagnose
-        from claude_teletype.printer import DiscoveryResult
+        from claude_teletype.printing.discovery import DiscoveryResult
 
         mock_result = DiscoveryResult(pyusb_available=False)
         with patch("claude_teletype.diagnose.discover_all", return_value=mock_result):

@@ -12,7 +12,7 @@ from textual.app import App
 from textual.screen import ModalScreen
 from textual.widgets import Button, RadioButton, RadioSet, Static
 
-from claude_teletype.speed_mode_screen import SpeedModeScreen
+from claude_teletype.screens.speed_mode import SpeedModeScreen
 
 
 class _SpeedTestApp(App):

@@ -30,7 +30,7 @@ from textual.widgets import (
     Static,
 )
 
-from claude_teletype.printer import (
+from claude_teletype.printing.discovery import (
     DiscoveryResult,
     PrinterSelection,
     kernel_driver_holds_printer,
@@ -387,7 +387,7 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
 
     def _refresh_discovery(self) -> None:
         """Re-run discovery and update all widgets."""
-        from claude_teletype.printer import discover_all
+        from claude_teletype.printing.discovery import discover_all
 
         self._discovery = discover_all()
 

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
-from claude_teletype.printer import (
+from claude_teletype.printing.discovery import (
     CupsPrinterInfo,
     DiscoveryResult,
-    PrinterSelection,
     UsbDeviceInfo,
-    match_saved_printer,
 )
+from claude_teletype.printing.selection import match_saved_printer
 
 
 class TestMatchSavedPrinterUsb:

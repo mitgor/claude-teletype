@@ -7,9 +7,9 @@ fallback chain) landed in Plan 23-03 and is exercised by the
 and ``TestIntegration`` classes at the bottom of this file.
 """
 
-from claude_teletype.markdown import MarkdownRenderer
-from claude_teletype.profiles import get_profile
-from claude_teletype.wordwrap import WordWrapper
+from claude_teletype.printing.profiles import get_profile
+from claude_teletype.rendering.markdown import MarkdownRenderer
+from claude_teletype.rendering.wordwrap import WordWrapper
 
 
 def _render(text: str, columns: int = 80) -> str:

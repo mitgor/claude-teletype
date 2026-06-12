@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from textual.app import App
 
-from claude_teletype.typewriter_screen import TypewriterScreen
+from claude_teletype.screens.typewriter import TypewriterScreen
 
 
 class TypewriterTestApp(App):
