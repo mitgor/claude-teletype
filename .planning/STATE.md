@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Printer Fleet & Standalone
-status: roadmapped
-last_updated: "2026-06-12T17:48:04.677Z"
-last_activity: 2026-06-12
+status: executing
+stopped_at: v1.6 roadmap created (Phases 27-30)
+last_updated: "2026-06-12T18:39:58.821Z"
+last_activity: 2026-06-12 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** v1.6 milestone (Printer Fleet & Standalone) — roadmapped into 4 phases (27-30). Refactor first (package split, ProfileRegistry, Classification seam, tech debt, codepage formalization), then fleet detection + bridge registry, then per-family profile catalog, then PyInstaller standalone build last.
+**Current focus:** Phase 27 — Refactor — Package Split, Registry & Detection Seam
 
 ## Current Position
 
-Phase: Not started (roadmap complete, Phase 27 ready to plan)
-Plan: —
-Status: Roadmapped — awaiting phase planning
-Last activity: 2026-06-12 — v1.6 roadmap created (Phases 27-30, 29 requirements mapped)
+Phase: 27 (Refactor — Package Split, Registry & Detection Seam) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 27
+Last activity: 2026-06-12 -- Phase 27 execution started
 
 ## Performance Metrics
 

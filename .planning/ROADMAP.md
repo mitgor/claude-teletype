@@ -97,7 +97,7 @@ Full details: [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
   5. `codepage_command` / `text_codec` / `text_fallback` are tracked, test-covered, and settable from custom TOML profiles
 **Plans**: 6 plans
 Plans:
-- [ ] 27-01-PLAN.md — Package split Step 1: move modules into printing/rendering/screens + re-export shims (suite green)
+- [x] 27-01-PLAN.md — Package split Step 1: move modules into printing/rendering/screens + re-export shims (suite green)
 - [ ] 27-02-PLAN.md — Package split Step 2: repoint internal imports to canonical paths; move call-assertion patch targets
 - [ ] 27-03-PLAN.md — Package split Step 3: migrate test imports + patch targets; delete shims
 - [ ] 27-04-PLAN.md — ProfileRegistry (REF-02) + cli profile-resolution dedup (REF-05)
@@ -169,7 +169,7 @@ Plans:
 | 24. TUI File Picker | v1.5 | 2/2 | ✓ Complete | 2026-04-28 |
 | 25. `claude-teletype print` CLI Subcommand | v1.5 | 2/2 | ✓ Complete | 2026-04-28 |
 | 26. Speed Dialog, Buffer Chunking, Cancel & Transcript Integration | v1.5 | 3/3 | ✓ Complete | 2026-04-28 |
-| 27. Refactor — Package Split, Registry & Detection Seam | v1.6 | 0/6 | Planned | - |
+| 27. Refactor — Package Split, Registry & Detection Seam | v1.6 | 1/6 | In Progress|  |
 | 28. Fleet Detection & Bridge Registry | v1.6 | 0/? | Not started | - |
 | 29. Per-Family Profile Catalog | v1.6 | 0/? | Not started | - |
 | 30. Standalone macOS Packaging | v1.6 | 0/? | Not started | - |
