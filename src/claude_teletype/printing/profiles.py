@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from claude_teletype.printing.registry import ProfileRegistry
 
 
 @dataclass(frozen=True)
@@ -459,19 +463,27 @@ USB_PRINTER_CLASS = 7
 
 def auto_detect_profile(
     extra_profiles: dict[str, PrinterProfile] | None = None,
+    registry: "ProfileRegistry | None" = None,
 ) -> PrinterProfile | None:
     """Match a connected USB printer to a profile's VID:PID.
 
     Enumerates USB devices via pyusb, filters to printer class
-    (interface class 7), and matches VID:PID against built-in
-    profiles plus optional extra_profiles.
+    (interface class 7), and matches VID:PID against the profile
+    registry (built-ins plus optional extra_profiles).
+
+    VID:PID matching resolves through ``ProfileRegistry`` (REF-02) —
+    one merged index instead of per-call map building. Pass ``registry``
+    to reuse an already-constructed instance (the cli resolution helper
+    does); otherwise one is built from BUILTIN_PROFILES plus
+    ``extra_profiles``.
 
     Returns the matching profile, or None if:
     - pyusb is not installed (ImportError)
     - No USB backend is available (NoBackendError)
     - No connected printer matches any profile
 
-    Exact VID+PID match takes priority over VID-only match.
+    Exact VID+PID match takes priority over VID-only match
+    (``ProfileRegistry.match_vidpid`` policy).
     """
     try:
         import usb.core  # type: ignore[import-untyped]
@@ -483,20 +495,10 @@ def auto_detect_profile(
     except Exception:
         return None
 
-    # Merge built-in and extra profiles
-    all_profiles = dict(BUILTIN_PROFILES)
-    if extra_profiles:
-        all_profiles.update(extra_profiles)
+    if registry is None:
+        from claude_teletype.printing.registry import ProfileRegistry
 
-    # Build lookup maps for VID:PID matching
-    exact_map: dict[tuple[int, int], PrinterProfile] = {}
-    vid_only_map: dict[int, PrinterProfile] = {}
-    for profile in all_profiles.values():
-        if profile.usb_vendor_id is not None:
-            if profile.usb_product_id is not None:
-                exact_map[(profile.usb_vendor_id, profile.usb_product_id)] = profile
-            else:
-                vid_only_map[profile.usb_vendor_id] = profile
+        registry = ProfileRegistry(BUILTIN_PROFILES, extra_profiles)
 
     for dev in devices:
         # Filter to USB printer class (interface class 7)
@@ -511,14 +513,8 @@ def auto_detect_profile(
         if not is_printer:
             continue
 
-        vid, pid = dev.idVendor, dev.idProduct
-
-        # Exact VID+PID match (highest priority)
-        if (vid, pid) in exact_map:
-            return exact_map[(vid, pid)]
-
-        # VID-only match (profile has no PID = match any product from that vendor)
-        if vid in vid_only_map:
-            return vid_only_map[vid]
+        match = registry.match_vidpid(dev.idVendor, dev.idProduct)
+        if match is not None:
+            return match
 
     return None

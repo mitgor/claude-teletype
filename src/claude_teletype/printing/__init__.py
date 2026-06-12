@@ -6,6 +6,12 @@ internal imports to these canonical names; the top-level printer.py /
 profiles.py shims remain for pre-split absolute-import compatibility.
 """
 
+from claude_teletype.printing.detection import (
+    BRIDGE_CHIP_VIDS,
+    Classification,
+    DeviceKind,
+    classify,
+)
 from claude_teletype.printing.discovery import (
     CupsPrinterInfo,
     DiscoveryResult,
@@ -38,6 +44,7 @@ from claude_teletype.printing.profiles import (
     load_custom_profiles,
     resolve_style,
 )
+from claude_teletype.printing.registry import ProfileRegistry
 from claude_teletype.printing.selection import (
     create_driver_for_selection,
     discover_printer,
@@ -47,9 +54,12 @@ from claude_teletype.printing.selection import (
 
 __all__ = [
     "A4_COLUMNS",
+    "BRIDGE_CHIP_VIDS",
     "BUILTIN_PROFILES",
+    "Classification",
     "CupsPrinterDriver",
     "CupsPrinterInfo",
+    "DeviceKind",
     "DiscoveryResult",
     "FilePrinterDriver",
     "JukiPrinterDriver",
@@ -58,10 +68,12 @@ __all__ = [
     "PrinterProfile",
     "PrinterSelection",
     "ProfilePrinterDriver",
+    "ProfileRegistry",
     "UsbDeviceInfo",
     "UsbPrinterDriver",
     "auto_detect_profile",
     "chunk_writes",
+    "classify",
     "create_driver_for_selection",
     "discover_all",
     "discover_cups_printers",

@@ -103,7 +103,8 @@ def create_driver_for_selection(
 
     Args:
         selection: User's choice from PrinterSetupScreen.
-        discovery: Discovery results (for context, not currently used for USB).
+        discovery: Discovery results; ``selection.device_index`` indexes
+            ``discovery.usb_devices`` to reconnect the picked USB device.
         all_profiles: Profile catalog for profile wrapping. If None, uses BUILTIN_PROFILES.
 
     Returns:
@@ -117,10 +118,19 @@ def create_driver_for_selection(
     driver: PrinterDriver | None = None
 
     if selection.connection_type == "usb":
+        # Reconnect to the SAME device the user picked, by identity
+        # (serial preferred, else VID:PID + bus/address) — NOT first-of-class
+        # re-discovery (REF-03). device_index=None keeps the legacy
+        # first-printer fallback for single-printer flows.
+        identity = None
+        if selection.device_index is not None and 0 <= selection.device_index < len(
+            discovery.usb_devices
+        ):
+            identity = discovery.usb_devices[selection.device_index]
         # Resolve _find_usb_printer through the discovery module at call time
         # so test patches targeting
         # ``claude_teletype.printing.discovery._find_usb_printer`` intercept it.
-        driver = _discovery._find_usb_printer()
+        driver = _discovery._find_usb_printer(identity=identity)
     elif selection.connection_type == "cups":
         if selection.cups_printer_name:
             driver = CupsPrinterDriver(selection.cups_printer_name)

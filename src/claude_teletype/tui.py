@@ -15,6 +15,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Log, Static
 
+from claude_teletype.setup_decision import SetupDecision
+
 MAX_RETRIES: int = 3
 BASE_DELAY: float = 1.0
 
@@ -128,7 +130,8 @@ class TeletypeApp(App):
         all_profiles: dict | None = None,
         openai_api_key: str = "",
         openrouter_api_key: str = "",
-        discovery=None,  # DiscoveryResult | None -- if set, shows setup screen on mount
+        discovery=None,  # DiscoveryResult | None -- device data for the setup screen
+        setup_decision: SetupDecision | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -154,6 +157,12 @@ class TeletypeApp(App):
         self._openai_api_key = openai_api_key
         self._openrouter_api_key = openrouter_api_key
         self._discovery = discovery
+        if setup_decision is None and discovery is not None:
+            # Back-compat for direct constructions (tests, embedders) that
+            # predate SetupDecision: a provided DiscoveryResult meant "show
+            # setup". cli.py always passes an explicit decision (REF-04).
+            setup_decision = SetupDecision.SHOW_SETUP
+        self._setup_decision = setup_decision
 
     @property
     def session_id(self) -> str | None:
@@ -163,10 +172,11 @@ class TeletypeApp(App):
     def _needs_printer_setup(self) -> bool:
         """Check if printer setup screen should be shown on startup.
 
-        Shows setup when discovery data is provided AND no printer is already
-        configured (printer is None or NullPrinterDriver).
+        Shows setup only for SetupDecision.SHOW_SETUP (every skip reason —
+        no-tui, --device override, saved-printer match — bypasses it) AND
+        when no printer is already configured (None or NullPrinterDriver).
         """
-        if self._discovery is None:
+        if self._setup_decision is not SetupDecision.SHOW_SETUP:
             return False
         from claude_teletype.printing.drivers import NullPrinterDriver
         return self.printer is None or isinstance(self.printer, NullPrinterDriver)

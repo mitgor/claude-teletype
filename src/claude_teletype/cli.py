@@ -408,6 +408,93 @@ def _render_markdown_to_driver(
     return 0
 
 
+class _UnknownProfileError(ValueError):
+    """``--printer`` named a profile that is not in the registry.
+
+    The exception message is display-ready; callers decide how to exit
+    (the print path returns an error code, ``main()`` raises typer.Exit).
+    """
+
+
+def _resolve_profile_selection(
+    config,
+    printer: str | None,
+    *,
+    juki_flag: bool = False,
+    honor_config_juki: bool = False,
+):
+    """THE shared load-custom -> registry -> resolve chain (REF-05).
+
+    Single source of the profile-resolution logic previously duplicated
+    between ``_resolve_print_context`` and ``main()``. Builds ONE
+    ``ProfileRegistry`` (built-ins merged with custom TOML profiles,
+    REF-02) and resolves the active profile by precedence:
+
+        --printer > --juki (deprecated, chat path only)
+        > config.printer_profile > config.juki (backward compat,
+        chat path only) > USB auto-detect
+
+    Args:
+        config: Resolved TeletypeConfig (defaults < TOML < env < CLI).
+        printer: The --printer flag value, or None.
+        juki_flag: The deprecated --juki flag (main() only). Emits the
+            deprecation warning when it wins resolution.
+        honor_config_juki: Apply the old ``config.juki = true`` backward
+            compat branch (main() only — the print path never honored it).
+
+    Returns:
+        ``(registry, resolved_profile)``. ``resolved_profile`` is None
+        for generic (no profile wrapping).
+
+    Raises:
+        _UnknownProfileError: when ``printer`` names an unknown profile.
+    """
+    from claude_teletype.printing.profiles import (
+        BUILTIN_PROFILES,
+        PrinterProfile,
+        auto_detect_profile,
+        load_custom_profiles,
+    )
+    from claude_teletype.printing.registry import ProfileRegistry
+
+    custom_profiles_dict = (
+        load_custom_profiles({"printer": {"profiles": config.custom_profiles}})
+        if config.custom_profiles
+        else {}
+    )
+    registry = ProfileRegistry(BUILTIN_PROFILES, custom_profiles_dict or None)
+
+    resolved_profile: PrinterProfile | None = None
+    if printer is not None:
+        try:
+            resolved_profile = registry.get(printer)
+        except ValueError:
+            available = ", ".join(sorted(registry.names()))
+            raise _UnknownProfileError(
+                f"Error: unknown printer profile {printer!r}. "
+                f"Available: {available}"
+            ) from None
+    elif juki_flag:
+        # --juki flag (deprecated)
+        typer.echo("Warning: --juki is deprecated, use --printer juki", err=True)
+        resolved_profile = registry.get("juki")
+    elif config.printer_profile and config.printer_profile != "generic":
+        try:
+            resolved_profile = registry.get(config.printer_profile)
+        except ValueError:
+            # Unknown config profile falls through to generic (None) --
+            # same forgiving behavior as the pre-registry blocks.
+            resolved_profile = None
+    elif honor_config_juki and config.juki:
+        # Old config juki = true backward compat
+        resolved_profile = registry.get("juki")
+    else:
+        # Try USB auto-detection through the already-built registry index
+        resolved_profile = auto_detect_profile(registry=registry)
+
+    return registry, resolved_profile
+
+
 def _resolve_print_context(
     delay: float | None,
     device: str | None,
@@ -416,9 +503,9 @@ def _resolve_print_context(
     """Build (config, all_profiles, resolved_profile) for the print path.
 
     Shared by both the explicit-path branch (`_print_command_impl`) and the
-    picker-mode branch (`_print_command_impl_picker`). Mirrors `main()`'s
-    profile-resolution chain (per Plan 25-01 D-03) without touching it
-    -- the chat path stays in its lane.
+    picker-mode branch (`_print_command_impl_picker`). Profile resolution
+    goes through `_resolve_profile_selection`, the same registry-backed
+    helper `main()` uses (REF-05).
 
     Returns a 3-tuple on success. On unknown-profile error, emits the error
     message via typer.echo(err=True) and returns ``(None, None, None)`` so
@@ -432,46 +519,13 @@ def _resolve_print_context(
     config = apply_env_overrides(config)
     config = merge_cli_flags(config, delay=delay, device=device)
 
-    # Profile resolution -- mirrors main() lines ~325-371 (per Plan 25-01 D-03).
-    from claude_teletype.printing.profiles import (
-        BUILTIN_PROFILES,
-        PrinterProfile,
-        auto_detect_profile,
-        load_custom_profiles,
-    )
+    try:
+        registry, resolved_profile = _resolve_profile_selection(config, printer)
+    except _UnknownProfileError as e:
+        typer.echo(str(e), err=True)
+        return None, None, None
 
-    custom_profiles_dict = (
-        load_custom_profiles({"printer": {"profiles": config.custom_profiles}})
-        if config.custom_profiles
-        else {}
-    )
-    all_profiles = dict(BUILTIN_PROFILES)
-    all_profiles.update(custom_profiles_dict)
-
-    resolved_profile: PrinterProfile | None = None
-    if printer is not None:
-        key = printer.lower().strip()
-        if key not in all_profiles:
-            available = ", ".join(sorted(all_profiles))
-            typer.echo(
-                f"Error: unknown printer profile {printer!r}. "
-                f"Available: {available}",
-                err=True,
-            )
-            return None, None, None
-        resolved_profile = all_profiles[key]
-    elif config.printer_profile and config.printer_profile != "generic":
-        key = config.printer_profile.lower().strip()
-        if key in all_profiles:
-            resolved_profile = all_profiles[key]
-    else:
-        detected = auto_detect_profile(
-            extra_profiles=custom_profiles_dict or None,
-        )
-        if detected is not None:
-            resolved_profile = detected
-
-    return config, all_profiles, resolved_profile
+    return config, registry.all(), resolved_profile
 
 
 def _print_command_impl(
@@ -777,50 +831,15 @@ def main(
     effective_no_tui = no_tui or config.no_tui
 
     # Profile resolution: --printer flag > --juki flag > config.printer_profile > config.juki > auto-detect > generic
-    from claude_teletype.printing.profiles import (
-        PrinterProfile,
-        auto_detect_profile,
-        get_profile,
-        load_custom_profiles,
-    )
-
-    # Load custom profiles from config
-    custom_profiles_dict = load_custom_profiles(
-        {"printer": {"profiles": config.custom_profiles}}
-    ) if config.custom_profiles else {}
-
-    # Merge built-in + custom for lookup
-    from claude_teletype.printing.profiles import BUILTIN_PROFILES
-
-    all_profiles = dict(BUILTIN_PROFILES)
-    all_profiles.update(custom_profiles_dict)
-
-    resolved_profile: PrinterProfile | None = None
-    if printer is not None:
-        # --printer flag set explicitly
-        key = printer.lower().strip()
-        if key not in all_profiles:
-            available = ", ".join(sorted(all_profiles))
-            typer.echo(f"Error: unknown printer profile {printer!r}. Available: {available}", err=True)
-            raise typer.Exit(1)
-        resolved_profile = all_profiles[key]
-    elif juki:
-        # --juki flag (deprecated)
-        typer.echo("Warning: --juki is deprecated, use --printer juki", err=True)
-        resolved_profile = get_profile("juki")
-    elif config.printer_profile != "generic":
-        # Config file [printer] profile = "..."
-        key = config.printer_profile.lower().strip()
-        if key in all_profiles:
-            resolved_profile = all_profiles[key]
-    elif config.juki:
-        # Old config juki = true backward compat
-        resolved_profile = get_profile("juki")
-    else:
-        # Try USB auto-detection
-        detected = auto_detect_profile(extra_profiles=custom_profiles_dict or None)
-        if detected is not None:
-            resolved_profile = detected
+    # Single registry-backed chain shared with the print path (REF-02/REF-05).
+    try:
+        registry, resolved_profile = _resolve_profile_selection(
+            config, printer, juki_flag=juki, honor_config_juki=True,
+        )
+    except _UnknownProfileError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    all_profiles = registry.all()
 
     # resolved_profile is None means generic (no wrapping)
 
@@ -930,20 +949,26 @@ def main(
     # or discover_printer() for --no-tui mode (direct selection)
     from claude_teletype.printing.discovery import discover_all
     from claude_teletype.printing.selection import create_driver_for_selection, discover_printer
+    from claude_teletype.setup_decision import SetupDecision
 
+    # REF-04: each path sets an explicit SetupDecision instead of overloading
+    # discovery=None; discovery carries the DiscoveryResult only for SHOW_SETUP.
     if effective_no_tui:
         # --no-tui mode: use existing direct discovery (no setup screen)
         printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
         discovery = None
+        setup_decision = SetupDecision.SKIP_NO_TUI
     else:
         # TUI mode: run lightweight discovery, pass to setup screen
         # If user specified --device, use direct discovery (skip setup screen)
         if config.device:
             printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
-            discovery = None  # No setup screen needed
+            discovery = None
+            setup_decision = SetupDecision.SKIP_DEVICE_OVERRIDE
         else:
             discovery = discover_all()
             printer_driver = None  # Setup screen will create the driver
+            setup_decision = SetupDecision.SHOW_SETUP
 
             # Smart startup: check if saved printer is still connected (CFG-02).
             # --setup-printer bypasses this so the user can re-pick a connection.
@@ -964,11 +989,12 @@ def main(
                     printer_driver = create_driver_for_selection(
                         saved_match, discovery, all_profiles=all_profiles,
                     )
-                    discovery = None  # Signal: no setup screen needed
+                    discovery = None
+                    setup_decision = SetupDecision.SKIP_SAVED_MATCH
                     # Also resolve the profile for status bar display
                     if config.saved_printer_profile and config.saved_printer_profile in all_profiles:
                         resolved_profile = all_profiles[config.saved_printer_profile]
-                # else: saved printer not found -- discovery stays set, setup screen will show
+                # else: saved printer not found -- decision stays SHOW_SETUP
 
     if effective_no_tui:
         if not prompt:
@@ -1002,6 +1028,7 @@ def main(
             openai_api_key=config.openai_api_key,
             openrouter_api_key=config.openrouter_api_key,
             discovery=discovery,
+            setup_decision=setup_decision,
         )
         tui_app.run()
 

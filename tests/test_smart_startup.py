@@ -146,34 +146,197 @@ class TestMatchSavedPrinterEdgeCases:
         assert result is None
 
 
-class TestNeedsPrinterSetupWithSavedConfig:
-    """_needs_printer_setup returns False when saved printer matches discovery."""
+class _FakeBackend:
+    def validate(self): pass
 
-    def test_skips_setup_when_discovery_is_none(self):
-        """When discovery=None (saved printer matched), setup is skipped."""
+
+class TestNeedsPrinterSetupWithSavedConfig:
+    """_needs_printer_setup branches on the explicit SetupDecision (REF-04)."""
+
+    def test_skips_setup_on_saved_match_decision(self):
+        """SKIP_SAVED_MATCH (saved printer matched), setup is skipped."""
+        from claude_teletype.setup_decision import SetupDecision
         from claude_teletype.tui import TeletypeApp
 
-        # Minimal mock backend
-        class FakeBackend:
-            def validate(self): pass
-
         app = TeletypeApp(
-            backend=FakeBackend(),
+            backend=_FakeBackend(),
             discovery=None,
+            setup_decision=SetupDecision.SKIP_SAVED_MATCH,
             printer=None,
         )
         assert app._needs_printer_setup() is False
 
-    def test_shows_setup_when_discovery_is_set_and_no_printer(self):
-        """When discovery is set (saved printer NOT found), setup shows."""
+    def test_skips_setup_on_device_override_decision(self):
+        """SKIP_DEVICE_OVERRIDE (--device), setup is skipped."""
+        from claude_teletype.setup_decision import SetupDecision
         from claude_teletype.tui import TeletypeApp
 
-        class FakeBackend:
-            def validate(self): pass
+        app = TeletypeApp(
+            backend=_FakeBackend(),
+            discovery=None,
+            setup_decision=SetupDecision.SKIP_DEVICE_OVERRIDE,
+            printer=None,
+        )
+        assert app._needs_printer_setup() is False
+
+    def test_skips_setup_on_no_tui_decision(self):
+        from claude_teletype.setup_decision import SetupDecision
+        from claude_teletype.tui import TeletypeApp
 
         app = TeletypeApp(
-            backend=FakeBackend(),
+            backend=_FakeBackend(),
+            discovery=None,
+            setup_decision=SetupDecision.SKIP_NO_TUI,
+            printer=None,
+        )
+        assert app._needs_printer_setup() is False
+
+    def test_shows_setup_on_show_setup_decision_and_no_printer(self):
+        """SHOW_SETUP (saved printer NOT found), setup shows."""
+        from claude_teletype.setup_decision import SetupDecision
+        from claude_teletype.tui import TeletypeApp
+
+        app = TeletypeApp(
+            backend=_FakeBackend(),
+            discovery=DiscoveryResult(),
+            setup_decision=SetupDecision.SHOW_SETUP,
+            printer=None,
+        )
+        assert app._needs_printer_setup() is True
+
+    def test_legacy_discovery_kwarg_still_means_show_setup(self):
+        """Back-compat: a DiscoveryResult without an explicit decision shows setup."""
+        from claude_teletype.tui import TeletypeApp
+
+        app = TeletypeApp(
+            backend=_FakeBackend(),
             discovery=DiscoveryResult(),
             printer=None,
         )
         assert app._needs_printer_setup() is True
+
+    def test_skip_reasons_are_distinct_values(self):
+        """The three old discovery=None meanings are distinguishable now."""
+        from claude_teletype.setup_decision import SetupDecision
+
+        skips = {
+            SetupDecision.SKIP_NO_TUI,
+            SetupDecision.SKIP_DEVICE_OVERRIDE,
+            SetupDecision.SKIP_SAVED_MATCH,
+        }
+        assert len(skips) == 3
+        assert SetupDecision.SHOW_SETUP not in skips
+
+
+class TestCliSetsDistinctSetupDecisions:
+    """cli.main passes a distinct SetupDecision per startup path (REF-04)."""
+
+    @staticmethod
+    def _run_cli(argv, config):
+        """Invoke the CLI with the standard mock harness; return TeletypeApp kwargs."""
+        from typer.testing import CliRunner
+        from unittest.mock import MagicMock, patch
+
+        from claude_teletype.cli import app
+        from claude_teletype.printing.discovery import CupsPrinterInfo
+
+        def _mock_create_backend(*args, **kwargs):
+            mock_be = MagicMock()
+            mock_be.validate = MagicMock()
+            return mock_be
+
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printing.discovery.discover_all"
+        ) as mock_discover, patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=MagicMock(),
+        ), patch(
+            "claude_teletype.printing.selection.create_driver_for_selection",
+            return_value=MagicMock(),
+        ), patch(
+            "claude_teletype.tui.TeletypeApp"
+        ) as mock_tui_cls, patch(
+            "claude_teletype.cli.sys"
+        ) as mock_sys:
+            mock_env.return_value = config
+            mock_merge.return_value = config
+            mock_discover.return_value = DiscoveryResult(
+                cups_printers=[
+                    CupsPrinterInfo(
+                        name="USB2.0-Print",
+                        uri="usb:///USB2.0-Print",
+                        enabled=True,
+                    )
+                ]
+            )
+            mock_tui = MagicMock()
+            mock_tui.session_id = None
+            mock_tui_cls.return_value = mock_tui
+            mock_sys.stdin.isatty.return_value = True
+
+            result = CliRunner().invoke(app, argv)
+
+        assert result.exit_code == 0, result.output
+        return mock_tui_cls.call_args[1]
+
+    def test_saved_match_passes_skip_saved_match(self):
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.setup_decision import SetupDecision
+
+        cfg = TeletypeConfig()
+        cfg.saved_printer_type = "cups"
+        cfg.saved_printer_id = "USB2.0-Print"
+        cfg.saved_printer_profile = "juki"
+
+        kwargs = self._run_cli([], cfg)
+        assert kwargs["setup_decision"] is SetupDecision.SKIP_SAVED_MATCH
+        assert kwargs["discovery"] is None
+
+    def test_device_override_passes_skip_device_override(self):
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.setup_decision import SetupDecision
+
+        cfg = TeletypeConfig()
+        cfg.device = "/dev/usb/lp0"
+
+        kwargs = self._run_cli([], cfg)
+        assert kwargs["setup_decision"] is SetupDecision.SKIP_DEVICE_OVERRIDE
+        assert kwargs["discovery"] is None
+
+    def test_no_saved_printer_passes_show_setup_with_discovery(self):
+        from claude_teletype.config import TeletypeConfig
+        from claude_teletype.setup_decision import SetupDecision
+
+        cfg = TeletypeConfig()
+
+        kwargs = self._run_cli([], cfg)
+        assert kwargs["setup_decision"] is SetupDecision.SHOW_SETUP
+        assert kwargs["discovery"] is not None
+
+    def test_saved_match_skip_differs_from_device_override_skip(self):
+        """The two skip paths that used to be the same None are distinct."""
+        from claude_teletype.config import TeletypeConfig
+
+        saved_cfg = TeletypeConfig()
+        saved_cfg.saved_printer_type = "cups"
+        saved_cfg.saved_printer_id = "USB2.0-Print"
+        saved_cfg.saved_printer_profile = "juki"
+        saved_kwargs = self._run_cli([], saved_cfg)
+
+        device_cfg = TeletypeConfig()
+        device_cfg.device = "/dev/usb/lp0"
+        device_kwargs = self._run_cli([], device_cfg)
+
+        assert saved_kwargs["discovery"] is None
+        assert device_kwargs["discovery"] is None  # old contract: identical
+        assert (
+            saved_kwargs["setup_decision"] is not device_kwargs["setup_decision"]
+        )  # new contract: distinguishable

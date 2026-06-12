@@ -63,8 +63,27 @@ class PrinterSelection:
     profile_name: str = "generic"
 
 
+def _device_matches_identity(dev: Any, identity: UsbDeviceInfo) -> bool:
+    """True if a pyusb device is the SAME physical device as ``identity``.
+
+    Matches by VID:PID first, then prefers the serial number when the
+    discovered identity recorded one, falling back to (bus, address) —
+    the identity fields captured on UsbDeviceInfo during discover_all().
+    """
+    if dev.idVendor != identity.vendor_id or dev.idProduct != identity.product_id:
+        return False
+    if identity.serial:
+        try:
+            serial = dev.serial_number or ""
+        except Exception:
+            serial = ""
+        return serial == identity.serial
+    return (dev.bus or 0) == identity.bus and (dev.address or 0) == identity.address
+
+
 def _find_usb_printer(
     diagnostics: list[str] | None = None,
+    identity: UsbDeviceInfo | None = None,
 ) -> UsbPrinterDriver | None:
     """Shared USB printer discovery logic.
 
@@ -74,6 +93,10 @@ def _find_usb_printer(
     Args:
         diagnostics: If provided, human-readable messages are appended
             explaining each step. Pass None for silent operation.
+        identity: If provided, only the device matching this discovered
+            identity (serial preferred, else VID:PID + bus/address) is
+            opened — selection by identity, not first-of-class (REF-03).
+            Pass None for the legacy first-printer-found behavior.
 
     Returns:
         UsbPrinterDriver on success, None otherwise.
@@ -100,6 +123,8 @@ def _find_usb_printer(
     found_printer = False
 
     for dev in devices:
+        if identity is not None and not _device_matches_identity(dev, identity):
+            continue
         for cfg in dev:
             for intf in cfg:
                 if intf.bInterfaceClass != USB_PRINTER_CLASS:
