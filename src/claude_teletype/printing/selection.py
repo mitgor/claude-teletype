@@ -12,7 +12,6 @@ from pathlib import Path
 from claude_teletype.printing.discovery import (
     DiscoveryResult,
     PrinterSelection,
-    _find_usb_printer,
 )
 from claude_teletype.printing.drivers import (
     CupsPrinterDriver,
@@ -117,7 +116,13 @@ def create_driver_for_selection(
     driver: PrinterDriver | None = None
 
     if selection.connection_type == "usb":
-        driver = _find_usb_printer()
+        # Resolve _find_usb_printer through the claude_teletype.printer shim at
+        # call time so legacy test patches targeting
+        # ``claude_teletype.printer._find_usb_printer`` still intercept the call
+        # (Plan 03 migrates these patch targets). Local import avoids a cycle.
+        from claude_teletype import printer as _shim
+
+        driver = _shim._find_usb_printer()
     elif selection.connection_type == "cups":
         if selection.cups_printer_name:
             driver = CupsPrinterDriver(selection.cups_printer_name)
