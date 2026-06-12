@@ -72,7 +72,16 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-(None — next milestone not yet defined)
+## Current Milestone: v1.6 Printer Fleet & Standalone
+
+**Goal:** Detect and directly drive the broad universe of USB dot-matrix printers — vintage parallel units via USB-LPT bridges and modern native-USB models — with researched per-family profiles and richer direct-mode control, on a refactored codebase that ships as a standalone compiled app.
+
+**Target features:**
+- Deep-researched USB detection matrix: VID:PIDs for major impact-printer families (Epson FX/LQ/LX/TM, OKI Microline, Star, Citizen, Panasonic KX-P, Tally/TallyGenicom, IBM/Lexmark Proprinter, Seiko) and USB-LPT bridge chips (CH340/CH341, Prolific, FTDI)
+- New built-in profiles for those families with verified control codes (conservative leave-empty rule where undocumented)
+- Richer direct-mode profile fields: init/reset/status sequences, paper handling, codepage commands as first-class data — formalizing the untracked `codepage_command`/`text_codec`/`text_fallback` work into tracked requirements
+- Code refactoring: known tech-debt list (USB re-discovery, discovery=None sentinel, cli.py duplication), module reorganization into packages, driver/profile architecture for the expanded profile set, plus code-review findings
+- Standalone app compilation via PyInstaller (macOS primary, Linux bonus)
 
 ### Out of Scope
 
@@ -177,4 +186,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after v1.5 milestone*
+*Last updated: 2026-06-12 — v1.6 milestone started*

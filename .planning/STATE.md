@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Markdown File Printing
-status: Awaiting next milestone
-stopped_at: Milestone v1.5 completed and archived
-last_updated: "2026-06-12T17:10:00.000Z"
-last_activity: 2026-06-12 — Milestone v1.5 completed and archived
+milestone: v1.6
+milestone_name: Printer Fleet & Standalone
+status: planning
+last_updated: "2026-06-12T17:48:04.677Z"
+last_activity: 2026-06-12
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Planning next milestone. v1.5 (Markdown File Printing) shipped and archived. Post-v1.5 untracked work: codepage support (`codepage_command` + `text_codec`), `text_fallback` transliteration map, CP866/CP1125 Cyrillic example documents — candidates for formalizing in v1.6.
+**Current focus:** v1.6 milestone (Printer Fleet & Standalone) — defining requirements. Broad USB dot-matrix detection matrix + per-family profiles with richer direct-mode control, code refactoring (debt list, module structure, driver/profile architecture), PyInstaller standalone build. Formalizes the untracked codepage/`text_codec`/`text_fallback` work.
 
 ## Current Position
 
-Phase: Milestone v1.5 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-12 — Milestone v1.5 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-12 — Milestone v1.6 started
 
 ## Performance Metrics
 
