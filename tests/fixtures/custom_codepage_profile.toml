@@ -1,0 +1,24 @@
+# Custom-TOML codepage profile fixture (DIR-01).
+#
+# Exercises all three codepage fields through load_custom_profiles:
+#   codepage_command — hex string decoded via bytes.fromhex
+#   text_codec       — plain string stored verbatim
+#   text_fallback    — table of per-char transliterations applied before codec
+#
+# Values mirror the real citizen-cts2000 CP866 configuration so the fixture
+# stays a realistic example of custom-TOML codepage support.
+
+[printer.profiles.cyrillic-custom]
+description = "Custom CP866 codepage profile (fixture)"
+codepage_command = "1b7411"  # ESC t 17 — select CP866 (Russian)
+text_codec = "cp866"
+crlf = true
+formfeed_on_close = false
+
+[printer.profiles.cyrillic-custom.text_fallback]
+# Ukrainian letters absent from CP866
+"і" = "i"
+"І" = "I"
+# Typographic glyphs absent from CP866
+"—" = "--"
+"…" = "..."
