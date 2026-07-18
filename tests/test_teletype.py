@@ -1,5 +1,6 @@
 """Tests for raw teletype mode."""
 
+import dataclasses
 from unittest.mock import MagicMock, patch
 
 from claude_teletype.printing.profiles import get_profile
@@ -13,10 +14,17 @@ def _make_mock_driver():
 
 
 def _written_bytes(driver):
-    """Collect all data written to the mock driver as a bytes object."""
+    """Collect all data written to the mock driver as a bytes object.
+
+    Interleaves both channels in call order: write(str) is ASCII-encoded,
+    write_bytes(bytes) is taken raw.
+    """
     result = b""
-    for c in driver.write.call_args_list:
-        result += c.args[0].encode("ascii")
+    for name, args, _kwargs in driver.mock_calls:
+        if name == "write":
+            result += args[0].encode("ascii")
+        elif name == "write_bytes":
+            result += args[0]
     return result
 
 
@@ -128,6 +136,76 @@ def test_juki_newline_input_sends_cr_lf(mock_sys, mock_tty, mock_termios):
     )
     after_init = raw[init_len:]
     assert after_init == b"\r\n\f"
+
+
+# ---------------------------------------------------------------------------
+# Byte-clean init/reset delivery (WR-02)
+# ---------------------------------------------------------------------------
+
+
+@patch("claude_teletype.teletype.termios")
+@patch("claude_teletype.teletype.tty")
+@patch("claude_teletype.teletype.sys")
+def test_high_byte_init_reaches_driver_verbatim(mock_sys, mock_tty, mock_termios):
+    """Init bytes >= 0x80 go out as one write_bytes call, no UnicodeDecodeError."""
+    driver = _make_mock_driver()
+    mock_sys.stdin.fileno.return_value = 0
+    mock_sys.stdin.read.return_value = "\x03"
+    mock_sys.stderr = MagicMock()
+    profile = dataclasses.replace(
+        get_profile("juki"),
+        init_sequence=b"\x1b[T\x04\x00\x00\x00\x01\xb5",
+    )
+
+    run_teletype(driver, profile=profile)
+
+    expected_init = profile.init_sequence + profile.line_spacing + profile.char_pitch
+    byte_calls = [c.args[0] for c in driver.write_bytes.call_args_list]
+    assert byte_calls[0] == expected_init
+    assert byte_calls[0][len(profile.init_sequence) - 1] == 0xB5
+
+
+@patch("claude_teletype.teletype.termios")
+@patch("claude_teletype.teletype.tty")
+@patch("claude_teletype.teletype.sys")
+def test_reset_sequence_single_write_bytes(mock_sys, mock_tty, mock_termios):
+    """reset_sequence leaves as exactly ONE write_bytes call, never per-byte writes."""
+    driver = _make_mock_driver()
+    mock_sys.stdin.fileno.return_value = 0
+    mock_sys.stdin.read.return_value = "\x03"
+    mock_sys.stderr = MagicMock()
+    profile = dataclasses.replace(get_profile("juki"), reset_sequence=b"\x1b@\xb5")
+
+    run_teletype(driver, profile=profile)
+
+    reset_calls = [
+        c.args[0]
+        for c in driver.write_bytes.call_args_list
+        if c.args[0] == b"\x1b@\xb5"
+    ]
+    assert len(reset_calls) == 1
+    # No per-byte chr() fragments on the text channel.
+    for c in driver.write.call_args_list:
+        assert c.args[0] not in ("\x1b", "@", "\xb5")
+
+
+@patch("claude_teletype.teletype.termios")
+@patch("claude_teletype.teletype.tty")
+@patch("claude_teletype.teletype.sys")
+def test_keyboard_interrupt_exits_cleanly(mock_sys, mock_tty, mock_termios):
+    """KeyboardInterrupt from stdin.read returns normally with full cleanup."""
+    driver = _make_mock_driver()
+    mock_sys.stdin.fileno.return_value = 0
+    mock_sys.stdin.read.side_effect = KeyboardInterrupt
+    mock_sys.stderr = MagicMock()
+    mock_termios.TCSADRAIN = 1
+    saved = mock_termios.tcgetattr.return_value
+
+    run_teletype(driver)  # must not raise
+
+    mock_termios.tcsetattr.assert_called_once_with(0, 1, saved)
+    driver.close.assert_called_once()
+    assert _written_bytes(driver).endswith(b"\f")
 
 
 # ---------------------------------------------------------------------------
