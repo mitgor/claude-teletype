@@ -229,6 +229,7 @@ def _render_markdown_to_driver(
     driver,
     speed_mode: str = "instant",
     transcript_write=None,
+    close_driver: bool = True,
 ) -> int:
     """Thin CLI adapter over the shared print pipeline (Phase 33, ARCH-01).
 
@@ -239,10 +240,13 @@ def _render_markdown_to_driver(
     differs per consumer: file reading, error surfacing (typer.echo +
     exit codes), and driver lifetime.
 
-    Driver ownership: the caller acquires the driver (via
-    ``discover_printer``) and passes it in; THIS adapter closes it in a
-    ``finally`` — a fresh driver per CLI invocation. render_document
-    itself never closes drivers.
+    Driver ownership (single-owner contract): the caller acquires the
+    driver (via ``discover_printer``) and passes it in. By default THIS
+    adapter closes it in a ``finally`` — a fresh driver per explicit-path
+    invocation. The picker flow passes ``close_driver=False`` because
+    ``_print_command_impl_picker`` owns the close (the driver must
+    survive a cancel, where this adapter is never called).
+    render_document itself never closes drivers.
 
     The CLI-only path keeps synchronous ``time.sleep`` pacing via
     render_document's default ``sleep_fn`` (locked v1.5 sync shape).
@@ -256,6 +260,8 @@ def _render_markdown_to_driver(
             style writes). Defaults to "instant" (Phase 25 backward compat).
         transcript_write: Optional per-character transcript writer
             (TXN-01..03); None = no transcript entry.
+        close_driver: When True (default), close the driver in a finally.
+            The picker flow passes False — its launcher owns the close.
 
     Returns:
         Exit code: 0 on success, 1 on read error or invalid speed_mode.
@@ -289,8 +295,9 @@ def _render_markdown_to_driver(
         )
     finally:
         # close() runs in finally so partial-render exceptions still close
-        # the device handle cleanly (driver ownership: this adapter).
-        driver.close()
+        # the device handle cleanly (single-owner contract: see docstring).
+        if close_driver:
+            driver.close()
 
     return 0
 
@@ -491,6 +498,7 @@ def _print_command_impl(
 def _make_markdown_picker_app(
     config,
     resolved_profile,
+    driver,
     root: Path | None = None,
 ):
     """Build a minimal Textual App that runs the markdown picker and exits.
@@ -501,9 +509,15 @@ def _make_markdown_picker_app(
     branch of ``claude-teletype print`` calls this factory, runs the
     returned app, and reads ``app._exit_code`` after ``run()`` returns.
 
-    Closure captures ``config``, ``resolved_profile``, and ``root`` so
-    the picker callback has everything it needs to call
+    Closure captures ``config``, ``resolved_profile``, ``driver``, and
+    ``root`` so the picker callback has everything it needs to call
     ``_render_markdown_to_driver`` on the selected path.
+
+    WR-04 (Phase 33): the ``driver`` is resolved by the CALLER before this
+    app ever runs — no printer-resolution code (and therefore no
+    interactive multi-queue ``input()`` prompt) is reachable from inside
+    the app while Textual owns the terminal. The caller also owns
+    ``driver.close()``; the render callback passes ``close_driver=False``.
     """
     from textual.app import App
 
@@ -541,15 +555,12 @@ def _make_markdown_picker_app(
                 self.exit()
                 return
             # result is a Path. Render synchronously (blocks the picker
-            # until print completes) then exit.
-            from claude_teletype.printing.selection import discover_printer
-
-            driver = discover_printer(
-                device_override=config.device,
-                profile=resolved_profile,
-            )
+            # until print completes) then exit. The driver was resolved
+            # before this app started (WR-04); the launcher owns its
+            # close, so close_driver=False here.
             self._exit_code = _render_markdown_to_driver(
                 result, config, resolved_profile, driver,
+                close_driver=False,
             )
             self.exit()
 
@@ -573,6 +584,14 @@ def _print_command_impl_picker(
     Returns 0 on cancel or successful render, the helper's non-zero
     exit code on render failure, or 1 if config/profile resolution
     fails up front.
+
+    WR-04 (Phase 33): the printer driver is resolved HERE, before
+    ``picker_app.run()`` puts Textual in the alternate screen. With >= 2
+    CUPS queues, ``select_printer``'s interactive ``input()`` prompt runs
+    on the real terminal, where the user can actually see and answer it.
+    This launcher owns ``driver.close()`` on every path (cancel, success,
+    render error) — the render callback inside the app passes
+    ``close_driver=False`` (single-owner contract).
     """
     config, _, resolved_profile = _resolve_print_context(
         delay, device, printer,
@@ -580,11 +599,21 @@ def _print_command_impl_picker(
     if config is None:
         return 1
 
-    picker_app = _make_markdown_picker_app(
-        config, resolved_profile, root=None,
+    from claude_teletype.printing.selection import discover_printer
+
+    driver = discover_printer(
+        device_override=config.device,
+        profile=resolved_profile,
     )
-    picker_app.run()
-    return getattr(picker_app, "_exit_code", 0)
+
+    try:
+        picker_app = _make_markdown_picker_app(
+            config, resolved_profile, driver, root=None,
+        )
+        picker_app.run()
+        return getattr(picker_app, "_exit_code", 0)
+    finally:
+        driver.close()
 
 
 @app.command("print")

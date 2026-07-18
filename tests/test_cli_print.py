@@ -389,8 +389,16 @@ class TestPrintCli02PickerMode:
     """
 
     def test_print_no_path_invokes_picker_app(self):
-        """No-path dispatch builds the picker app and calls .run() on it."""
+        """No-path dispatch builds the picker app and calls .run() on it.
+
+        discover_printer is patched: since the WR-04 fix, the dispatch
+        resolves the driver BEFORE building the app, so an unpatched call
+        would hit real USB/CUPS discovery.
+        """
         with patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=_make_mock_driver(),
+        ), patch(
             "claude_teletype.cli._make_markdown_picker_app",
         ) as mock_factory:
             mock_app = MagicMock()
@@ -406,6 +414,9 @@ class TestPrintCli02PickerMode:
         from the dispatch. We mock App.run as a no-op so the callback never
         fires; render must not have been called from the dispatch path."""
         with patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=_make_mock_driver(),
+        ), patch(
             "claude_teletype.cli._make_markdown_picker_app",
         ) as mock_factory, patch(
             "claude_teletype.cli._render_markdown_to_driver",
@@ -426,6 +437,7 @@ class TestPrintCli02PickerMode:
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
             resolved_profile=None,
+            driver=_make_mock_driver(),
             root=None,
         )
         with patch.object(app_inst, "push_screen") as mock_push:
@@ -443,32 +455,32 @@ class TestPrintCli02PickerMode:
         from claude_teletype.config import TeletypeConfig
 
         cfg = TeletypeConfig()
+        mock_driver = _make_mock_driver()
         app_inst = _make_markdown_picker_app(
             config=cfg,
             resolved_profile=None,
+            driver=mock_driver,
             root=None,
         )
         md = tmp_path / "doc.md"
         md.write_text("# Hi\n")
 
-        mock_driver = _make_mock_driver()
         with patch(
             "claude_teletype.cli._render_markdown_to_driver",
             return_value=0,
-        ) as mock_render, patch(
-            "claude_teletype.printing.selection.discover_printer",
-            return_value=mock_driver,
-        ), patch.object(app_inst, "exit") as mock_exit:
+        ) as mock_render, patch.object(app_inst, "exit") as mock_exit:
             app_inst._on_pick(md)
 
         mock_render.assert_called_once()
         call_args = mock_render.call_args
         # First positional arg is the path
         assert call_args.args[0] == md
-        # Config + resolved_profile + driver passed through (closure
-        # capture from the factory + local discovery).
+        # Config + resolved_profile + pre-resolved driver passed through
+        # (closure capture from the factory — WR-04: no discovery in-app).
         assert call_args.args[1] is cfg
         assert call_args.args[3] is mock_driver
+        # Single-owner contract: the launcher closes; the callback must not.
+        assert call_args.kwargs.get("close_driver") is False
         mock_exit.assert_called_once()
         assert app_inst._exit_code == 0
 
@@ -480,6 +492,7 @@ class TestPrintCli02PickerMode:
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
             resolved_profile=None,
+            driver=_make_mock_driver(),
             root=None,
         )
         with patch(
@@ -498,6 +511,7 @@ class TestPrintCli02PickerMode:
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
             resolved_profile=None,
+            driver=_make_mock_driver(),
             root=None,
         )
         md = tmp_path / "doc.md"
@@ -505,9 +519,6 @@ class TestPrintCli02PickerMode:
         with patch(
             "claude_teletype.cli._render_markdown_to_driver",
             return_value=1,
-        ), patch(
-            "claude_teletype.printing.selection.discover_printer",
-            return_value=_make_mock_driver(),
         ), patch.object(app_inst, "exit"):
             app_inst._on_pick(md)
         assert app_inst._exit_code == 1
@@ -809,3 +820,157 @@ class TestPrintCli26TranscriptIntegration:
             )
             assert rc == 0
             assert wpf.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 33 (WR-04, PIPE-03): picker driver resolution happens BEFORE Textual
+# owns the terminal, and the launcher owns driver.close() on every path.
+# ---------------------------------------------------------------------------
+
+
+class TestPickerDriverPreResolution:
+    """WR-04: select_printer's blocking input() can never fire while the
+    Textual picker app is running — the driver is fully resolved (including
+    any interactive multi-queue prompt) before picker_app.run()."""
+
+    def test_driver_resolved_before_picker_app_runs(self):
+        """Order: discover_printer -> factory -> run, discover exactly once."""
+        order: list[str] = []
+        driver = _make_mock_driver()
+
+        def fake_discover(**kwargs):
+            order.append("discover")
+            return driver
+
+        mock_app = MagicMock()
+        mock_app._exit_code = 0
+        mock_app.run.side_effect = lambda: order.append("run")
+
+        def fake_factory(*args, **kwargs):
+            order.append("factory")
+            return mock_app
+
+        with patch(
+            "claude_teletype.printing.selection.discover_printer",
+            side_effect=fake_discover,
+        ) as mock_disc, patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+            side_effect=fake_factory,
+        ):
+            result = runner.invoke(app, ["print"])
+
+        assert result.exit_code == 0, result.output
+        mock_disc.assert_called_once()
+        assert order == ["discover", "factory", "run"], (
+            f"driver must be resolved before the app exists/runs: {order}"
+        )
+
+    def test_multi_queue_select_prompt_never_fires_under_textual(self):
+        """>= 2 CUPS queues: the interactive prompt runs (real terminal)
+        BEFORE the picker app is constructed — never while Textual runs."""
+        state = {"app_constructed": False, "select_calls": 0}
+
+        def fake_select(printers):
+            state["select_calls"] += 1
+            if state["app_constructed"]:
+                raise AssertionError(
+                    "input() prompt reached under Textual (WR-04 regression)"
+                )
+            return printers[0]["name"]
+
+        mock_app = MagicMock()
+        mock_app._exit_code = 0
+
+        def fake_factory(*args, **kwargs):
+            state["app_constructed"] = True
+            return mock_app
+
+        two_queues = [
+            {"name": "Juki_2200", "uri": "usb://juki"},
+            {"name": "OKI_ML320", "uri": "usb://oki"},
+        ]
+        with patch(
+            "claude_teletype.printing.discovery.discover_usb_device",
+            return_value=None,
+        ), patch(
+            "claude_teletype.printing.discovery.discover_cups_printers",
+            return_value=two_queues,
+        ), patch(
+            "claude_teletype.printing.selection.select_printer",
+            side_effect=fake_select,
+        ), patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+            side_effect=fake_factory,
+        ):
+            result = runner.invoke(app, ["print"])
+
+        assert result.exit_code == 0, result.output
+        assert state["select_calls"] == 1
+        assert state["app_constructed"] is True
+        mock_app.run.assert_called_once()
+
+    def test_cancel_path_closes_driver(self):
+        """Pick result None: the render adapter never runs, so the launcher
+        must close the driver itself after run() returns."""
+        driver = _make_mock_driver()
+        mock_app = MagicMock()
+        mock_app._exit_code = 0  # cancel arm sets 0, no render
+
+        with patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=driver,
+        ), patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+            return_value=mock_app,
+        ):
+            result = runner.invoke(app, ["print"])
+
+        assert result.exit_code == 0, result.output
+        driver.close.assert_called_once()
+
+    def test_render_failure_path_closes_driver_exactly_once(self):
+        """Render failure inside the app: exit code propagates and the
+        launcher (not the adapter, which got close_driver=False) closes."""
+        driver = _make_mock_driver()
+        mock_app = MagicMock()
+        mock_app._exit_code = 1  # adapter returned failure inside _on_pick
+
+        with patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=driver,
+        ), patch(
+            "claude_teletype.cli._make_markdown_picker_app",
+            return_value=mock_app,
+        ):
+            result = runner.invoke(app, ["print"])
+
+        assert result.exit_code == 1
+        driver.close.assert_called_once()
+
+    def test_no_discovery_reachable_inside_picker_app(self, tmp_path):
+        """The app's render callback uses the pre-resolved driver — no
+        printer-resolution call happens inside _on_pick."""
+        from claude_teletype.cli import _make_markdown_picker_app
+        from claude_teletype.config import TeletypeConfig
+
+        driver = _make_mock_driver()
+        app_inst = _make_markdown_picker_app(
+            config=TeletypeConfig(),
+            resolved_profile=None,
+            driver=driver,
+            root=None,
+        )
+        md = tmp_path / "doc.md"
+        md.write_text("hi\n")
+
+        with patch(
+            "claude_teletype.printing.selection.discover_printer",
+        ) as mock_disc, patch(
+            "claude_teletype.printing.selection.select_printer",
+        ) as mock_select, patch.object(app_inst, "exit"):
+            app_inst._on_pick(md)
+
+        mock_disc.assert_not_called()
+        mock_select.assert_not_called()
+        # close_driver=False: the callback must NOT close the launcher's driver
+        driver.close.assert_not_called()
