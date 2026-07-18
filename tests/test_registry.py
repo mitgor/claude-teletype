@@ -155,6 +155,36 @@ def test_custom_profile_added_alongside_builtins():
 
 
 # ---------------------------------------------------------------------------
+# Case-preserved keys, case-insensitive get() (WR-03 / FLOW-02)
+# ---------------------------------------------------------------------------
+
+
+def test_uppercase_custom_key_reachable_any_casing():
+    """An uppercase custom TOML profile resolves via get() with any casing."""
+    custom = PrinterProfile(name="MyPrinter")
+    registry = ProfileRegistry(BUILTIN_PROFILES, {"MyPrinter": custom})
+    assert registry.get("MyPrinter") is custom
+    assert registry.get("myprinter") is custom
+    assert registry.get("MYPRINTER") is custom
+    assert registry.get("  MyPrinter ") is custom
+
+
+def test_names_preserves_original_casing():
+    """names() lists the case-preserved key, not a lowercased copy."""
+    custom = PrinterProfile(name="MyPrinter")
+    registry = ProfileRegistry(BUILTIN_PROFILES, {"MyPrinter": custom})
+    assert "MyPrinter" in registry.names()
+    assert "myprinter" not in registry.names()
+
+
+def test_get_unknown_still_raises_with_available_names():
+    """Unknown name still raises ValueError listing available names."""
+    registry = ProfileRegistry(BUILTIN_PROFILES, {"MyPrinter": PrinterProfile(name="MyPrinter")})
+    with pytest.raises(ValueError, match="Available:.*MyPrinter"):
+        registry.get("nope")
+
+
+# ---------------------------------------------------------------------------
 # VID-only collision policy — last registered wins, diagnostic logged
 # ---------------------------------------------------------------------------
 
