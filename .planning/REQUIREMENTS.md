@@ -9,10 +9,10 @@ Requirements for the **Review Hardening** milestone. Every requirement traces to
 
 ### Byte Integrity
 
-- [ ] **BYTE-01**: User printing with any high-byte profile sequence (codepage commands, cp437/cp866 text) gets those bytes delivered verbatim to USB hardware — `ProfilePrinterDriver._send_raw` no longer round-trips through ASCII (CR-01)
-- [ ] **BYTE-02**: User printing over CUPS gets non-ASCII bytes delivered intact — `CupsPrinterDriver.write_bytes` no longer destroys bytes ≥ 0x80 (CR-02)
-- [ ] **BYTE-03**: A byte-integrity regression test round-trips a 0xb5-bearing sequence through ProfilePrinterDriver and CupsPrinterDriver, failing if any byte is altered (CR-01/CR-02 companion)
-- [ ] **BYTE-04**: User in typewriter mode can type non-ASCII characters without a crash, reset sequences stay atomic per the driver contract, and Ctrl-C exits cleanly (WR-02)
+- [x] **BYTE-01**: User printing with any high-byte profile sequence (codepage commands, cp437/cp866 text) gets those bytes delivered verbatim to USB hardware — `ProfilePrinterDriver._send_raw` no longer round-trips through ASCII (CR-01)
+- [x] **BYTE-02**: User printing over CUPS gets non-ASCII bytes delivered intact — `CupsPrinterDriver.write_bytes` no longer destroys bytes ≥ 0x80 (CR-02)
+- [x] **BYTE-03**: A byte-integrity regression test round-trips a 0xb5-bearing sequence through ProfilePrinterDriver and CupsPrinterDriver, failing if any byte is altered (CR-01/CR-02 companion)
+- [x] **BYTE-04**: User in typewriter mode can type non-ASCII characters without a crash, reset sequences stay atomic per the driver contract, and Ctrl-C exits cleanly (WR-02)
 
 ### Setup & Detection Flow
 
@@ -65,10 +65,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BYTE-01 | Phase 31 | Pending |
-| BYTE-02 | Phase 31 | Pending |
-| BYTE-03 | Phase 31 | Pending |
-| BYTE-04 | Phase 31 | Pending |
+| BYTE-01 | Phase 31 | Complete |
+| BYTE-02 | Phase 31 | Complete |
+| BYTE-03 | Phase 31 | Complete |
+| BYTE-04 | Phase 31 | Complete |
 | FLOW-01 | Phase 32 | Pending |
 | FLOW-02 | Phase 32 | Pending |
 | FLOW-03 | Phase 32 | Pending |
