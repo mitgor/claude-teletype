@@ -280,24 +280,26 @@ class TeletypeApp(App):
         from claude_teletype.config import load_config, save_config
 
         try:
-            cfg = load_config()
-            cfg.saved_printer_type = selection.connection_type
-
-            # Build device identifier
+            # Build device identifier first (CR-03): an empty id for a
+            # usb/cups selection is a broken state and must never be
+            # persisted.
+            printer_id = ""
             if selection.connection_type == "usb" and self._discovery is not None:
                 if (
                     selection.device_index is not None
                     and selection.device_index < len(self._discovery.usb_devices)
                 ):
                     usb_dev = self._discovery.usb_devices[selection.device_index]
-                    cfg.saved_printer_id = f"{usb_dev.vendor_id:04x}:{usb_dev.product_id:04x}"
-                else:
-                    cfg.saved_printer_id = ""
+                    printer_id = f"{usb_dev.vendor_id:04x}:{usb_dev.product_id:04x}"
             elif selection.connection_type == "cups" and selection.cups_printer_name:
-                cfg.saved_printer_id = selection.cups_printer_name
-            else:
-                cfg.saved_printer_id = ""
+                printer_id = selection.cups_printer_name
 
+            if selection.connection_type in ("usb", "cups") and not printer_id:
+                return  # refuse to persist a broken empty-id selection
+
+            cfg = load_config()
+            cfg.saved_printer_type = selection.connection_type
+            cfg.saved_printer_id = printer_id
             cfg.saved_printer_profile = selection.profile_name
             save_config(cfg)
         except Exception as exc:

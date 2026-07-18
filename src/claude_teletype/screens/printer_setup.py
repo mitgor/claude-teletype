@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from typing import Any
 
 from textual import work
@@ -37,6 +38,19 @@ from claude_teletype.printing.discovery import (
     kernel_driver_holds_printer,
 )
 from claude_teletype.printing.registry import ProfileRegistry
+
+
+def _project_root() -> Path | None:
+    """Directory containing pyproject.toml, walking up from this file.
+
+    Returns None for installed-wheel / frozen layouts where no
+    pyproject.toml exists above the package (WR-05: never let `uv sync`
+    run against an arbitrary cwd).
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return None
 
 
 class PrinterSetupScreen(Screen[PrinterSelection | None]):
@@ -214,11 +228,16 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         if not self._discovery.cups_printers:
             log.write_line("No CUPS queues found")
 
-        # Install row visibility
-        if self._discovery.pyusb_available:
+        # Install row visibility (WR-05: never offer install when frozen —
+        # the bundle's interpreter cannot see a venv install)
+        frozen = bool(getattr(sys, "frozen", False))
+        if self._discovery.pyusb_available or frozen:
             self.query_one("#install-row").display = False
-        else:
-            log.write_line("pyusb not installed -- USB detection unavailable")
+        if not self._discovery.pyusb_available:
+            if frozen:
+                log.write_line("USB support not bundled in this build")
+            else:
+                log.write_line("pyusb not installed -- USB detection unavailable")
 
         # Disable connect when no devices
         if not self._device_entries:
@@ -313,12 +332,30 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         else:
             connection_type = "cups"
 
+        # CR-03: resolve a concrete queue name for the CUPS path. A USB
+        # entry with the CUPS radio selected (the kernel-owns
+        # recommendation) must not dismiss with cups_printer_name=None —
+        # that silently degrades to the simulator downstream.
+        cups_printer_name = None
+        if entry["type"] == "cups":
+            cups_printer_name = entry["cups_info"].name
+        elif connection_type == "cups":
+            enabled = [q for q in self._discovery.cups_printers if q.enabled]
+            if not enabled:
+                self.query_one("#diagnostics-log", Log).write_line(
+                    "No enabled CUPS queue available — cannot connect via CUPS"
+                )
+                return
+            serial = entry["usb_info"].serial
+            match = next(
+                (q for q in enabled if serial and q.serial == serial), None
+            )
+            cups_printer_name = (match or enabled[0]).name
+
         selection = PrinterSelection(
             connection_type=connection_type,
             device_index=entry["index"],
-            cups_printer_name=(
-                entry["cups_info"].name if entry["type"] == "cups" else None
-            ),
+            cups_printer_name=cups_printer_name,
             profile_name=str(profile_select.value) if profile_select.value != Select.BLANK else "generic",
         )
         self.dismiss(selection)
@@ -346,8 +383,26 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         import shutil
 
         log = self.query_one("#diagnostics-log", Log)
-        uv_path = shutil.which("uv")
 
+        # WR-05 guard 1: frozen bundle — a venv install is invisible to
+        # the bundle's interpreter (defense in depth behind the hidden row).
+        if getattr(sys, "frozen", False):
+            log.write_line(
+                "Cannot install USB support inside the packaged app — the "
+                "bundle's interpreter cannot see a venv install"
+            )
+            return
+
+        # WR-05 guard 2: only ever sync the project's own directory.
+        root = _project_root()
+        if root is None:
+            log.write_line(
+                "Cannot locate the project's pyproject.toml — run "
+                "'uv sync --extra usb' from the project directory"
+            )
+            return
+
+        uv_path = shutil.which("uv")
         if uv_path is None:
             log.write_line("Error: uv not found on PATH")
             return
@@ -361,6 +416,7 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
             uv_path, "sync", "--extra", "usb",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=str(root),
         )
         stdout, stderr = await proc.communicate()
 
@@ -427,8 +483,8 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
                 "No printers found. Check connections or install USB support."
             )
 
-        # Update install-row visibility
-        if self._discovery.pyusb_available:
+        # Update install-row visibility (WR-05: also hidden when frozen)
+        if self._discovery.pyusb_available or getattr(sys, "frozen", False):
             self.query_one("#install-row").display = False
 
         # Update connect button

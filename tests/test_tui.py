@@ -448,3 +448,62 @@ def test_settings_save_persists_profile():
 
     assert saved_cfg is not None
     assert saved_cfg.printer_profile == "juki"
+
+
+# --- CR-03: _save_printer_selection must never persist an empty id ---
+
+
+def test_save_printer_selection_refuses_empty_cups_id():
+    """connection_type='cups' with cups_printer_name=None → save_config NOT called."""
+    from claude_teletype.config import TeletypeConfig
+    from claude_teletype.printing.discovery import PrinterSelection
+
+    app = TeletypeApp(base_delay_ms=0)
+    selection = PrinterSelection(connection_type="cups", cups_printer_name=None)
+
+    with patch("claude_teletype.config.load_config", return_value=TeletypeConfig()), \
+         patch("claude_teletype.config.save_config") as mock_save:
+        app._save_printer_selection(selection)
+
+    mock_save.assert_not_called()
+
+
+def test_save_printer_selection_refuses_empty_usb_id():
+    """usb selection with no resolvable device → save_config NOT called."""
+    from claude_teletype.config import TeletypeConfig
+    from claude_teletype.printing.discovery import PrinterSelection
+
+    app = TeletypeApp(base_delay_ms=0)  # no discovery attached
+    selection = PrinterSelection(connection_type="usb", device_index=None)
+
+    with patch("claude_teletype.config.load_config", return_value=TeletypeConfig()), \
+         patch("claude_teletype.config.save_config") as mock_save:
+        app._save_printer_selection(selection)
+
+    mock_save.assert_not_called()
+
+
+def test_save_printer_selection_valid_cups_persists():
+    """A valid CUPS selection still persists as before."""
+    from claude_teletype.config import TeletypeConfig
+    from claude_teletype.printing.discovery import PrinterSelection
+
+    app = TeletypeApp(base_delay_ms=0)
+    selection = PrinterSelection(
+        connection_type="cups", cups_printer_name="HP_LaserJet", profile_name="juki"
+    )
+
+    saved_cfg = None
+
+    def capture_save(cfg, config_path=None):
+        nonlocal saved_cfg
+        saved_cfg = cfg
+
+    with patch("claude_teletype.config.load_config", return_value=TeletypeConfig()), \
+         patch("claude_teletype.config.save_config", side_effect=capture_save):
+        app._save_printer_selection(selection)
+
+    assert saved_cfg is not None
+    assert saved_cfg.saved_printer_type == "cups"
+    assert saved_cfg.saved_printer_id == "HP_LaserJet"
+    assert saved_cfg.saved_printer_profile == "juki"
