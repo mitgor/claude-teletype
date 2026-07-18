@@ -313,12 +313,30 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
         else:
             connection_type = "cups"
 
+        # CR-03: resolve a concrete queue name for the CUPS path. A USB
+        # entry with the CUPS radio selected (the kernel-owns
+        # recommendation) must not dismiss with cups_printer_name=None —
+        # that silently degrades to the simulator downstream.
+        cups_printer_name = None
+        if entry["type"] == "cups":
+            cups_printer_name = entry["cups_info"].name
+        elif connection_type == "cups":
+            enabled = [q for q in self._discovery.cups_printers if q.enabled]
+            if not enabled:
+                self.query_one("#diagnostics-log", Log).write_line(
+                    "No enabled CUPS queue available — cannot connect via CUPS"
+                )
+                return
+            serial = entry["usb_info"].serial
+            match = next(
+                (q for q in enabled if serial and q.serial == serial), None
+            )
+            cups_printer_name = (match or enabled[0]).name
+
         selection = PrinterSelection(
             connection_type=connection_type,
             device_index=entry["index"],
-            cups_printer_name=(
-                entry["cups_info"].name if entry["type"] == "cups" else None
-            ),
+            cups_printer_name=cups_printer_name,
             profile_name=str(profile_select.value) if profile_select.value != Select.BLANK else "generic",
         )
         self.dismiss(selection)
