@@ -225,185 +225,79 @@ def diagnose() -> None:
 def _render_markdown_to_driver(
     path: Path,
     config,
-    all_profiles: dict,
     resolved_profile,
+    driver,
     speed_mode: str = "instant",
     transcript_write=None,
+    close_driver: bool = True,
 ) -> int:
-    """Render a markdown file through the configured printer driver chain.
+    """Thin CLI adapter over the shared print pipeline (Phase 33, ARCH-01).
 
-    Reused by Plan 25-02's picker-mode launcher (the picker hands a Path
-    to this function and exits when it returns).
+    The pipeline body (pacer, word wrapping, chunked style writes,
+    transcript collector, end_response epilogue, style-close-in-finally)
+    lives in ``printing/pipeline.py::render_document`` — the ONE
+    implementation shared with the TUI. This adapter owns only what
+    differs per consumer: file reading, error surfacing (typer.echo +
+    exit codes), and driver lifetime.
 
-    Phase 25 contract (default speed_mode="instant"): NO pacer, NO
-    transcript, NO chat session — preserved verbatim so the existing
-    Phase 25 callers keep working unchanged.
+    Driver ownership (single-owner contract): the caller acquires the
+    driver (via ``discover_printer``) and passes it in. By default THIS
+    adapter closes it in a ``finally`` — a fresh driver per explicit-path
+    invocation. The picker flow passes ``close_driver=False`` because
+    ``_print_command_impl_picker`` owns the close (the driver must
+    survive a cancel, where this adapter is never called).
+    render_document itself never closes drivers.
 
-    Phase 26 extension (FLOW-03, FLOW-04):
-    - speed_mode="typewriter" routes the text channel through a per-char
-      pacer (same delay multipliers as pacer.classify_char) and plays the
-      audio bell on '\\n' (unless config.no_audio). Sync time.sleep is used
-      so this helper stays sync-only — Plan 25-02's MarkdownPickerApp._on_pick
-      callback is sync, and the locked architecture per CONTEXT.md keeps
-      it that way.
-    - speed_mode="instant" routes the style channel through chunk_writes
-      using profile.buffer_bytes, preventing CH341 USB-LPT byte-fragility
-      on impact printers (Juki/OKI buffer_bytes=64).
-
-    Phase 26 Plan 03 extension (TXN-01, TXN-02, TXN-03): when
-    ``transcript_write`` is provided, the renderer's text channel is fanned
-    out into a list collector; after a successful render the captured
-    plain-text body is written via ``transcript.write_printed_file``. Style
-    ESC bytes are NOT captured (TXN-02 byte-cleanliness — the parallel
-    collector taps ONLY the renderer's text_output_fn, never the
-    style_output_fn). When ``transcript_write`` is None, no transcript
-    entry is created (TXN-03).
+    The CLI-only path keeps synchronous ``time.sleep`` pacing via
+    render_document's default ``sleep_fn`` (locked v1.5 sync shape).
 
     Args:
         path: Path to a regular UTF-8 text file (already validated).
         config: Resolved TeletypeConfig (defaults < TOML < env < CLI flags).
-        all_profiles: Built-in + custom profile registry (lookup by name).
         resolved_profile: PrinterProfile or None (None = generic).
-        speed_mode: "typewriter" (paced + bell) or "instant" (no pacing,
-            chunked style writes). Defaults to "instant" for Phase 25
-            backward compat — Plan 25-01/25-02 callers keep working.
-        transcript_write: Optional per-character transcript writer. When
-            provided, the rendered plain-text body is fanned out via this
-            callable in addition to the printer; after a successful render,
-            ``write_printed_file`` is called once with the joined body.
-            Defaults to None (Phase 25 backward compat — no transcript fan-out).
+        driver: PrinterDriver acquired by the caller; closed here.
+        speed_mode: "typewriter" (paced + bell) or "instant" (chunked
+            style writes). Defaults to "instant" (Phase 25 backward compat).
+        transcript_write: Optional per-character transcript writer
+            (TXN-01..03); None = no transcript entry.
+        close_driver: When True (default), close the driver in a finally.
+            The picker flow passes False — its launcher owns the close.
 
     Returns:
         Exit code: 0 on success, 1 on read error or invalid speed_mode.
     """
-    import time
-
-    from claude_teletype.printing.drivers import chunk_writes
-    from claude_teletype.printing.selection import discover_printer
-    from claude_teletype.rendering.markdown import MarkdownRenderer
-    from claude_teletype.rendering.pacer import CHAR_DELAYS, classify_char
-    from claude_teletype.rendering.wordwrap import WordWrapper
-    from claude_teletype.transcript import write_printed_file
-
-    if speed_mode not in ("typewriter", "instant"):
-        typer.echo(
-            f"Error: invalid speed_mode {speed_mode!r}; "
-            "expected 'typewriter' or 'instant'",
-            err=True,
-        )
-        return 1
+    from claude_teletype.printing.pipeline import render_document
 
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as e:
-        typer.echo(f"Error: cannot read {path}: {e}", err=True)
-        return 1
+        if speed_mode not in ("typewriter", "instant"):
+            typer.echo(
+                f"Error: invalid speed_mode {speed_mode!r}; "
+                "expected 'typewriter' or 'instant'",
+                err=True,
+            )
+            return 1
 
-    driver = discover_printer(
-        device_override=config.device,
-        profile=resolved_profile,
-    )
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            typer.echo(f"Error: cannot read {path}: {e}", err=True)
+            return 1
 
-    # Plan 26-03 (TXN-02): parallel collector captures the renderer's
-    # text channel for the transcript. Initialised even when transcript
-    # is unused — appending to a list with no consumer is cheap.
-    transcript_buffer: list[str] = []
-
-    try:
-        # Columns: profile.columns when present, else 80 (matches
-        # MarkdownRenderer's own fallback inside __init__).
-        columns = (
-            resolved_profile.columns
-            if resolved_profile is not None and resolved_profile.columns
-            else 80
+        render_document(
+            driver,
+            resolved_profile,
+            text,
+            speed_mode=speed_mode,
+            base_delay_ms=(config.delay or 0.0),
+            no_audio=config.no_audio,
+            transcript_write=transcript_write,
+            source_path=path,
         )
-
-        # Build text + style destinations based on speed_mode.
-        if speed_mode == "typewriter":
-            # FLOW-03: pacer + bell. Reuses pacer.classify_char + CHAR_DELAYS
-            # for delay multipliers identical to the chat path. Sync
-            # time.sleep — this helper runs sync-only per Phase 25 locked
-            # architecture.
-            base_delay = (config.delay or 0.0) / 1000.0
-
-            from claude_teletype.audio import make_bell_output
-
-            bell_fn = (
-                (lambda ch: None)
-                if config.no_audio
-                else make_bell_output()
-            )
-
-            def text_dest(char: str) -> None:
-                driver.write(char)
-                bell_fn(char)
-                if base_delay > 0:
-                    multiplier = CHAR_DELAYS[classify_char(char)]
-                    time.sleep(base_delay * multiplier)
-
-            wrapper = WordWrapper(columns, text_dest)
-            # Style channel: bytes go straight to driver — no chunking
-            # needed in typewriter mode (style bursts are tiny ESC seqs,
-            # always well under any realistic profile.buffer_bytes).
-            style_dest = driver.write_bytes
-        else:
-            # FLOW-04: instant mode. No per-char delay; split style writes
-            # at profile.buffer_bytes to avoid CH341 byte-fragility.
-            wrapper = WordWrapper(columns, driver.write)
-
-            buffer_bytes = (
-                resolved_profile.buffer_bytes
-                if resolved_profile is not None and resolved_profile.buffer_bytes
-                else 256
-            )
-
-            def style_dest(data: bytes) -> None:
-                # chunk_writes raises ValueError on chunk_size<=0; we
-                # guarantee buffer_bytes > 0 above via the conditional.
-                chunk_writes(driver, data, buffer_bytes)
-
-        # Plan 26-03: text channel fan-out for transcript.
-        # When transcript_write is provided, text_dest_with_capture writes
-        # to BOTH the wrapper (-> printer) AND the transcript buffer.
-        # Style channel is NOT routed through the buffer (TXN-02).
-        if transcript_write is not None:
-            def text_dest_with_capture(char: str) -> None:
-                wrapper.feed(char)
-                transcript_buffer.append(char)
-            renderer_text_fn = text_dest_with_capture
-        else:
-            renderer_text_fn = wrapper.feed
-
-        renderer = MarkdownRenderer(
-            text_output_fn=renderer_text_fn,
-            style_output_fn=style_dest,
-            profile=resolved_profile,
-            columns=columns,
-        )
-        renderer.render(text)
-        # WordWrapper buffers the last word until flush() -- without this,
-        # documents that don't end in whitespace would lose their trailing
-        # token. flush() must run BEFORE end_response() so the cut/paper-eject
-        # happens after every visible character has reached the driver.
-        wrapper.flush()
-        # ProfilePrinterDriver has end_response (per-response paper cut on
-        # receipt printers). Plain drivers don't. Use getattr-then-call so
-        # this helper works across all driver implementations.
-        end_response = getattr(driver, "end_response", None)
-        if end_response is not None:
-            end_response()
-
-        # Plan 26-03 (TXN-01): write transcript entry after successful render.
-        # write_printed_file guards None internally (TXN-03), but we only
-        # reach this branch when transcript_write is non-None anyway.
-        if transcript_write is not None:
-            write_printed_file(
-                transcript_write, path, "".join(transcript_buffer),
-            )
     finally:
         # close() runs in finally so partial-render exceptions still close
-        # the device handle cleanly.
-        driver.close()
+        # the device handle cleanly (single-owner contract: see docstring).
+        if close_driver:
+            driver.close()
 
     return 0
 
@@ -562,7 +456,7 @@ def _print_command_impl(
         )
         return 1
 
-    config, all_profiles, resolved_profile = _resolve_print_context(
+    config, _, resolved_profile = _resolve_print_context(
         delay, device, printer,
     )
     if config is None:
@@ -582,9 +476,18 @@ def _print_command_impl(
             Path(config.transcript_dir),
         )
 
+    # Driver acquisition lives here (not in the render adapter) — this is
+    # a real terminal, so interactive multi-queue selection is acceptable.
+    from claude_teletype.printing.selection import discover_printer
+
+    driver = discover_printer(
+        device_override=config.device,
+        profile=resolved_profile,
+    )
+
     try:
         return _render_markdown_to_driver(
-            resolved_path, config, all_profiles, resolved_profile,
+            resolved_path, config, resolved_profile, driver,
             transcript_write=transcript_write_fn,
         )
     finally:
@@ -594,8 +497,8 @@ def _print_command_impl(
 
 def _make_markdown_picker_app(
     config,
-    all_profiles: dict,
     resolved_profile,
+    driver,
     root: Path | None = None,
 ):
     """Build a minimal Textual App that runs the markdown picker and exits.
@@ -606,9 +509,15 @@ def _make_markdown_picker_app(
     branch of ``claude-teletype print`` calls this factory, runs the
     returned app, and reads ``app._exit_code`` after ``run()`` returns.
 
-    Closure captures ``config``, ``all_profiles``, ``resolved_profile``,
-    and ``root`` so the picker callback has everything it needs to call
+    Closure captures ``config``, ``resolved_profile``, ``driver``, and
+    ``root`` so the picker callback has everything it needs to call
     ``_render_markdown_to_driver`` on the selected path.
+
+    WR-04 (Phase 33): the ``driver`` is resolved by the CALLER before this
+    app ever runs — no printer-resolution code (and therefore no
+    interactive multi-queue ``input()`` prompt) is reachable from inside
+    the app while Textual owns the terminal. The caller also owns
+    ``driver.close()``; the render callback passes ``close_driver=False``.
     """
     from textual.app import App
 
@@ -646,10 +555,12 @@ def _make_markdown_picker_app(
                 self.exit()
                 return
             # result is a Path. Render synchronously (blocks the picker
-            # until print completes) then exit. Phase 26 will refactor
-            # this into a worker when the speed dialog lands.
+            # until print completes) then exit. The driver was resolved
+            # before this app started (WR-04); the launcher owns its
+            # close, so close_driver=False here.
             self._exit_code = _render_markdown_to_driver(
-                result, config, all_profiles, resolved_profile,
+                result, config, resolved_profile, driver,
+                close_driver=False,
             )
             self.exit()
 
@@ -673,18 +584,36 @@ def _print_command_impl_picker(
     Returns 0 on cancel or successful render, the helper's non-zero
     exit code on render failure, or 1 if config/profile resolution
     fails up front.
+
+    WR-04 (Phase 33): the printer driver is resolved HERE, before
+    ``picker_app.run()`` puts Textual in the alternate screen. With >= 2
+    CUPS queues, ``select_printer``'s interactive ``input()`` prompt runs
+    on the real terminal, where the user can actually see and answer it.
+    This launcher owns ``driver.close()`` on every path (cancel, success,
+    render error) — the render callback inside the app passes
+    ``close_driver=False`` (single-owner contract).
     """
-    config, all_profiles, resolved_profile = _resolve_print_context(
+    config, _, resolved_profile = _resolve_print_context(
         delay, device, printer,
     )
     if config is None:
         return 1
 
-    picker_app = _make_markdown_picker_app(
-        config, all_profiles, resolved_profile, root=None,
+    from claude_teletype.printing.selection import discover_printer
+
+    driver = discover_printer(
+        device_override=config.device,
+        profile=resolved_profile,
     )
-    picker_app.run()
-    return getattr(picker_app, "_exit_code", 0)
+
+    try:
+        picker_app = _make_markdown_picker_app(
+            config, resolved_profile, driver, root=None,
+        )
+        picker_app.run()
+        return getattr(picker_app, "_exit_code", 0)
+    finally:
+        driver.close()
 
 
 @app.command("print")
