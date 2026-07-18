@@ -606,6 +606,9 @@ async def test_print_dispatches_worker_through_shared_pipeline(tmp_path):
     assert kwargs["transcript_write"] is expected_transcript
     assert kwargs["source_path"] == path
     assert kwargs["cancel_check"] is not None
+    # WR-02: the TUI injects a cancellable sleep (the pipeline docstring's
+    # seam contract) instead of relying on the default time.sleep.
+    assert kwargs["sleep_fn"] is not None
     assert any(m.startswith("Printed ") for m in notified)
 
 
@@ -630,6 +633,35 @@ async def test_escape_cancels_in_flight_print(tmp_path):
             await _wait_workers(app)
 
     assert seen["flipped"] is True
+    assert any("cancelled" in m.lower() for m in notified)
+
+
+async def test_cancel_interrupts_char_sleep(tmp_path):
+    """WR-02: the injected sleep_fn returns early on cancel — a 10s
+    char-sleep must not delay Escape response."""
+
+    def sleepy_render(driver, profile, text, **kwargs):
+        kwargs["sleep_fn"](10.0)  # far beyond the 4s _wait_workers cap
+        if kwargs["cancel_check"]():
+            raise PrintCancelled()
+        raise AssertionError("sleep was not interrupted by cancel")
+
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=sleepy_render,
+    ):
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.1)  # thread is inside the 10s sleep
+            await pilot.press("escape")
+            await _wait_workers(app)  # 4s cap: passes only if interrupted
+
     assert any("cancelled" in m.lower() for m in notified)
 
 

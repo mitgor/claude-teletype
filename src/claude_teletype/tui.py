@@ -647,16 +647,26 @@ class TeletypeApp(App):
         """Thread worker: render a document via the shared pipeline.
 
         Thin adapter over ``render_document`` (PIPE-01 — one-place edit).
-        The pipeline's default sleep_fn is fine here: it sleeps this worker
-        thread, not the event loop. All UI calls go through call_from_thread.
-        Never closes ``self.printer`` (persistent TUI driver; the shared core
-        doesn't close it either, per the 33-01 contract).
+        Injects a cancellable sleep_fn (the pipeline docstring's seam
+        contract, WR-02): ``worker.cancelled_event.wait`` sleeps this
+        worker thread but returns early on cancel, so Escape latency is
+        bounded instead of a full uninterruptible char-sleep. All UI calls
+        go through call_from_thread. Never closes ``self.printer``
+        (persistent TUI driver; the shared core doesn't close it either,
+        per the 33-01 contract).
         """
         from textual.worker import get_current_worker
 
         from claude_teletype.printing.pipeline import PrintCancelled, render_document
 
         worker = get_current_worker()
+
+        def _cancellable_sleep(seconds: float) -> None:
+            # Worker.cancel() sets cancelled_event, so wait() doubles as an
+            # interruptible sleep; the pipeline's next cancel_check then
+            # raises PrintCancelled (WR-02).
+            worker.cancelled_event.wait(seconds)
+
         try:
             try:
                 render_document(
@@ -668,6 +678,7 @@ class TeletypeApp(App):
                     no_audio=self.no_audio,
                     transcript_write=self._transcript_write,
                     source_path=path,
+                    sleep_fn=_cancellable_sleep,
                     cancel_check=lambda: worker.is_cancelled,
                 )
             except PrintCancelled:
