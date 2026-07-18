@@ -2,6 +2,44 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1.6 — Printer Fleet & Standalone
+
+**Shipped:** 2026-06-13 (archived 2026-07-18)
+**Phases:** 4 (27–30) | **Plans:** 6 GSD-tracked (Phase 27) + reactive execution (Phases 28–30)
+
+### What Was Built
+- Package refactor into `printing/`, `rendering/`, `screens/` (move-with-shim, shims later deleted), `ProfileRegistry` + `catalog/` modules, `SetupDecision` enum, device-by-identity USB selection
+- Two-tier fleet detection: `BRIDGE_CHIPS` registry separate from profiles, `classify()` NATIVE_PRINTER/BRIDGE/UNKNOWN, manual-picker routing for bridges, serial-only warnings, kernel-claim → CUPS fallback
+- Verified-from-manual family profiles (escp2, epson-tm, enriched ppds, OKI emulation + native, star-line, Panasonic/Tally aliases) with codepage/init sequences; DIR-01 codepage formalization
+- Standalone macOS `.app`: PyInstaller onedir spec, frozen libusb backend seam, `make_app.py`, 10-check `smoke_frozen.sh`
+
+### What Worked
+- Strict phase ordering (refactor → detection → catalog → packaging) held: the module graph was stable before PyInstaller froze it
+- Move-with-shim refactor kept ~700 tests green at every step, exactly as planned
+- Leave-empty-when-unsure byte rule extended cleanly to nine new families (uncited ppds ESC @ was *removed* on verification — the rule ran in both directions)
+- Code-verification-at-close recovered an untracked milestone: 27/29 requirements confirmed DONE from code evidence alone
+
+### What Was Inefficient
+- Phases 28–30 executed reactively in a single overnight run with zero GSD artifacts — close required forensic reconstruction from git log and a code sweep
+- v1.5's lesson ("close milestones promptly") repeated: 5-week gap between shipping (06-13) and archiving (07-18), STATE.md frozen at "Phase 27, plan 1 of 6" the whole time
+- REF-06 (code-review pass) was planned in 27-CONTEXT.md but silently dropped during reactive execution — gates that live only in planning docs don't survive off-process runs
+
+### Patterns Established
+- `BRIDGE_CHIPS` curated registry pattern: ambiguous-VID hardware never auto-selected, only advisory
+- `SetupDecision` enum replacing overloaded None sentinels (explicit-states-over-sentinels)
+- Frozen-app seam pattern: `usb_backend.get_frozen_backend()` fail-loud libusb resolution for PyInstaller bundles
+
+### Key Lessons
+1. Reactive/off-process execution works for velocity but drops process gates (REF-06) — if skipping GSD tracking, carry a checklist of the phase's non-code deliverables
+2. A code-verification sweep at close can substitute for missing SUMMARY artifacts, but only for code-shaped requirements; process requirements (reviews, clean-machine runs) leave no code evidence and must be tracked explicitly
+3. Milestone close latency is now a repeated miss (v1.5: 6 weeks, v1.6: 5 weeks) — close immediately after the ship commit, not at next-milestone time
+
+### Cost Observations
+- Execution: 29 commits in ~11 hours wall-clock (2026-06-12 20:06 → 06-13 06:53)
+- Tests: 700 → 905 (+205) with zero regressions
+
+---
+
 ## Milestone: v1.5 — Markdown File Printing
 
 **Shipped:** 2026-04-28 (archived 2026-06-12)
@@ -55,6 +93,7 @@
 | v1.3 | 2 | 2 | First dedicated debt-cleanup milestone |
 | v1.4 | 3 | 6 | Full-screen gate pattern (Screen over ModalScreen) locked |
 | v1.5 | 6 | 14 | Locked-contract plan handoffs; explicit TDD RED→GREEN evidence |
+| v1.6 | 4 | 6+reactive | First reactive (off-GSD) execution; code-verification-at-close |
 
 ### Cumulative Quality
 
@@ -63,6 +102,7 @@
 | v1.3 | 430 | 3,381 | 5,709 |
 | v1.4 | 479 | 4,646 | 6,510 |
 | v1.5 | 700 | 6,647 | 10,201 |
+| v1.6 | 905 | 7,901 | 12,925 |
 
 ### Top Lessons (Verified Across Milestones)
 

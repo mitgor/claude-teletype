@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Printer Fleet & Standalone
-status: executing
+status: Awaiting next milestone
 stopped_at: v1.6 roadmap created (Phases 27-30)
-last_updated: "2026-06-12T19:28:04.342Z"
-last_activity: 2026-06-12 -- Phase 27 execution started
+last_updated: "2026-07-18T14:31:33.560Z"
+last_activity: 2026-07-18 — Milestone v1.6 completed and archived
 progress:
   total_phases: 4
   completed_phases: 0
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-12)
+See: .planning/PROJECT.md (updated 2026-07-18)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Phase 27 — refactor-package-split-registry-detection-seam
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 27 (refactor-package-split-registry-detection-seam) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 27
-Last activity: 2026-06-12 -- Phase 27 execution started
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-18 — Milestone v1.6 completed and archived
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Last activity: 2026-06-12 -- Phase 27 execution started
 | v1.3 Tech Debt Cleanup | 2 | 2 | 8min | 2026-02-20 |
 | v1.4 Printer Setup TUI | 3 | 6 | 15min | 2026-04-03 |
 | v1.5 Markdown File Printing | 6 | 14 | ~3hr | 2026-04-28 (shipped) |
+| v1.6 Printer Fleet & Standalone | 4 | 6+reactive | ~11hr | 2026-06-12 → 2026-06-13 (shipped) |
 
 ## Accumulated Context
 
@@ -83,11 +84,14 @@ Carry-forward still in force:
 
 ### Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-06-12:
+Items acknowledged and deferred at milestone close (v1.5 on 2026-06-12; v1.6 on 2026-07-18):
 
 | Category | Item | Status |
 |----------|------|--------|
 | verification_gap | Phase 22: 22-VERIFICATION.md | human_needed |
+| requirement_gap | REF-06: code-review pass over refactored codebase (no findings artifact) | open — run /gsd:code-review |
+| requirement_gap | PKG-03: frozen .app verified on a true clean machine (smoke_frozen.sh is a headless approximation) | human_needed |
+| verification_gap | DIR-04: GET_PORT_STATUS readback spec-tested with mocks only | human_needed |
 
 Detail: real-hardware verification of bold/italic/underline ESC sequences on physical printers (Epson FX/LQ/LX, IBM PPDS, HP PCL, OKI ML 3390 in FX-2 mode, Citizen CT-S2000, Juki 6100/2200 underline). All automated spec checks pass (10/10); only physical hardware can confirm acceptance.
 
@@ -97,21 +101,21 @@ None.
 
 ### Blockers/Concerns
 
-Carried into v1.6:
+Carried into next milestone:
 
-- Real-hardware verification of style ESC sequences (see Deferred Items above) — includes Juki underline ESC -1/-0 on the physical 6100/2200.
+- Real-hardware verification of style ESC sequences (see Deferred Items above) — includes Juki underline ESC -1/-0 on the physical 6100/2200, plus all new v1.6 families.
 - Per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode is fully trusted.
 - Juki 9100 control codes still extrapolated from 6100 (carried since v1.4).
-- Post-v1.5 codepage/transliteration work (commits d70aded, 7ccdff5) — now formalized as DIR-01 in Phase 27.
-- Multiple-printer selection scope (TBD): the REF-03 device-index fix enables selecting among several USB printers; clarify during Phase 27 planning whether full multi-printer selection is in v1.6 scope or just the index-bug fix.
+- Bridge-chip interface-class behavior (CH341 parallel: class 7 vs vendor-specific) unverified — needs real CH341 + `lsusb -v`.
+- Clean-machine run of the frozen `.app` (PKG-03) and the REF-06 code-review pass remain open (see Deferred Items).
 
 ## Session Continuity
 
-Last session: 2026-06-12
-Stopped at: v1.6 roadmap created (Phases 27-30)
+Last session: 2026-07-18
+Stopped at: v1.6 completed and archived
 Resume file: None
-Next action: Plan Phase 27 with /gsd:plan-phase 27
+Next action: Start next milestone with /gsd-new-milestone
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd:plan-phase 27`
+- Start the next milestone with /gsd-new-milestone

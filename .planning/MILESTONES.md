@@ -1,5 +1,31 @@
 # Milestones
 
+## v1.6 Printer Fleet & Standalone (Shipped: 2026-07-18)
+
+**Phases:** 27-30 (4 phases; Phase 27 GSD-tracked with 6 plans, Phases 28-30 executed reactively outside GSD tracking)
+**Timeline:** 2026-06-12 → 2026-06-13 (29 commits)
+**Code:** +8,303/−1,688 lines across 82 files, 905 tests passing (7,901 LOC source + 12,925 LOC tests)
+**Requirements:** 27/29 complete (REF-06, PKG-03 deferred — see Known Gaps)
+
+**Key accomplishments:**
+
+- Package refactor: printer.py/profiles.py split into `printing/` (drivers, discovery, selection, detection, registry), plus `rendering/` and `screens/` packages — shims used during the move, then deleted; full suite green at every step
+- `ProfileRegistry` + per-family `catalog/` modules (epson, oki, star) replace the flat `BUILTIN_PROFILES` dict; `SetupDecision` enum replaces the `discovery=None` dual-meaning sentinel; USB driver selection by device identity
+- Two-tier fleet detection: curated `BRIDGE_CHIPS` registry (CH341/Prolific/MosChip/FTDI) kept separate from printer profiles, `classify()` yielding NATIVE_PRINTER/BRIDGE/UNKNOWN, bridges routed to the manual family picker, serial-only chip warnings, kernel-claim → CUPS fallback
+- Per-family profile catalog verified-from-manual: escp2 (ESC/P2), epson-tm (ESC/POS), enriched ppds, OKI emulation aliases + opt-in native MICROLINE, star-line, Panasonic KX-P / Tally aliases — undocumented capabilities left empty, `human_needed` where uncited
+- DIR-01 codepage formalization: `codepage_command`/`text_codec`/`text_fallback` tracked, test-covered, custom-TOML supported; per-language default codepages shipped
+- Standalone macOS packaging: checked-in PyInstaller onedir spec bundling libusb (frozen `usb_backend` seam), PortAudio, Textual data; `make_app.py` assembler + 10-check `smoke_frozen.sh`; graceful no-USB degradation
+- Unconditional `diagnose` fleet matrix — per-device classification and per-profile capability summary; GET_PORT_STATUS readback on native USB, absent-not-broken on bridges
+
+### Known Gaps
+
+- **REF-06**: code-review pass over the refactored codebase never produced a findings artifact — run `/gsd:code-review` to close
+- **PKG-03**: frozen `.app` verified only via headless smoke script; true clean-machine (no Homebrew/dev Python) run still manual `human_needed`
+
+Known deferred items at close: 4 (see STATE.md Deferred Items)
+
+---
+
 ## v1.5 Markdown File Printing (Shipped: 2026-04-28, archived 2026-06-12)
 
 **Phases:** 21-26 (6 phases, 14 plans, 28 tasks)

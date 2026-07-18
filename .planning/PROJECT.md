@@ -70,18 +70,21 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ Cancel-safe printing — style codes always closed via `renderer.close()` on abort — v1.5
 - ✓ Printed files logged in session transcript as plain text (no ESC bytes) — v1.5
 
+- ✓ Package refactor into `printing/`, `rendering/`, `screens/` sub-packages via move-with-shim (shims deleted after migration) — v1.6
+- ✓ `ProfileRegistry` + per-family `catalog/` modules replacing flat `BUILTIN_PROFILES` dict — v1.6
+- ✓ USB driver selection by device identity; `SetupDecision` enum replacing `discovery=None` dual-meaning sentinel — v1.6
+- ✓ Curated `BRIDGE_CHIPS` registry (CH341/Prolific/MosChip/FTDI) kept separate from printer profiles — v1.6
+- ✓ Discovery `classify()` yielding NATIVE_PRINTER / BRIDGE / UNKNOWN; bridges route to manual family picker, never auto-guess — v1.6
+- ✓ Serial-only chip (CH340) warning; kernel-claimed printer falls back to CUPS with clear message — v1.6
+- ✓ Expanded native VID:PID matrix (Epson, OKI, Star, Lexmark, IBM, Citizen) auto-suggesting profiles — v1.6
+- ✓ Per-family profiles verified-from-manual: escp2, epson-tm (ESC/POS), enriched ppds, OKI emulation + native, star-line, Panasonic/Tally aliases — v1.6
+- ✓ Codepage support formalized: `codepage_command`/`text_codec`/`text_fallback` tracked, tested, custom-TOML settable; per-language codepage defaults — v1.6
+- ✓ `diagnose` fleet matrix: per-device classification + per-profile capability summary; GET_PORT_STATUS readback (absent-not-broken on bridges) — v1.6
+- ✓ Standalone macOS `.app` via checked-in PyInstaller onedir spec bundling libusb/PortAudio/Textual data, with `make_app.py` + `smoke_frozen.sh` — v1.6
+
 ### Active
 
-## Current Milestone: v1.6 Printer Fleet & Standalone
-
-**Goal:** Detect and directly drive the broad universe of USB dot-matrix printers — vintage parallel units via USB-LPT bridges and modern native-USB models — with researched per-family profiles and richer direct-mode control, on a refactored codebase that ships as a standalone compiled app.
-
-**Target features:**
-- Deep-researched USB detection matrix: VID:PIDs for major impact-printer families (Epson FX/LQ/LX/TM, OKI Microline, Star, Citizen, Panasonic KX-P, Tally/TallyGenicom, IBM/Lexmark Proprinter, Seiko) and USB-LPT bridge chips (CH340/CH341, Prolific, FTDI)
-- New built-in profiles for those families with verified control codes (conservative leave-empty rule where undocumented)
-- Richer direct-mode profile fields: init/reset/status sequences, paper handling, codepage commands as first-class data — formalizing the untracked `codepage_command`/`text_codec`/`text_fallback` work into tracked requirements
-- Code refactoring: known tech-debt list (USB re-discovery, discovery=None sentinel, cli.py duplication), module reorganization into packages, driver/profile architecture for the expanded profile set, plus code-review findings
-- Standalone app compilation via PyInstaller (macOS primary, Linux bonus)
+(None — next milestone not yet defined)
 
 ### Out of Scope
 
@@ -93,23 +96,23 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.5 shipped (2026-04-28, archived 2026-06-12). 6,647 LOC source + 10,201 LOC tests (Python). 700 tests passing. Post-v1.5 untracked additions: codepage support (`codepage_command` + `text_codec`) and `text_fallback` transliteration for non-ASCII printing, with CP866/CP1125 Cyrillic example documents.
+**Current state:** v1.6 shipped (2026-06-13, archived 2026-07-18). 7,901 LOC source + 12,925 LOC tests (Python). 905 tests passing. Phases 28-30 were executed reactively outside GSD phase tracking (commits only, no plan/summary artifacts); requirements were code-verified at close — 27/29 complete, REF-06 and PKG-03 deferred.
 
 **Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), printer.py (CUPS/File/Null/Profile/USB drivers + discovery dataclasses + driver factory), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), profiles.py (printer profile registry + USB auto-detect), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), typewriter_screen.py (keystroke-to-paper mode), printer_setup_screen.py (interactive printer setup), settings_screen.py (TUI settings modal), diagnose.py (CLI diagnostic command), warnings.py (config conflict detection + startup warnings), markdown.py (streaming markdown renderer with dual text/style channels), file_picker_screen.py (TUI markdown file picker), speed_mode_screen.py (per-print speed dialog).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), warnings.py (config conflict detection), diagnose.py (CLI diagnostic + fleet matrix), setup_decision.py (SetupDecision enum), usb_backend.py (frozen libusb backend seam), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), printing/ (drivers, discovery, selection, detection + BRIDGE_CHIPS, registry/ProfileRegistry, profiles, catalog/{epson,oki,star}), rendering/ (streaming markdown renderer), screens/ (typewriter, printer_setup, settings, file_picker, speed_mode), packaging/ (PyInstaller spec, entry.py, make_app.py, smoke_frozen.sh).
 
 **Known tech debt:**
 - `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
-- Pre-existing test_cli_teletype_passes_no_profile failure (USB auto-detection test)
 - Juki 9100 control codes extrapolated from 6100 (need hardware verification)
-- create_driver_for_selection() for USB re-discovers by class, not by index (single printer assumed)
-- discovery=None sentinel carries two meanings (saved-match and device-override skip)
-- Style ESC sequences spec-verified only — real-hardware confirmation pending on all profile families (Phase 22 verification `human_needed`)
+- Style ESC sequences spec-verified only — real-hardware confirmation pending on all profile families (`human_needed`, incl. new v1.6 families)
 - Per-profile `buffer_bytes` defaults unvalidated on real hardware (Juki, Epson) — instant mode trust pending
 - WordWrapper strips 4-space code-block indent (content survives, visual indent lost)
 - Table cells truncate rather than wrap on narrow profiles (Citizen 42-col thermal)
-- Codepage/transliteration features (commits d70aded, 7ccdff5) landed outside GSD tracking — no requirements or phase artifacts
+- REF-06 open: no code-review findings artifact for the v1.6 refactor — run `/gsd:code-review`
+- PKG-03 open: frozen `.app` verified via headless smoke script only; true clean-machine run pending (`human_needed`)
+- GET_PORT_STATUS readback spec-tested with mocks only; bridge-chip interface-class behavior (CH341 class 7 vs vendor-specific) unverified on real hardware
+- Phases 28-30 executed reactively — no per-phase PLAN/SUMMARY artifacts (history lives in git log + MILESTONES.md)
 
 ## Constraints
 
@@ -186,4 +189,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — v1.6 milestone started*
+*Last updated: 2026-07-18 after v1.6 milestone*
