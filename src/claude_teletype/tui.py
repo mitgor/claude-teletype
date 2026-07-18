@@ -452,6 +452,17 @@ class TeletypeApp(App):
 
     def action_open_settings(self) -> None:
         """Open the settings modal to edit runtime configuration."""
+        # T-33-07 guard (WR-01): a profile hot-swap mutates the driver
+        # (swap_profile clears init state / rebinds self.printer) under a
+        # writer thread — refuse the whole screen while any driver writer
+        # (print worker, chat stream, typewriter) is active.
+        if self._print_active() or self._driver_busy():
+            self.notify(
+                "Printer busy — finish or cancel the current output first",
+                severity="warning",
+            )
+            return
+
         from claude_teletype.screens.settings import SettingsScreen
 
         self.push_screen(

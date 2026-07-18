@@ -830,6 +830,40 @@ async def test_chat_refused_while_print_active(tmp_path):
             assert stream_calls == ["hi"]
 
 
+async def test_settings_refused_while_print_active(tmp_path):
+    """WR-01: ctrl+comma refuses while a print is in flight — a profile
+    hot-swap would mutate the driver under the writer thread."""
+    from claude_teletype.screens.settings import SettingsScreen
+
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+    seen: dict = {"flipped": False}
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=_slow_render(seen),
+    ):
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.05)
+
+            await pilot.press("ctrl+comma")
+            await pilot.pause()
+            assert not isinstance(app.screen, SettingsScreen)
+            assert any("Printer busy" in m for m in notified)
+
+            await pilot.press("escape")
+            await _wait_workers(app)
+
+            # Guard clears once the print thread really exits.
+            await pilot.press("ctrl+comma")
+            await pilot.pause()
+            assert isinstance(app.screen, SettingsScreen)
+
+
 async def test_print_refused_while_stream_active(tmp_path):
     """T-33-07: _run_print_pipeline refuses while a non-print (chat stream)
     worker is unfinished."""
