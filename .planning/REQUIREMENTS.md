@@ -23,9 +23,9 @@ Requirements for the **Review Hardening** milestone. Every requirement traces to
 
 ### Print Pipeline
 
-- [ ] **PIPE-01**: One shared print-pipeline implementation serves both the CLI `print` subcommand and the TUI file-print path, with identical cancel-safety (`finally: renderer.close()`) in both (ARCH-01)
-- [ ] **PIPE-02**: User can actually cancel an in-TUI print with escape — pacing no longer blocks the Textual event loop with synchronous `time.sleep` (WR-01)
-- [ ] **PIPE-03**: Picker-mode printing never invokes a blocking `input()` prompt while a Textual app is running (WR-04)
+- [x] **PIPE-01**: One shared print-pipeline implementation serves both the CLI `print` subcommand and the TUI file-print path, with identical cancel-safety (`finally: renderer.close()`) in both (ARCH-01)
+- [x] **PIPE-02**: User can actually cancel an in-TUI print with escape — pacing no longer blocks the Textual event loop with synchronous `time.sleep` (WR-01)
+- [x] **PIPE-03**: Picker-mode printing never invokes a blocking `input()` prompt while a Textual app is running (WR-04)
 
 ### Architecture Cleanup
 
@@ -73,9 +73,9 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | FLOW-02 | Phase 32 | Complete |
 | FLOW-03 | Phase 32 | Complete |
 | FLOW-04 | Phase 32 | Complete |
-| PIPE-01 | Phase 33 | Pending |
-| PIPE-02 | Phase 33 | Pending |
-| PIPE-03 | Phase 33 | Pending |
+| PIPE-01 | Phase 33 | Complete |
+| PIPE-02 | Phase 33 | Complete |
+| PIPE-03 | Phase 33 | Complete |
 | ARCH-CLEAN-01 | Phase 34 | Pending |
 | ARCH-CLEAN-02 | Phase 34 | Pending |
 | ARCH-CLEAN-03 | Phase 34 | Pending |

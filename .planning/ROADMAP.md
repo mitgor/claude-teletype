@@ -209,5 +209,5 @@ Plans:
 | 30. Standalone macOS Packaging | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 33. Shared Print Pipeline | v1.7 | 2/2 | Complete   | 2026-07-18 |
+| 33. Shared Print Pipeline | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |
