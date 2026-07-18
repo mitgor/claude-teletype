@@ -388,6 +388,85 @@ async def test_usb_entry_cups_radio_no_enabled_queue_refuses_dismiss():
         assert "No enabled CUPS queue" in combined
 
 
+# --- WR-05: frozen guard + cwd pinning for Install USB Support ---
+
+
+@pytest.mark.asyncio
+async def test_frozen_hides_install_row_even_without_pyusb():
+    """WR-05: sys.frozen truthy → #install-row hidden despite missing pyusb."""
+    import sys as _sys
+
+    with patch.object(_sys, "frozen", True, create=True):
+        app = SetupTestApp(discovery=DISCOVERY_CUPS_ONLY)
+        async with app.run_test(size=(80, 40)) as pilot:
+            install_row = app.screen.query_one("#install-row")
+            assert install_row.display is False
+            log_widget = app.screen.query_one("#diagnostics-log", Log)
+            combined = "\n".join(str(line) for line in log_widget.lines)
+            assert "not bundled" in combined
+
+
+@pytest.mark.asyncio
+async def test_frozen_install_refuses_and_spawns_nothing():
+    """WR-05: frozen invocation logs a refusal and never spawns a subprocess."""
+    import sys as _sys
+
+    app = SetupTestApp(discovery=DISCOVERY_CUPS_ONLY)
+    async with app.run_test(size=(80, 40)) as pilot:
+        with patch.object(_sys, "frozen", True, create=True), \
+             patch("shutil.which", return_value="/fake/uv"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec:
+            app.screen._install_pyusb()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        mock_exec.assert_not_called()
+        log_widget = app.screen.query_one("#diagnostics-log", Log)
+        combined = "\n".join(str(line) for line in log_widget.lines)
+        assert "Cannot install USB support inside the packaged app" in combined
+
+
+@pytest.mark.asyncio
+async def test_install_pins_cwd_to_project_root(tmp_path):
+    """WR-05: non-frozen install passes cwd=<dir containing pyproject.toml>."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    proc = MagicMock()
+    proc.communicate = AsyncMock(return_value=(b"", b"boom"))
+    proc.returncode = 1  # failure path avoids re-discovery side effects
+
+    app = SetupTestApp(discovery=DISCOVERY_CUPS_ONLY)
+    async with app.run_test(size=(80, 40)) as pilot:
+        with patch(
+            "claude_teletype.screens.printer_setup._project_root",
+            return_value=tmp_path,
+        ), patch("shutil.which", return_value="/fake/uv"), \
+             patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
+            app.screen._install_pyusb()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args.kwargs["cwd"] == str(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_install_refuses_when_no_pyproject_found():
+    """WR-05: no pyproject.toml findable → refusal logged, nothing spawned."""
+    app = SetupTestApp(discovery=DISCOVERY_CUPS_ONLY)
+    async with app.run_test(size=(80, 40)) as pilot:
+        with patch(
+            "claude_teletype.screens.printer_setup._project_root",
+            return_value=None,
+        ), patch("shutil.which", return_value="/fake/uv"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec:
+            app.screen._install_pyusb()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        mock_exec.assert_not_called()
+        log_widget = app.screen.query_one("#diagnostics-log", Log)
+        combined = "\n".join(str(line) for line in log_widget.lines)
+        assert "Cannot locate the project's pyproject.toml" in combined
+
+
 @pytest.mark.asyncio
 async def test_plain_cups_entry_unchanged():
     """CR-03 negative: plain CUPS entry keeps entry['cups_info'].name."""
