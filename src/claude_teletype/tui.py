@@ -819,6 +819,12 @@ class TeletypeApp(App):
         old_val = self._prev_input_value
         self._prev_input_value = new_val
 
+        # T-33-07: the print worker owns the driver — skip the live echo
+        # while a print is in flight (tracking above stays consistent so
+        # typing after the print doesn't mis-echo a stale diff).
+        if self._print_active():
+            return
+
         if len(new_val) > len(old_val) and new_val[: len(old_val)] == old_val:
             # Characters added at end (normal typing or paste)
             if not old_val:
