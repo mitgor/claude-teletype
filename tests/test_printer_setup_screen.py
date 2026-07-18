@@ -304,3 +304,99 @@ def test_match_profile_by_vid_pid_removed():
     """Done-when pin: the hand-rolled VID:PID matcher is gone — the
     screen routes purely on Classification."""
     assert not hasattr(PrinterSetupScreen, "_match_profile_by_vid_pid")
+
+
+# --- CR-03: CUPS queue resolution for USB entries in _on_connect ---
+
+from textual.widgets import RadioButton  # noqa: E402
+
+USB_WITH_SERIAL = UsbDeviceInfo(
+    vendor_id=0x1A86, product_id=0x7584, product_name="Juki 6100", serial="SER123"
+)
+CUPS_DISABLED = CupsPrinterInfo(name="Dead_Queue", uri="usb://dead", enabled=False)
+CUPS_ENABLED_OTHER = CupsPrinterInfo(name="Other_Queue", uri="usb://other", enabled=True)
+CUPS_SERIAL_MATCH = CupsPrinterInfo(
+    name="Match_Queue", uri="usb://match", serial="SER123", enabled=True
+)
+
+
+async def _select_usb_then_cups_radio(app: App, pilot) -> None:
+    """Select the USB entry (index 0), then flip to the CUPS radio —
+    the kernel-owns recommendation path, minus the darwin-only probe."""
+    await _select_device(app, pilot, index=0)
+    radio_cups = app.screen.query_one("#radio-cups", RadioButton)
+    radio_cups.value = True
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_usb_entry_cups_radio_resolves_serial_matched_queue():
+    """CR-03: USB entry + CUPS radio dismisses with the serial-matched
+    enabled queue's name (serial match wins over list order)."""
+    discovery = DiscoveryResult(
+        pyusb_available=True,
+        usb_devices=[USB_WITH_SERIAL],
+        cups_printers=[CUPS_ENABLED_OTHER, CUPS_SERIAL_MATCH],
+    )
+    app = SetupTestApp(discovery=discovery)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await _select_usb_then_cups_radio(app, pilot)
+        await pilot.click("#connect-btn")
+        await pilot.pause()
+        result = app.applied_result
+        assert result is not None and result != "NOT_SET"
+        assert result.connection_type == "cups"
+        assert result.cups_printer_name == "Match_Queue"
+        assert result.device_index == 0
+
+
+@pytest.mark.asyncio
+async def test_usb_entry_cups_radio_falls_back_to_first_enabled_queue():
+    """CR-03: no serial match → first ENABLED queue wins (disabled skipped)."""
+    discovery = DiscoveryResult(
+        pyusb_available=True,
+        usb_devices=[USB_WITH_SERIAL],
+        cups_printers=[CUPS_DISABLED, CUPS_ENABLED_OTHER],
+    )
+    app = SetupTestApp(discovery=discovery)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await _select_usb_then_cups_radio(app, pilot)
+        await pilot.click("#connect-btn")
+        await pilot.pause()
+        result = app.applied_result
+        assert result is not None and result != "NOT_SET"
+        assert result.connection_type == "cups"
+        assert result.cups_printer_name == "Other_Queue"
+
+
+@pytest.mark.asyncio
+async def test_usb_entry_cups_radio_no_enabled_queue_refuses_dismiss():
+    """CR-03: zero enabled CUPS queues → no dismiss, error in diagnostics."""
+    discovery = DiscoveryResult(
+        pyusb_available=True,
+        usb_devices=[USB_WITH_SERIAL],
+        cups_printers=[CUPS_DISABLED],
+    )
+    app = SetupTestApp(discovery=discovery)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await _select_usb_then_cups_radio(app, pilot)
+        await pilot.click("#connect-btn")
+        await pilot.pause()
+        assert app.applied_result == "NOT_SET"  # screen still up
+        log_widget = app.screen.query_one("#diagnostics-log", Log)
+        combined = "\n".join(str(line) for line in log_widget.lines)
+        assert "No enabled CUPS queue" in combined
+
+
+@pytest.mark.asyncio
+async def test_plain_cups_entry_unchanged():
+    """CR-03 negative: plain CUPS entry keeps entry['cups_info'].name."""
+    app = SetupTestApp(discovery=DISCOVERY_BOTH)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await _select_device(app, pilot, index=1)  # the CUPS entry
+        await pilot.click("#connect-btn")
+        await pilot.pause()
+        result = app.applied_result
+        assert result is not None and result != "NOT_SET"
+        assert result.connection_type == "cups"
+        assert result.cups_printer_name == "HP_LaserJet"
