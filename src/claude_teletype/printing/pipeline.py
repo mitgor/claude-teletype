@@ -56,7 +56,7 @@ def render_document(
     no_audio: bool = True,
     transcript_write: Callable[[str], None] | None = None,
     source_path: Path | None = None,
-    sleep_fn: Callable[[float], None] = time.sleep,
+    sleep_fn: Callable[[float], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> None:
     """Render markdown ``text`` through ``driver`` — the one shared pipeline.
@@ -111,6 +111,10 @@ def render_document(
 
         base_delay = (base_delay_ms or 0.0) / 1000.0
         bell_fn = (lambda ch: None) if no_audio else make_bell_output()
+        if sleep_fn is None:
+            # Resolved late (not as an early-bound default) so tests that
+            # patch time.sleep still intercept the sync CLI pacing path.
+            sleep_fn = time.sleep
 
         def text_dest(char: str) -> None:
             driver.write(char)

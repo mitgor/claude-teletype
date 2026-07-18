@@ -8,9 +8,9 @@ that pushes Phase 24's FilePickerScreen and routes the result through
 
 These tests use Typer's CliRunner (same pattern as tests/test_cli.py).
 
-Patch-target convention: ``_render_markdown_to_driver`` imports its narrow
-deps (``MarkdownRenderer``, ``WordWrapper``, ``discover_printer``) LOCALLY
-inside the function body. Patches must therefore target the SOURCE modules
+Patch-target convention: the shared pipeline (``printing/pipeline.py``)
+and the CLI adapters import their narrow deps LOCALLY inside function
+bodies. Patches must therefore target the SOURCE modules
 (e.g., ``claude_teletype.printing.selection.discover_printer``), NOT
 ``claude_teletype.cli.discover_printer``. The picker factory
 ``_make_markdown_picker_app`` is patched at ``claude_teletype.cli.``
@@ -276,15 +276,13 @@ class TestPrintRenderingPipeline:
         config = TeletypeConfig()
 
         parent = MagicMock()
-        with patch("claude_teletype.printing.selection.discover_printer") as mock_disc, \
-                patch(
+        with patch(
                     "claude_teletype.rendering.wordwrap.WordWrapper",
                 ) as mock_wrap_cls, \
                 patch(
                     "claude_teletype.rendering.markdown.MarkdownRenderer",
                 ) as mock_render_cls:
             mock_driver = _make_mock_driver()
-            mock_disc.return_value = mock_driver
             mock_wrap = MagicMock()
             mock_wrap_cls.return_value = mock_wrap
             mock_render = MagicMock()
@@ -293,7 +291,7 @@ class TestPrintRenderingPipeline:
             parent.attach_mock(mock_wrap, "wrapper")
             parent.attach_mock(mock_driver, "driver")
 
-            rc = _render_markdown_to_driver(md, config, {}, None)
+            rc = _render_markdown_to_driver(md, config, None, mock_driver)
 
         assert rc == 0
         # Order: renderer.render -> wrapper.flush -> driver.end_response -> driver.close
@@ -324,11 +322,7 @@ class TestPrintRenderingPipeline:
         config = TeletypeConfig()
         # Driver WITHOUT end_response (NullPrinterDriver-shaped)
         mock_driver = _make_mock_driver(with_end_response=False)
-        with patch(
-            "claude_teletype.printing.selection.discover_printer",
-            return_value=mock_driver,
-        ):
-            rc = _render_markdown_to_driver(md, config, {}, None)
+        rc = _render_markdown_to_driver(md, config, None, mock_driver)
 
         assert rc == 0  # no crash
         mock_driver.close.assert_called_once()
@@ -343,13 +337,13 @@ class TestPrintRenderingPipeline:
         bad_path = tmp_path / "doesnt_matter.md"
         # Don't create the file -- read_text raises FileNotFoundError
         config = TeletypeConfig()
-        with patch(
-            "claude_teletype.printing.selection.discover_printer",
-        ) as mock_disc:
-            rc = _render_markdown_to_driver(bad_path, config, {}, None)
+        driver = _make_mock_driver()
+        rc = _render_markdown_to_driver(bad_path, config, None, driver)
         assert rc == 1
-        # Driver must not have been opened on read failure (read happens first)
-        mock_disc.assert_not_called()
+        # Adapter owns the driver: even on read failure the finally closes it.
+        driver.close.assert_called_once()
+        # Nothing was rendered to the driver.
+        driver.write.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +425,6 @@ class TestPrintCli02PickerMode:
 
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
-            all_profiles={},
             resolved_profile=None,
             root=None,
         )
@@ -452,26 +445,30 @@ class TestPrintCli02PickerMode:
         cfg = TeletypeConfig()
         app_inst = _make_markdown_picker_app(
             config=cfg,
-            all_profiles={},
             resolved_profile=None,
             root=None,
         )
         md = tmp_path / "doc.md"
         md.write_text("# Hi\n")
 
+        mock_driver = _make_mock_driver()
         with patch(
             "claude_teletype.cli._render_markdown_to_driver",
             return_value=0,
-        ) as mock_render, patch.object(app_inst, "exit") as mock_exit:
+        ) as mock_render, patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=mock_driver,
+        ), patch.object(app_inst, "exit") as mock_exit:
             app_inst._on_pick(md)
 
         mock_render.assert_called_once()
         call_args = mock_render.call_args
         # First positional arg is the path
         assert call_args.args[0] == md
-        # Config + all_profiles + resolved_profile passed through (closure
-        # capture from the factory).
+        # Config + resolved_profile + driver passed through (closure
+        # capture from the factory + local discovery).
         assert call_args.args[1] is cfg
+        assert call_args.args[3] is mock_driver
         mock_exit.assert_called_once()
         assert app_inst._exit_code == 0
 
@@ -482,7 +479,6 @@ class TestPrintCli02PickerMode:
 
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
-            all_profiles={},
             resolved_profile=None,
             root=None,
         )
@@ -501,7 +497,6 @@ class TestPrintCli02PickerMode:
 
         app_inst = _make_markdown_picker_app(
             config=TeletypeConfig(),
-            all_profiles={},
             resolved_profile=None,
             root=None,
         )
@@ -510,6 +505,9 @@ class TestPrintCli02PickerMode:
         with patch(
             "claude_teletype.cli._render_markdown_to_driver",
             return_value=1,
+        ), patch(
+            "claude_teletype.printing.selection.discover_printer",
+            return_value=_make_mock_driver(),
         ), patch.object(app_inst, "exit"):
             app_inst._on_pick(md)
         assert app_inst._exit_code == 1
@@ -567,12 +565,13 @@ class TestPrintCli26SpeedMode:
             delay = 0.0
             no_audio = True
 
-        with patch("claude_teletype.printing.selection.discover_printer") as discover:
-            rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None, speed_mode="garbage",
-            )
-            assert rc == 1
-            discover.assert_not_called()
+        driver = _make_mock_driver()
+        rc = _render_markdown_to_driver(
+            md, FakeConfig(), None, driver, speed_mode="garbage",
+        )
+        assert rc == 1
+        driver.write.assert_not_called()
+        driver.write_bytes.assert_not_called()
 
     def test_instant_mode_routes_style_through_chunk_writes(self, tmp_path):
         """FLOW-04: instant mode splits style writes at profile.buffer_bytes."""
@@ -597,11 +596,9 @@ class TestPrintCli26SpeedMode:
         mock_driver.is_connected = True
         del mock_driver.end_response  # getattr-then-call returns None
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch("claude_teletype.printing.drivers.chunk_writes") as chunker:
+        with patch("claude_teletype.printing.drivers.chunk_writes") as chunker:
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, profile, speed_mode="instant",
+                md, FakeConfig(), profile, mock_driver, speed_mode="instant",
             )
             assert rc == 0
             # chunk_writes called at least once (renderer emits underline ESC seq)
@@ -629,11 +626,9 @@ class TestPrintCli26SpeedMode:
         mock_driver.is_connected = True
         del mock_driver.end_response
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch("time.sleep") as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None, speed_mode="typewriter",
+                md, FakeConfig(), None, mock_driver, speed_mode="typewriter",
             )
             assert rc == 0
             # Per-char sleep was invoked at least once (one per char emitted).
@@ -659,11 +654,9 @@ class TestPrintCli26SpeedMode:
         mock_driver.is_connected = True
         del mock_driver.end_response
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
+        with patch("claude_teletype.audio.make_bell_output") as bell_factory:
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None, speed_mode="typewriter",
+                md, FakeConfig(), None, mock_driver, speed_mode="typewriter",
             )
             assert rc == 0
             # When no_audio, make_bell_output should NOT be called.
@@ -685,12 +678,10 @@ class TestPrintCli26SpeedMode:
         mock_driver.is_connected = True
         del mock_driver.end_response
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch("claude_teletype.audio.make_bell_output") as bell_factory:
+        with patch("claude_teletype.audio.make_bell_output") as bell_factory:
             bell_factory.return_value = lambda ch: None
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None, speed_mode="typewriter",
+                md, FakeConfig(), None, mock_driver, speed_mode="typewriter",
             )
             assert rc == 0
             bell_factory.assert_called_once()
@@ -721,11 +712,9 @@ class TestPrintCli26TranscriptIntegration:
         mock_driver.is_connected = True
         del mock_driver.end_response
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch("claude_teletype.transcript.write_printed_file") as wpf:
+        with patch("claude_teletype.transcript.write_printed_file") as wpf:
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None, transcript_write=None,
+                md, FakeConfig(), None, mock_driver, transcript_write=None,
             )
             assert rc == 0
             wpf.assert_not_called()
@@ -751,21 +740,18 @@ class TestPrintCli26TranscriptIntegration:
         mock_driver.is_connected = True
         del mock_driver.end_response
 
-        with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ):
-            rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, get_profile("escp"),
-                transcript_write=captured.append,
-            )
-            assert rc == 0
-            joined = "".join(captured)
-            # Plain text body has 'bold'
-            assert "bold" in joined
-            # TXN-02: no ESC bytes
-            assert "\x1b" not in joined
-            # TXN-01: header is present
-            assert "Printed file:" in joined
+        rc = _render_markdown_to_driver(
+            md, FakeConfig(), get_profile("escp"), mock_driver,
+            transcript_write=captured.append,
+        )
+        assert rc == 0
+        joined = "".join(captured)
+        # Plain text body has 'bold'
+        assert "bold" in joined
+        # TXN-02: no ESC bytes
+        assert "\x1b" not in joined
+        # TXN-01: header is present
+        assert "Printed file:" in joined
 
     def test_transcript_not_written_on_read_error(self, tmp_path):
         """If the file can't be read, no transcript half-entry is written."""
@@ -779,18 +765,16 @@ class TestPrintCli26TranscriptIntegration:
             no_audio = True
 
         captured: list[str] = []
-        with patch(
-            "claude_teletype.printing.selection.discover_printer",
-        ) as discover:
-            rc = _render_markdown_to_driver(
-                nonexistent, FakeConfig(), {}, None,
-                transcript_write=captured.append,
-            )
-            # File doesn't exist — read_text raises before discover_printer.
-            assert rc == 1
-            discover.assert_not_called()
-            # No transcript header written.
-            assert captured == []
+        driver = _make_mock_driver()
+        rc = _render_markdown_to_driver(
+            nonexistent, FakeConfig(), None, driver,
+            transcript_write=captured.append,
+        )
+        # File doesn't exist — read_text raises before any render.
+        assert rc == 1
+        driver.write.assert_not_called()
+        # No transcript header written.
+        assert captured == []
 
     def test_transcript_write_called_once_per_render(self, tmp_path):
         """TXN-01: write_printed_file invoked exactly once at end of successful render."""
@@ -809,20 +793,18 @@ class TestPrintCli26TranscriptIntegration:
         del mock_driver.end_response
 
         captured: list[str] = []
-        # Patch the SOURCE module reference. _render_markdown_to_driver
-        # imports write_printed_file locally inside the function body, so
-        # patches must hit claude_teletype.transcript (matches the
-        # patch-target convention documented at the top of this file).
+        # Patch the SOURCE module reference. The shared pipeline imports
+        # write_printed_file locally inside the function body, so patches
+        # must hit claude_teletype.transcript (matches the patch-target
+        # convention documented at the top of this file).
         import claude_teletype.transcript as transcript_mod
         real_wpf = transcript_mod.write_printed_file
         with patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=mock_driver,
-        ), patch(
             "claude_teletype.transcript.write_printed_file",
             wraps=real_wpf,
         ) as wpf:
             rc = _render_markdown_to_driver(
-                md, FakeConfig(), {}, None,
+                md, FakeConfig(), None, mock_driver,
                 transcript_write=captured.append,
             )
             assert rc == 0
