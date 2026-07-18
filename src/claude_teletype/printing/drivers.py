@@ -105,7 +105,7 @@ class CupsPrinterDriver:
     def __init__(self, printer_name: str) -> None:
         self._name = printer_name
         self._connected = True
-        self._line_buffer: list[str] = []
+        self._line_buffer: list[bytes] = []
 
     @property
     def is_connected(self) -> bool:
@@ -114,17 +114,17 @@ class CupsPrinterDriver:
     def write(self, char: str) -> None:
         if not self._connected:
             return
-        self._line_buffer.append(char)
+        self._line_buffer.append(char.encode("ascii", errors="replace"))
         if char == "\n":
             self._flush_line()
 
     def _flush_line(self) -> None:
-        line = "".join(self._line_buffer)
+        line = b"".join(self._line_buffer)
         self._line_buffer.clear()
         try:
             subprocess.run(
                 ["lp", "-o", "raw", "-d", self._name],
-                input=line.encode("ascii", errors="replace"),
+                input=line,
                 capture_output=True,
                 timeout=30,
             )
@@ -146,9 +146,8 @@ class CupsPrinterDriver:
             return
         if not data:
             return
-        text = data.decode("ascii", errors="replace")
-        self._line_buffer.append(text)
-        if "\n" in text:
+        self._line_buffer.append(data)
+        if b"\n" in data:
             self._flush_line()
 
     def close(self) -> None:
@@ -245,14 +244,17 @@ class ProfilePrinterDriver:
         self._codepage_sent = False
 
     def _send_raw(self, data: bytes) -> None:
-        """Send raw bytes through the inner driver as a single write.
+        """Send raw bytes through the inner driver as a single transfer.
 
-        Sending ESC sequences atomically prevents the printer from
-        misinterpreting fragmented escape codes (e.g., Juki 6100 drops
-        characters when init/reinit bytes arrive as individual USB transfers).
+        Delivery is via the inner write_bytes channel: one call, one
+        transfer, bytes preserved verbatim (no ASCII round-trip — bytes
+        >= 0x80 in codepage/style sequences must survive). Sending ESC
+        sequences atomically prevents the printer from misinterpreting
+        fragmented escape codes (e.g., Juki 6100 drops characters when
+        init/reinit bytes arrive as individual USB transfers).
         """
         if data:
-            self._inner.write(data.decode("ascii", errors="replace"))
+            self._inner.write_bytes(data)
 
     def _ensure_init(self) -> None:
         if not self._initialized:

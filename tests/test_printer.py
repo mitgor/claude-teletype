@@ -510,12 +510,19 @@ def test_select_printer_retries_on_invalid(mock_input: MagicMock):
 
 
 def _collect_raw(inner) -> bytes:
-    """Collect all bytes written to a mock inner driver.
+    """Collect all bytes written to a mock inner driver, in call order.
 
-    Handles both single-char writes and multi-char writes (atomic ESC
-    sequences sent by _send_raw).
+    Interleaves write() (str, ASCII-encoded) and write_bytes() (raw
+    bytes — the channel _send_raw uses for atomic ESC sequences) so
+    ordering-sensitive assertions like startswith(init) stay valid.
     """
-    return b"".join(c.args[0].encode("ascii") for c in inner.write.call_args_list)
+    out = b""
+    for name, args, _kwargs in inner.mock_calls:
+        if name == "write":
+            out += args[0].encode("ascii")
+        elif name == "write_bytes":
+            out += args[0]
+    return out
 
 
 def test_juki_sends_init_on_first_write():
@@ -1787,9 +1794,9 @@ class TestCodepageSwitching:
         drv, inner = self._make_driver()
         for ch in "Привет, мир! Hello, мир again!":
             drv.write(ch)
-        # Codepage command is sent via _send_raw (str path), so check text_calls
-        joined = "".join(inner.text_calls)
-        assert joined.count("\x1bt\x11") == 1
+        # Codepage command is sent via _send_raw (write_bytes channel)
+        joined = b"".join(inner.byte_calls)
+        assert joined.count(b"\x1bt\x11") == 1
 
     def test_ascii_after_cyrillic_uses_normal_path(self):
         drv, inner = self._make_driver()
