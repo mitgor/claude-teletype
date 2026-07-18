@@ -9,6 +9,7 @@
 - ✅ **v1.4 Printer Setup TUI** - Phases 18-20 (shipped 2026-04-03)
 - ✅ **v1.5 Markdown File Printing** - Phases 21-26 (shipped 2026-04-28)
 - ✅ **v1.6 Printer Fleet & Standalone** - Phases 27-30 (shipped 2026-06-13, archived 2026-07-18)
+- 🚧 **v1.7 Review Hardening** - Phases 31-34 (in progress)
 
 ## Phases
 
@@ -90,6 +91,58 @@ Note: Phases 28-30 ran outside GSD phase tracking — no PLAN/SUMMARY artifacts;
 
 </details>
 
+### v1.7 Review Hardening (In Progress)
+
+- [ ] **Phase 31: Byte Integrity Criticals** - Fix the ASCII round-trip corruptions in both driver paths and the teletype-mode byte defects, locked in by a regression test
+- [ ] **Phase 32: Setup & Detection Flow Fixes** - Repair the kernel-owns → CUPS misroute and the setup/startup contract gaps (registry case, frozen `uv sync`, profile hand-off)
+- [ ] **Phase 33: Shared Print Pipeline** - One cancel-safe pipeline for CLI and TUI printing; escape actually cancels; no blocking `input()` under Textual
+- [ ] **Phase 34: Architecture Cleanup** - Registry as the real seam, one-file-per-family catalog, dead code removed, no private-attribute reach-ins
+
+## Phase Details (v1.7)
+
+### Phase 31: Byte Integrity Criticals
+**Goal**: Every byte a profile declares — codepage commands, style sequences, cp437/cp866 text — reaches the printer verbatim on every driver path, including typewriter mode
+**Depends on**: Nothing (first phase of milestone)
+**Requirements**: BYTE-01, BYTE-02, BYTE-03, BYTE-04
+**Success Criteria** (what must be TRUE):
+  1. User printing with a high-byte profile sequence (e.g. ppds `codepage_command` ending 0xb5) gets those exact bytes on the USB wire — `ProfilePrinterDriver._send_raw` routes through `write_bytes`, never a str round-trip (CR-01)
+  2. User printing cp437/cp866 text over a CUPS queue sees correct glyphs, not `?` — `CupsPrinterDriver.write_bytes` preserves bytes ≥ 0x80 end-to-end (CR-02)
+  3. A regression test round-trips a 0xb5-bearing sequence through both ProfilePrinterDriver and CupsPrinterDriver and fails if any byte is altered
+  4. User in typewriter mode with a high-byte custom profile sees no `UnicodeDecodeError`, reset sequences go out as a single `write_bytes` transfer, and Ctrl-C exits cleanly through the restore/formfeed/reset path (WR-02)
+**Plans**: TBD
+
+### Phase 32: Setup & Detection Flow Fixes
+**Goal**: Setup and smart startup always route the user to the driver and profile they chose — never silently to the simulator, a wrong profile, or a foreign-directory `uv sync`
+**Depends on**: Phase 31 (CUPS driver byte path must be sound before FLOW-01 routes more users onto it)
+**Requirements**: FLOW-01, FLOW-02, FLOW-03, FLOW-04
+**Success Criteria** (what must be TRUE):
+  1. User whose native-USB printer is kernel-claimed and who accepts the recommended CUPS path gets a working CUPS driver with a resolved queue name — never a silent NullPrinterDriver, and the broken empty-ID state is never persisted to config (CR-03)
+  2. User with an uppercase-named custom TOML profile can select it from the setup screen and via `--printer` — `ProfileRegistry` lookups are case-insensitive (WR-03)
+  3. User running the frozen `.app` never sees "Install USB Support" trigger `uv sync` against an arbitrary working directory — install is hidden or guarded when frozen (WR-05)
+  4. Smart startup reconnect restores the saved profile through an explicit `match_saved_printer` parameter — the caller-side `saved_match.profile_name = ...` mutation is gone (ARCH-04)
+**Plans**: TBD
+
+### Phase 33: Shared Print Pipeline
+**Goal**: One print-pipeline implementation serves the CLI `print` subcommand and the TUI file-print path, cancelable mid-render without freezing the app
+**Depends on**: Phase 31 (pipeline consolidation builds on the corrected byte channel)
+**Requirements**: PIPE-01, PIPE-02, PIPE-03
+**Success Criteria** (what must be TRUE):
+  1. A single shared `render_document`-style function drives both CLI and TUI printing, with `finally: renderer.close()` cancel-safety in both paths — a pipeline change is a one-place edit (ARCH-01); PIPE-01 lands before or with the cancel work since it changes the code the cancel fix touches
+  2. User can press escape during an in-TUI paced print and the print stops with printer style state clean — pacing no longer blocks the Textual event loop with synchronous `time.sleep` (WR-01)
+  3. User printing via the picker with multiple CUPS queues never hits an invisible blocking `input()` prompt — driver resolution is non-interactive under Textual (WR-04)
+**Plans**: TBD
+
+### Phase 34: Architecture Cleanup
+**Goal**: `ProfileRegistry` is the single profile seam end-to-end, the catalog is the single home for family data, and shim-era dead code is gone
+**Depends on**: Phase 32 (registry case-insensitivity), Phase 33 (pipeline consolidation removes the dead `all_profiles` plumbing it would otherwise fight)
+**Requirements**: ARCH-CLEAN-01, ARCH-CLEAN-02, ARCH-CLEAN-03, ARCH-CLEAN-04
+**Success Criteria** (what must be TRUE):
+  1. The `ProfileRegistry` object flows through cli → TeletypeApp → PrinterSetupScreen → `create_driver_for_selection` with no flatten-to-dict-and-rebuild, and an unknown profile name fails loudly instead of silently skipping profile wrapping (ARCH-02)
+  2. Adding a printer family means adding exactly one `catalog/<family>.py` file — `_load_catalog` discovers modules automatically, remaining inline families and alias blocks live in catalog modules (ARCH-03)
+  3. Dead code is gone: unused `all_profiles` parameter, the unused 91-line `printing/__init__` facade (trimmed or adopted), stale shim-era docstrings, and redundant juki compat paths beyond the alias profile — with the full test suite green (ARCH-07, ARCH-08, IN-01)
+  4. `tui.py` reads connection info through a public driver property — no `_inner` private reach-in (ARCH-06)
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -124,3 +177,7 @@ Note: Phases 28-30 ran outside GSD phase tracking — no PLAN/SUMMARY artifacts;
 | 28. Fleet Detection & Bridge Registry | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 29. Per-Family Profile Catalog | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 30. Standalone macOS Packaging | v1.6 | reactive | ✓ Complete | 2026-06-13 |
+| 31. Byte Integrity Criticals | v1.7 | 0/? | Not started | - |
+| 32. Setup & Detection Flow Fixes | v1.7 | 0/? | Not started | - |
+| 33. Shared Print Pipeline | v1.7 | 0/? | Not started | - |
+| 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |

@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Review Hardening
-status: planning
+status: roadmap_created
 last_updated: "2026-07-18T17:32:20.605Z"
 last_activity: 2026-07-18
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-18)
 
 **Core value:** The physical typewriter experience -- characters appearing on paper one at a time with authentic pacing and sound, making AI conversation feel tangible and mechanical.
-**Current focus:** Planning next milestone
+**Current focus:** v1.7 Review Hardening — fix v1.6 review findings (byte integrity, setup flow, print pipeline, architecture cleanup)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 31 of 34 (Byte Integrity Criticals) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-18 — Milestone v1.7 started
+Status: Roadmap created — ready for `/gsd:plan-phase 31`
+Last activity: 2026-07-18 — v1.7 roadmap created (Phases 31-34, 15/15 requirements mapped)
+
+Progress: [░░░░░░░░░░] 0% (0/4 phases)
 
 ## Performance Metrics
 
@@ -48,6 +50,7 @@ Last activity: 2026-07-18 — Milestone v1.7 started
 | v1.4 Printer Setup TUI | 3 | 6 | 15min | 2026-04-03 |
 | v1.5 Markdown File Printing | 6 | 14 | ~3hr | 2026-04-28 (shipped) |
 | v1.6 Printer Fleet & Standalone | 4 | 6+reactive | ~11hr | 2026-06-12 → 2026-06-13 (shipped) |
+| v1.7 Review Hardening | 4 | TBD | — | 2026-07-18 → (in progress) |
 
 ## Accumulated Context
 
@@ -67,19 +70,17 @@ Carry-forward still in force:
 - `_make_*_app()` closure-factory pattern for one-shot Textual launchers; `App._exit_code` attribute idiom for return-code propagation.
 - Import-locally + patch-at-source-module test convention for cli.py helpers.
 
-### v1.6 Roadmap Notes
+### v1.7 Roadmap Notes
 
-- **Strict phase ordering** (research-backed): Refactor (27) → Fleet detection (28) → Profile catalog (29) → Packaging (30). Refactor must stay isolated from feature/behavior changes so failures stay diagnosable. PyInstaller freezes last — only after the module graph is stable.
-- **DIR-01 (codepage formalization) lands in Phase 27**, not later — other families extend it, so it must become tracked + tested before being extended nine times.
-- **Package refactor uses move-with-shim** (three separately-green steps): move-with-re-export → repoint internals → migrate tests. Big-bang moves break ~700 tests via stale mock patch targets.
-- **Bridge VIDs live in a separate `BRIDGE_CHIP_VIDS` set, never in the ProfileRegistry** — CH340/FTDI VID:PIDs collide with Arduinos/GPS dongles; never auto-select or auto-skip a bridge match.
-- **Leave-empty-when-unsure rule** extends to all nine new families; every non-empty byte field cites manual + page + assumed emulation mode; unverified families tagged `human_needed`.
+- **Sequencing:** Criticals first — Phase 31 (BYTE-01/02 + BYTE-03 regression test + BYTE-04) and Phase 32 (FLOW-01 critical + flow warnings). Phase 33 lands the shared pipeline (PIPE-01) before/with the async-cancel fix (PIPE-02) because consolidation changes the code the cancel fix touches. Architecture cleanup (Phase 34) last — it builds on the registry and pipeline shapes the earlier phases settle.
+- Every v1.7 requirement traces to a review finding: `.planning/v1.6-REVIEW.md` (CR/WR/IN) and `.planning/v1.6-ARCHITECTURE-REVIEW.md` (ARCH).
+- 905 tests passed without catching the criticals — high-byte payloads and the macOS kext condition were untested paths. BYTE-03's regression test is the contract lock, not an afterthought.
 
-### Hardware-Verification Flags (human_needed expected during v1.6)
+### Hardware-Verification Flags (human_needed, carried)
 
-- **Phase 28 — bridge-chip interface-class behavior:** Does a CH341 USB-LPT adapter in parallel mode enumerate as class 7 or CDC/vendor-specific? Determines whether the class-7 fast path survives or must become advisory. Needs a real CH341 + `lsusb -v`. MEDIUM confidence until verified.
-- **Phase 28/29 — native-USB PIDs beyond Epson LX-350 (0x0046) / LQ-350 (0x0047):** All other model-level PIDs are LOW confidence. Registry VID-only fallback is the safe default; per-model PIDs fill in via `diagnose`-on-real-device over time.
-- **Phase 30 — libusb bundling + macOS clean-machine run:** Exact dylib path varies by arch; ad-hoc vs notarized signing is a project decision (Apple Developer account $99/yr). Needs a real build iteration on Intel + Apple Silicon. PortAudio bundling also requires clean-machine verification.
+- Bridge-chip interface-class behavior (CH341 parallel: class 7 vs vendor-specific) unverified — needs real CH341 + `lsusb -v`.
+- Native-USB PIDs beyond Epson LX-350 (0x0046) / LQ-350 (0x0047) are LOW confidence; registry VID-only fallback is the safe default.
+- libusb bundling + macOS clean-machine run (PKG-03) still pending a real build iteration on Intel + Apple Silicon.
 
 ### Deferred Items
 
@@ -100,21 +101,21 @@ None.
 
 ### Blockers/Concerns
 
-Carried into next milestone:
+Carried into this milestone:
 
 - Real-hardware verification of style ESC sequences (see Deferred Items above) — includes Juki underline ESC -1/-0 on the physical 6100/2200, plus all new v1.6 families.
 - Per-profile `buffer_bytes` defaults need real-hardware validation for at least Juki and Epson before instant mode is fully trusted.
 - Juki 9100 control codes still extrapolated from 6100 (carried since v1.4).
 - Bridge-chip interface-class behavior (CH341 parallel: class 7 vs vendor-specific) unverified — needs real CH341 + `lsusb -v`.
-- Clean-machine run of the frozen `.app` (PKG-03) and the REF-06 code-review pass remain open (see Deferred Items).
+- Clean-machine run of the frozen `.app` (PKG-03) remains open (see Deferred Items).
 
 ## Session Continuity
 
 Last session: 2026-07-18
-Stopped at: v1.6 completed and archived
+Stopped at: v1.7 roadmap created (Phases 31-34)
 Resume file: None
-Next action: Start next milestone with /gsd-new-milestone
+Next action: `/gsd:plan-phase 31`
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd:plan-phase 31`

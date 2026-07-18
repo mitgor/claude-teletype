@@ -65,23 +65,24 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BYTE-01 | TBD | Pending |
-| BYTE-02 | TBD | Pending |
-| BYTE-03 | TBD | Pending |
-| BYTE-04 | TBD | Pending |
-| FLOW-01 | TBD | Pending |
-| FLOW-02 | TBD | Pending |
-| FLOW-03 | TBD | Pending |
-| FLOW-04 | TBD | Pending |
-| PIPE-01 | TBD | Pending |
-| PIPE-02 | TBD | Pending |
-| PIPE-03 | TBD | Pending |
-| ARCH-CLEAN-01 | TBD | Pending |
-| ARCH-CLEAN-02 | TBD | Pending |
-| ARCH-CLEAN-03 | TBD | Pending |
-| ARCH-CLEAN-04 | TBD | Pending |
+| BYTE-01 | Phase 31 | Pending |
+| BYTE-02 | Phase 31 | Pending |
+| BYTE-03 | Phase 31 | Pending |
+| BYTE-04 | Phase 31 | Pending |
+| FLOW-01 | Phase 32 | Pending |
+| FLOW-02 | Phase 32 | Pending |
+| FLOW-03 | Phase 32 | Pending |
+| FLOW-04 | Phase 32 | Pending |
+| PIPE-01 | Phase 33 | Pending |
+| PIPE-02 | Phase 33 | Pending |
+| PIPE-03 | Phase 33 | Pending |
+| ARCH-CLEAN-01 | Phase 34 | Pending |
+| ARCH-CLEAN-02 | Phase 34 | Pending |
+| ARCH-CLEAN-03 | Phase 34 | Pending |
+| ARCH-CLEAN-04 | Phase 34 | Pending |
 
-**Coverage:** 15/15 requirements to be mapped. No orphans permitted.
+**Coverage:** 15/15 requirements mapped. No orphans.
 
 ---
 *Requirements defined: 2026-07-18*
+*Traceability mapped: 2026-07-18 (roadmap creation)*
