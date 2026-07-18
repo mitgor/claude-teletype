@@ -42,7 +42,7 @@ def run_teletype(driver: PrinterDriver, profile: PrinterProfile | None = None) -
             + profile.char_pitch
         )
         if init_data:
-            driver.write(init_data.decode("ascii"))  # single USB bulk transfer
+            driver.write_bytes(init_data)  # single USB bulk transfer, byte-verbatim
 
     print("Teletype mode. Type to print. Ctrl-C to exit.", file=sys.stderr)
 
@@ -52,21 +52,24 @@ def run_teletype(driver: PrinterDriver, profile: PrinterProfile | None = None) -
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
-        while True:
-            ch = sys.stdin.read(1)
-            if not ch or ch == "\x03":
-                break
-            if ch == "\r" or ch == "\n":
-                if use_crlf:
-                    driver.write("\r\n")  # CR+LF as single transfer
+        try:
+            while True:
+                ch = sys.stdin.read(1)
+                if not ch or ch == "\x03":
+                    break
+                if ch == "\r" or ch == "\n":
+                    if use_crlf:
+                        driver.write("\r\n")  # CR+LF as single transfer
+                    else:
+                        driver.write("\n")
+                    sys.stderr.write("\n")
+                    sys.stderr.flush()
                 else:
-                    driver.write("\n")
-                sys.stderr.write("\n")
-                sys.stderr.flush()
-            else:
-                driver.write(ch)
-                sys.stderr.write(ch)
-                sys.stderr.flush()
+                    driver.write(ch)
+                    sys.stderr.write(ch)
+                    sys.stderr.flush()
+        except KeyboardInterrupt:
+            pass  # cbreak leaves ISIG on; finally handles restore/formfeed/reset
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         if profile is not None and profile.formfeed_on_close:
@@ -74,6 +77,5 @@ def run_teletype(driver: PrinterDriver, profile: PrinterProfile | None = None) -
         elif profile is None:
             driver.write("\f")  # Always formfeed for generic mode (original behavior)
         if profile is not None and profile.reset_sequence:
-            for b in profile.reset_sequence:
-                driver.write(chr(b))
+            driver.write_bytes(profile.reset_sequence)  # one atomic transfer
         driver.close()

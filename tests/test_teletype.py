@@ -162,7 +162,7 @@ def test_high_byte_init_reaches_driver_verbatim(mock_sys, mock_tty, mock_termios
     expected_init = profile.init_sequence + profile.line_spacing + profile.char_pitch
     byte_calls = [c.args[0] for c in driver.write_bytes.call_args_list]
     assert byte_calls[0] == expected_init
-    assert byte_calls[0][-1] == 0xB5
+    assert byte_calls[0][len(profile.init_sequence) - 1] == 0xB5
 
 
 @patch("claude_teletype.teletype.termios")
