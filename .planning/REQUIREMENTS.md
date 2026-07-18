@@ -16,10 +16,10 @@ Requirements for the **Review Hardening** milestone. Every requirement traces to
 
 ### Setup & Detection Flow
 
-- [ ] **FLOW-01**: User whose native-USB printer is kernel-claimed and who accepts the recommended CUPS path gets a working CUPS driver with the queue name set — never a silent NullPrinterDriver, and the broken state is never persisted to config (CR-03)
-- [ ] **FLOW-02**: User with an uppercase-named custom profile can select it — `ProfileRegistry` lookups are case-insensitive against case-preserved keys (WR-03)
-- [ ] **FLOW-03**: User running the frozen `.app` never triggers `uv sync` against an arbitrary working directory — in-app pyusb install is guarded or disabled when frozen (WR-05)
-- [ ] **FLOW-04**: Smart startup restores the saved profile through an explicit parameter or constructor path — no caller-side mutation of a returned dataclass carrying the hardware contract (ARCH-04)
+- [x] **FLOW-01**: User whose native-USB printer is kernel-claimed and who accepts the recommended CUPS path gets a working CUPS driver with the queue name set — never a silent NullPrinterDriver, and the broken state is never persisted to config (CR-03)
+- [x] **FLOW-02**: User with an uppercase-named custom profile can select it — `ProfileRegistry` lookups are case-insensitive against case-preserved keys (WR-03)
+- [x] **FLOW-03**: User running the frozen `.app` never triggers `uv sync` against an arbitrary working directory — in-app pyusb install is guarded or disabled when frozen (WR-05)
+- [x] **FLOW-04**: Smart startup restores the saved profile through an explicit parameter or constructor path — no caller-side mutation of a returned dataclass carrying the hardware contract (ARCH-04)
 
 ### Print Pipeline
 
@@ -69,10 +69,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | BYTE-02 | Phase 31 | Complete |
 | BYTE-03 | Phase 31 | Complete |
 | BYTE-04 | Phase 31 | Complete |
-| FLOW-01 | Phase 32 | Pending |
-| FLOW-02 | Phase 32 | Pending |
-| FLOW-03 | Phase 32 | Pending |
-| FLOW-04 | Phase 32 | Pending |
+| FLOW-01 | Phase 32 | Complete |
+| FLOW-02 | Phase 32 | Complete |
+| FLOW-03 | Phase 32 | Complete |
+| FLOW-04 | Phase 32 | Complete |
 | PIPE-01 | Phase 33 | Pending |
 | PIPE-02 | Phase 33 | Pending |
 | PIPE-03 | Phase 33 | Pending |
