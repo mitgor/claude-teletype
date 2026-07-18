@@ -153,7 +153,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 33-01-PLAN.md — Extract shared render_document pipeline (PIPE-01) + picker driver pre-resolution (PIPE-03)
+- [x] 33-01-PLAN.md — Extract shared render_document pipeline (PIPE-01) + picker driver pre-resolution (PIPE-03)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -209,5 +209,5 @@ Plans:
 | 30. Standalone macOS Packaging | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 33. Shared Print Pipeline | v1.7 | 0/? | Not started | - |
+| 33. Shared Print Pipeline | v1.7 | 1/2 | In Progress|  |
 | 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |
