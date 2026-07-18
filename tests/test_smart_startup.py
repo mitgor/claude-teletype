@@ -146,6 +146,89 @@ class TestMatchSavedPrinterEdgeCases:
         assert result is None
 
 
+class TestMatchSavedPrinterProfileName:
+    """match_saved_printer owns the profile hand-off (ARCH-04)."""
+
+    def test_usb_variant_stamps_profile_name(self):
+        discovery = DiscoveryResult(
+            usb_devices=[UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)]
+        )
+        result = match_saved_printer(
+            "usb", "04b8:0005", discovery, profile_name="juki-6100"
+        )
+        assert result is not None
+        assert result.profile_name == "juki-6100"
+
+    def test_usb_variant_defaults_to_generic(self):
+        discovery = DiscoveryResult(
+            usb_devices=[UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)]
+        )
+        result = match_saved_printer("usb", "04b8:0005", discovery)
+        assert result is not None
+        assert result.profile_name == "generic"
+
+    def test_cups_variant_stamps_profile_name(self):
+        discovery = DiscoveryResult(
+            cups_printers=[CupsPrinterInfo(name="HP_LaserJet", uri="usb://HP/LaserJet")]
+        )
+        result = match_saved_printer(
+            "cups", "HP_LaserJet", discovery, profile_name="epson-fx"
+        )
+        assert result is not None
+        assert result.profile_name == "epson-fx"
+
+
+class TestPrinterSelectionFrozen:
+    """PrinterSelection is immutable — the ARCH-04 mutation class cannot recur."""
+
+    def test_assignment_raises_frozen_instance_error(self):
+        import dataclasses
+
+        import pytest
+
+        from claude_teletype.printing.discovery import PrinterSelection
+
+        selection = PrinterSelection(connection_type="usb")
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            selection.profile_name = "juki-6100"
+
+
+class TestCupsNoNameFallback:
+    """create_driver_for_selection: cups with no name picks first enabled queue (CR-03)."""
+
+    def test_no_name_picks_first_enabled_queue(self, capsys):
+        from claude_teletype.printing.drivers import CupsPrinterDriver
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        discovery = DiscoveryResult(
+            cups_printers=[
+                CupsPrinterInfo(name="Disabled_Q", uri="usb://a", enabled=False),
+                CupsPrinterInfo(name="Enabled_Q", uri="usb://b", enabled=True),
+                CupsPrinterInfo(name="Another_Q", uri="usb://c", enabled=True),
+            ]
+        )
+        selection = PrinterSelection(connection_type="cups", cups_printer_name=None)
+        driver = create_driver_for_selection(selection, discovery)
+        assert isinstance(driver, CupsPrinterDriver)
+        assert driver._name == "Enabled_Q"
+        assert "Enabled_Q" in capsys.readouterr().err
+
+    def test_no_name_no_enabled_queues_returns_null(self):
+        from claude_teletype.printing.drivers import NullPrinterDriver
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        discovery = DiscoveryResult(
+            cups_printers=[
+                CupsPrinterInfo(name="Disabled_Q", uri="usb://a", enabled=False),
+            ]
+        )
+        selection = PrinterSelection(connection_type="cups", cups_printer_name=None)
+        driver = create_driver_for_selection(selection, discovery)
+        assert isinstance(driver, NullPrinterDriver)
+
+
 class _FakeBackend:
     def validate(self): pass
 
