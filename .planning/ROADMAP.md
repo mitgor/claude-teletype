@@ -94,7 +94,7 @@ Note: Phases 28-30 ran outside GSD phase tracking — no PLAN/SUMMARY artifacts;
 ### v1.7 Review Hardening (In Progress)
 
 - [x] **Phase 31: Byte Integrity Criticals** - Fix the ASCII round-trip corruptions in both driver paths and the teletype-mode byte defects, locked in by a regression test (completed 2026-07-18)
-- [ ] **Phase 32: Setup & Detection Flow Fixes** - Repair the kernel-owns → CUPS misroute and the setup/startup contract gaps (registry case, frozen `uv sync`, profile hand-off)
+- [x] **Phase 32: Setup & Detection Flow Fixes** - Repair the kernel-owns → CUPS misroute and the setup/startup contract gaps (registry case, frozen `uv sync`, profile hand-off) (completed 2026-07-18)
 - [ ] **Phase 33: Shared Print Pipeline** - One cancel-safe pipeline for CLI and TUI printing; escape actually cancels; no blocking `input()` under Textual
 - [ ] **Phase 34: Architecture Cleanup** - Registry as the real seam, one-file-per-family catalog, dead code removed, no private-attribute reach-ins
 
@@ -199,6 +199,6 @@ Plans:
 | 29. Per-Family Profile Catalog | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 30. Standalone macOS Packaging | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 32. Setup & Detection Flow Fixes | v1.7 | 0/? | Not started | - |
+| 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete   | 2026-07-18 |
 | 33. Shared Print Pipeline | v1.7 | 0/? | Not started | - |
 | 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |
