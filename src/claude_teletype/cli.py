@@ -983,10 +983,10 @@ def main(
                     config.saved_printer_type,
                     config.saved_printer_id,
                     discovery,
+                    profile_name=config.saved_printer_profile or "generic",
                 )
                 if saved_match is not None:
                     # Saved printer found -- create driver, skip setup screen
-                    saved_match.profile_name = config.saved_printer_profile or "generic"
                     printer_driver = create_driver_for_selection(
                         saved_match, discovery, all_profiles=all_profiles,
                     )
