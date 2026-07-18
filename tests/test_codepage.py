@@ -259,8 +259,8 @@ def test_newline_is_single_atomic_write_with_crlf_and_reinit():
 
     assert len(sink.calls) == 1
     kind, payload = sink.calls[0]
-    assert kind == "write"
-    assert payload == "\r\n\x1b\x1e\x09\x1bQ"
+    assert kind == "write_bytes"  # byte channel — no ASCII round-trip
+    assert payload == b"\r\n\x1b\x1e\x09\x1bQ"
 
 
 def test_newline_atomic_on_codepage_profile():
@@ -276,4 +276,4 @@ def test_newline_atomic_on_codepage_profile():
     driver.write("\n")
 
     newline_calls = sink.calls[before:]
-    assert newline_calls == [("write", "\r\n")]
+    assert newline_calls == [("write_bytes", b"\r\n")]
