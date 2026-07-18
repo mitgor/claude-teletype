@@ -328,6 +328,14 @@ class TeletypeApp(App):
     async def on_unmount(self) -> None:
         """Clean up printer, transcript, and subprocess on app exit."""
         await self._kill_process()
+        # CR-02: cancel_all() flags the print thread but does not wait for
+        # it. Closing the driver while the thread is mid-write would send
+        # the style-off finally bytes to a closed handle (leaked emphasis
+        # on paper — T-33-02). Wait for REAL thread exit first; a cancelled
+        # worker exits within one char-delay, so 5s is a generous cap.
+        ev = self._print_thread_done
+        if ev is not None and not ev.is_set():
+            await asyncio.get_running_loop().run_in_executor(None, ev.wait, 5.0)
         if self.printer is not None:
             self.printer.close()
         if self._transcript_close is not None:
@@ -652,22 +660,30 @@ class TeletypeApp(App):
                     cancel_check=lambda: worker.is_cancelled,
                 )
             except PrintCancelled:
-                self.call_from_thread(
-                    self.notify,
-                    f"Print cancelled — {path.name}",
-                    severity="warning",
+                self._notify_from_thread(
+                    f"Print cancelled — {path.name}", severity="warning",
                 )
             except Exception as exc:  # noqa: BLE001 - print should never crash chat
-                self.call_from_thread(
-                    self.notify, f"Print failed: {exc}", severity="error",
-                )
+                self._notify_from_thread(f"Print failed: {exc}", severity="error")
             else:
-                self.call_from_thread(self.notify, f"Printed {path.name}")
+                self._notify_from_thread(f"Printed {path.name}")
         finally:
             # CR-01: signal REAL thread completion — runs in the worker
             # thread, after render_document's finally emitted the style-off
             # bytes. Guards and on_unmount trust this, not Worker state.
             self._print_thread_done.set()
+
+    def _notify_from_thread(self, message: str, **kwargs) -> None:
+        """call_from_thread(notify) that tolerates a stopped app (CR-02).
+
+        On quit-during-print the message loop is gone; a plain
+        call_from_thread raises RuntimeError out of the worker thread,
+        masking the real outcome. Shutdown-time notifies are dropped.
+        """
+        try:
+            self.call_from_thread(self.notify, message, **kwargs)
+        except RuntimeError:
+            pass
 
     def _apply_settings(self, result: dict | None) -> None:
         """Apply changed settings from the SettingsScreen modal.

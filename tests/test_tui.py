@@ -733,6 +733,45 @@ async def test_print_failure_survives_session(tmp_path):
     assert any(m.startswith("Print failed:") for m in notified)
 
 
+async def test_quit_during_print_waits_for_thread_before_closing_driver(tmp_path):
+    """CR-02 regression: app shutdown mid-print must wait for the print
+    thread's real exit (style-off already emitted) before printer.close(),
+    and the worker's shutdown-time notify must not raise RuntimeError."""
+    printer = FakePrinter()
+    closed_after_thread_done: list[bool] = []
+
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    printer.close = lambda: closed_after_thread_done.append(
+        app._print_thread_done is not None and app._print_thread_done.is_set()
+    )
+    path = _make_doc(tmp_path)
+    seen: dict = {"flipped": False}
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=_slow_render(seen),
+    ):
+        async with app.run_test():
+            app.notify = lambda msg, **kw: None
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.1)  # print in flight
+            # Exiting the context shuts the app down: cancel_all → on_unmount.
+
+    assert seen["flipped"] is True  # thread saw the cancel and exited cleanly
+    assert closed_after_thread_done == [True]  # close AFTER thread done
+
+
+def test_notify_from_thread_swallows_stopped_app_runtime_error():
+    """CR-02: shutdown-time notify must not raise out of the worker thread."""
+    app = TeletypeApp(base_delay_ms=0)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("App is not running")
+
+    app.call_from_thread = boom
+    app._notify_from_thread("late notify", severity="warning")  # no raise
+
+
 async def test_print_skipped_when_no_printer(tmp_path):
     """printer None → warning notify, render_document never called."""
     app = TeletypeApp(base_delay_ms=0)
