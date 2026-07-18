@@ -148,7 +148,16 @@ Plans:
   2. User can press escape during an in-TUI paced print and the print stops with printer style state clean — pacing no longer blocks the Textual event loop with synchronous `time.sleep` (WR-01)
   3. User printing via the picker with multiple CUPS queues never hits an invisible blocking `input()` prompt — driver resolution is non-interactive under Textual (WR-04)
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 33-01-PLAN.md — Extract shared render_document pipeline (PIPE-01) + picker driver pre-resolution (PIPE-03)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 33-02-PLAN.md — TUI thread-worker adapter with escape cancel (PIPE-02); full-suite gate
 
 ### Phase 34: Architecture Cleanup
 
