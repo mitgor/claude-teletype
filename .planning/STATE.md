@@ -1,16 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Printer Fleet & Standalone
-status: Awaiting next milestone
-stopped_at: v1.6 roadmap created (Phases 27-30)
-last_updated: "2026-07-18T14:31:33.560Z"
-last_activity: 2026-07-18 — Milestone v1.6 completed and archived
+milestone: v1.7
+milestone_name: Review Hardening
+status: planning
+last_updated: "2026-07-18T17:32:20.605Z"
+last_activity: 2026-07-18
 progress:
-  total_phases: 4
+  total_phases: 0
   completed_phases: 0
-  total_plans: 6
-  completed_plans: 1
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-18)
 
 ## Current Position
 
-Phase: Milestone v1.6 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-18 — Milestone v1.6 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-18 — Milestone v1.7 started
 
 ## Performance Metrics
 
@@ -89,7 +88,7 @@ Items acknowledged and deferred at milestone close (v1.5 on 2026-06-12; v1.6 on 
 | Category | Item | Status |
 |----------|------|--------|
 | verification_gap | Phase 22: 22-VERIFICATION.md | human_needed |
-| requirement_gap | REF-06: code-review pass over refactored codebase (no findings artifact) | open — run /gsd:code-review |
+| requirement_gap | REF-06: code-review pass over refactored codebase | closed 2026-07-18 — v1.6-REVIEW.md + v1.6-ARCHITECTURE-REVIEW.md; findings scoped into v1.7 |
 | requirement_gap | PKG-03: frozen .app verified on a true clean machine (smoke_frozen.sh is a headless approximation) | human_needed |
 | verification_gap | DIR-04: GET_PORT_STATUS readback spec-tested with mocks only | human_needed |
 

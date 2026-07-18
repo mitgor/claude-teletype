@@ -84,7 +84,15 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ### Active
 
-(None — next milestone not yet defined)
+## Current Milestone: v1.7 Review Hardening
+
+**Goal:** Fix everything the v1.6 code + architecture reviews surfaced — restore the byte-path integrity the printer contract promises, repair the broken kernel-owns/CUPS flow, and consolidate the duplicated print pipeline.
+
+**Target features:**
+- Fix the 3 criticals (byte-destroying ASCII round-trips in ProfilePrinterDriver._send_raw and CupsPrinterDriver.write_bytes; kernel-owns → simulator misroute) with byte-integrity regression tests
+- Fix review warnings: non-blocking TUI print pipeline (real escape-cancel), teletype.py strict-ASCII crash + reset atomicity + Ctrl-C, case-insensitive ProfileRegistry lookups, frozen-app `uv sync` guard, blocking `input()` under Textual
+- ARCH-01: single shared print pipeline for CLI + TUI
+- Architecture cleanups: explicit smart-startup profile hand-off, registry pass-through consolidation, dead facade/stale-docstring removal
 
 ### Out of Scope
 
