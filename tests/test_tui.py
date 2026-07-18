@@ -507,3 +507,293 @@ def test_save_printer_selection_valid_cups_persists():
     assert saved_cfg.saved_printer_type == "cups"
     assert saved_cfg.saved_printer_id == "HP_LaserJet"
     assert saved_cfg.saved_printer_profile == "juki"
+
+
+# ---------------------------------------------------------------------------
+# Phase 33 Plan 02: print thread-worker adapter (WR-01) + printer mutual
+# exclusion (T-33-07). Patch-at-source-module convention: _print_worker
+# imports render_document locally from claude_teletype.printing.pipeline.
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+
+from claude_teletype.printing.pipeline import PrintCancelled  # noqa: E402
+
+
+class FakePrinter:
+    """Recording driver: write = text channel, write_bytes = style channel."""
+
+    is_connected = True
+
+    def __init__(self):
+        self.written: list[str] = []
+        self.byte_writes: list[bytes] = []
+
+    def write(self, ch: str) -> None:
+        self.written.append(ch)
+
+    def write_bytes(self, data: bytes) -> None:
+        self.byte_writes.append(data)
+
+    def end_response(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _make_doc(tmp_path, body: str = "hello world\n"):
+    path = tmp_path / "doc.md"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+async def _wait_workers(app) -> None:
+    """Poll until all workers finish (safe for cancelled thread workers)."""
+    for _ in range(400):  # 4s cap
+        if all(w.is_finished for w in app.workers):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("workers did not finish in time")
+
+
+def _slow_render(seen: dict):
+    """A render_document fake that loops on cancel_check until cancelled."""
+
+    def render(driver, profile, text, **kwargs):
+        import time as _time
+
+        cancel_check = kwargs["cancel_check"]
+        for _ in range(150):  # ~3s cap so a broken cancel path can't hang
+            if cancel_check():
+                seen["flipped"] = True
+                raise PrintCancelled()
+            _time.sleep(0.02)
+        raise AssertionError("cancel never reached the pipeline")
+
+    return render
+
+
+async def test_print_dispatches_worker_through_shared_pipeline(tmp_path):
+    """_run_print_pipeline returns promptly; render_document runs in the
+    worker with the app's settings and a non-None cancel_check."""
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=3.0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+
+    with patch("claude_teletype.printing.pipeline.render_document") as rd:
+        async with app.run_test():
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await app.workers.wait_for_complete()
+            expected_transcript = app._transcript_write
+
+    assert rd.call_count == 1
+    args, kwargs = rd.call_args
+    assert args[0] is printer
+    assert args[2] == "hello world\n"
+    assert kwargs["speed_mode"] == "typewriter"
+    assert kwargs["base_delay_ms"] == 3.0
+    assert kwargs["no_audio"] is True
+    assert kwargs["transcript_write"] is expected_transcript
+    assert kwargs["source_path"] == path
+    assert kwargs["cancel_check"] is not None
+    assert any(m.startswith("Printed ") for m in notified)
+
+
+async def test_escape_cancels_in_flight_print(tmp_path):
+    """escape → action_cancel_stream → worker.cancel() → is_cancelled
+    reaches the pipeline's cancel_check (WR-01)."""
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+    seen: dict = {"flipped": False}
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=_slow_render(seen),
+    ):
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.1)  # let the worker thread start looping
+            await pilot.press("escape")
+            await _wait_workers(app)
+
+    assert seen["flipped"] is True
+    assert any("cancelled" in m.lower() for m in notified)
+
+
+async def test_cancelled_print_leaves_style_state_clean(tmp_path):
+    """Integration: real render_document, bold-heavy doc, cancel mid-render
+    → the shared core's finally emitted bold_off (escp ESC F) style bytes."""
+    from claude_teletype.printing.profiles import get_profile
+
+    printer = FakePrinter()
+    app = TeletypeApp(
+        base_delay_ms=2.0,
+        printer=printer,
+        no_audio=True,
+        profile_name="escp",
+        all_profiles={"escp": get_profile("escp")},
+    )
+    # One giant bold span of many words: WordWrapper emits (and paces) one
+    # chunk per word, so the render takes ~1s+ unless cancelled.
+    path = _make_doc(tmp_path, "**" + "word " * 500 + "**\n")
+    notified: list[str] = []
+
+    async with app.run_test():
+        app.notify = lambda msg, **kw: notified.append(msg)
+        app._run_print_pipeline(path, "typewriter")
+        await asyncio.sleep(0.05)  # mid-render, inside the open bold span
+        for worker in list(app.workers):
+            if worker.group == "print" and not worker.is_finished:
+                worker.cancel()
+        await _wait_workers(app)
+
+    # The render did NOT complete...
+    assert any("cancelled" in m.lower() for m in notified)
+    # ...yet bold_off reached the driver: finally: renderer.close() ran.
+    assert b"\x1bF" in b"".join(printer.byte_writes)
+
+
+async def test_print_failure_survives_session(tmp_path):
+    """render_document raising → 'Print failed:' notify; chat still alive."""
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=RuntimeError("boom"),
+    ):
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await app.workers.wait_for_complete()
+            assert app.is_running
+            prompt = app.query_one("#prompt", Input)
+            prompt.focus()
+            await pilot.pause()
+            assert app.focused is prompt
+
+    assert any(m.startswith("Print failed:") for m in notified)
+
+
+async def test_print_skipped_when_no_printer(tmp_path):
+    """printer None → warning notify, render_document never called."""
+    app = TeletypeApp(base_delay_ms=0)
+    path = _make_doc(tmp_path)
+    notified: list[tuple] = []
+
+    with patch("claude_teletype.printing.pipeline.render_document") as rd:
+        async with app.run_test():
+            app.notify = lambda msg, **kw: notified.append((msg, kw))
+            app._run_print_pipeline(path, "typewriter")
+            await app.workers.wait_for_complete()
+
+    rd.assert_not_called()
+    assert any(
+        "No printer" in msg and kw.get("severity") == "warning"
+        for msg, kw in notified
+    )
+
+
+async def test_chat_refused_while_print_active(tmp_path):
+    """T-33-07: chat submission refuses while a print worker is unfinished —
+    no stream dispatch, no driver bytes from the chat path — and works
+    again once the print is cancelled."""
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+    stream_calls: list[str] = []
+    app.stream_response = lambda prompt: stream_calls.append(prompt)
+    seen: dict = {"flipped": False}
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=_slow_render(seen),
+    ):
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.05)
+
+            await pilot.press(*"hi")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert any("Print in progress" in m for m in notified)
+            assert stream_calls == []  # stream_response NOT dispatched
+            assert printer.written == []  # no chat bytes reached the driver
+            # user keeps their typed prompt
+            assert app.query_one("#prompt", Input).value == "hi"
+
+            # cancel the print → guard clears → chat works again
+            await pilot.press("escape")
+            await _wait_workers(app)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert stream_calls == ["hi"]
+
+
+async def test_print_refused_while_stream_active(tmp_path):
+    """T-33-07: _run_print_pipeline refuses while a non-print (chat stream)
+    worker is unfinished."""
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+
+    with patch("claude_teletype.printing.pipeline.render_document") as rd:
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+
+            # Stand-in for an unfinished stream_response worker: same
+            # default worker group, stays running until cancelled.
+            async def _hang():
+                await asyncio.sleep(30)
+
+            worker = app.run_worker(_hang(), exclusive=True)
+            await pilot.pause()
+
+            app._run_print_pipeline(path, "typewriter")
+            await pilot.pause()
+
+            rd.assert_not_called()
+            assert any("Printer busy" in m for m in notified)
+
+            worker.cancel()
+            await _wait_workers(app)
+
+
+async def test_print_refused_while_typewriter_mounted(tmp_path):
+    """T-33-07: TypewriterScreen's key worker counts as a driver writer —
+    ctrl+o's _run_print_pipeline refuses while the screen is mounted."""
+    from claude_teletype.screens.typewriter import TypewriterScreen
+
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+    notified: list[str] = []
+
+    with patch("claude_teletype.printing.pipeline.render_document") as rd:
+        async with app.run_test() as pilot:
+            app.notify = lambda msg, **kw: notified.append(msg)
+
+            await pilot.press("ctrl+t")
+            assert isinstance(app.screen, TypewriterScreen)
+
+            # The app-level ctrl+o binding stays reachable from this screen;
+            # call its handler's dispatch target directly.
+            app._run_print_pipeline(path, "typewriter")
+            await pilot.pause()
+
+            rd.assert_not_called()
+            assert any("Printer busy" in m for m in notified)
+
+            await pilot.press("escape")  # leave typewriter mode
