@@ -7,6 +7,7 @@ for submitting prompts.
 
 import asyncio
 import random
+import threading
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -142,6 +143,11 @@ class TeletypeApp(App):
         self._transcript_write = None
         self._transcript_close = None
         self._printer_write = None
+        # CR-01: Worker.is_finished lies for cancelled thread workers (the
+        # executor thread keeps running past CANCELLED). This event is the
+        # ground truth: cleared at dispatch, set by the worker thread's own
+        # finally, AFTER renderer.close() emitted the style-off bytes.
+        self._print_thread_done: threading.Event | None = None
         self._prev_input_value = ""
         self._session_id: str | None = resume_session_id
         self._turn_count: int = 0
@@ -526,7 +532,7 @@ class TeletypeApp(App):
         self.query_one("#prompt", Input).focus()
 
     def _print_active(self) -> bool:
-        """True while a document-print worker (group="print") is unfinished.
+        """True while the print worker THREAD is still running.
 
         Part of the printer mutual-exclusion guard (T-33-07): moving pacing
         into a thread worker (Plan 33-02) removed the implicit event-loop
@@ -534,7 +540,17 @@ class TeletypeApp(App):
         and typewriter mode must refuse while a print is in flight. MD-08 /
         Phase 31 byte ordering on the physical driver depends on single-writer
         access.
+
+        Worker.is_finished is NOT trusted here (CR-01): cancelling a thread
+        worker flips its state to CANCELLED immediately while the executor
+        thread keeps writing until its next cancel_check poll plus the
+        style-off finally. ``_print_thread_done`` is set by the thread
+        itself after ``renderer.close()`` and is the real liveness signal;
+        the worker-state scan remains as a belt-and-braces fallback.
         """
+        ev = self._print_thread_done
+        if ev is not None and not ev.is_set():
+            return True
         return any(
             worker.group == "print" and not worker.is_finished
             for worker in self.workers
@@ -602,6 +618,9 @@ class TeletypeApp(App):
         )
 
         self.notify(f"Printing {path.name}...")
+        # CR-01: fresh liveness event per print, created on the event-loop
+        # thread BEFORE dispatch so guards can never observe a stale event.
+        self._print_thread_done = threading.Event()
         self._print_worker(path, text, profile, speed_mode)
 
     @work(thread=True, exclusive=True, group="print")
@@ -620,29 +639,35 @@ class TeletypeApp(App):
 
         worker = get_current_worker()
         try:
-            render_document(
-                self.printer,
-                profile,
-                text,
-                speed_mode=speed_mode,
-                base_delay_ms=self.base_delay_ms or 0.0,
-                no_audio=self.no_audio,
-                transcript_write=self._transcript_write,
-                source_path=path,
-                cancel_check=lambda: worker.is_cancelled,
-            )
-        except PrintCancelled:
-            self.call_from_thread(
-                self.notify,
-                f"Print cancelled — {path.name}",
-                severity="warning",
-            )
-        except Exception as exc:  # noqa: BLE001 - print should never crash chat
-            self.call_from_thread(
-                self.notify, f"Print failed: {exc}", severity="error",
-            )
-        else:
-            self.call_from_thread(self.notify, f"Printed {path.name}")
+            try:
+                render_document(
+                    self.printer,
+                    profile,
+                    text,
+                    speed_mode=speed_mode,
+                    base_delay_ms=self.base_delay_ms or 0.0,
+                    no_audio=self.no_audio,
+                    transcript_write=self._transcript_write,
+                    source_path=path,
+                    cancel_check=lambda: worker.is_cancelled,
+                )
+            except PrintCancelled:
+                self.call_from_thread(
+                    self.notify,
+                    f"Print cancelled — {path.name}",
+                    severity="warning",
+                )
+            except Exception as exc:  # noqa: BLE001 - print should never crash chat
+                self.call_from_thread(
+                    self.notify, f"Print failed: {exc}", severity="error",
+                )
+            else:
+                self.call_from_thread(self.notify, f"Printed {path.name}")
+        finally:
+            # CR-01: signal REAL thread completion — runs in the worker
+            # thread, after render_document's finally emitted the style-off
+            # bytes. Guards and on_unmount trust this, not Worker state.
+            self._print_thread_done.set()
 
     def _apply_settings(self, result: dict | None) -> None:
         """Apply changed settings from the SettingsScreen modal.

@@ -549,9 +549,16 @@ def _make_doc(tmp_path, body: str = "hello world\n"):
 
 
 async def _wait_workers(app) -> None:
-    """Poll until all workers finish (safe for cancelled thread workers)."""
+    """Poll until all workers finish AND the print thread really exited.
+
+    Worker.is_finished lies for cancelled thread workers (CR-01): the state
+    flips to CANCELLED while the executor thread keeps running. The
+    app-level ``_print_thread_done`` event is the ground truth.
+    """
     for _ in range(400):  # 4s cap
-        if all(w.is_finished for w in app.workers):
+        ev = getattr(app, "_print_thread_done", None)
+        thread_done = ev is None or ev.is_set()
+        if thread_done and all(w.is_finished for w in app.workers):
             return
         await asyncio.sleep(0.01)
     raise AssertionError("workers did not finish in time")
@@ -657,6 +664,49 @@ async def test_cancelled_print_leaves_style_state_clean(tmp_path):
     assert any("cancelled" in m.lower() for m in notified)
     # ...yet bold_off reached the driver: finally: renderer.close() ran.
     assert b"\x1bF" in b"".join(printer.byte_writes)
+
+
+async def test_print_active_survives_worker_cancel_until_thread_exits(tmp_path):
+    """CR-01 regression: after Worker.cancel() the worker reports finished
+    while the executor thread is still running — _print_active() must stay
+    True until the thread's own finally sets _print_thread_done."""
+    import threading
+
+    release = threading.Event()
+
+    def stuck_render(driver, profile, text, **kwargs):
+        # Simulates a thread stuck in a char-sleep past the cancel point.
+        release.wait(5.0)
+        raise PrintCancelled()
+
+    printer = FakePrinter()
+    app = TeletypeApp(base_delay_ms=0, printer=printer, no_audio=True)
+    path = _make_doc(tmp_path)
+
+    with patch(
+        "claude_teletype.printing.pipeline.render_document",
+        side_effect=stuck_render,
+    ):
+        async with app.run_test():
+            app.notify = lambda msg, **kw: None
+            app._run_print_pipeline(path, "typewriter")
+            await asyncio.sleep(0.05)  # let the thread enter stuck_render
+
+            for worker in list(app.workers):
+                if worker.group == "print":
+                    worker.cancel()
+            # Wait for the WORKER STATE to report finished (the lie)...
+            for _ in range(200):
+                if all(w.is_finished for w in app.workers):
+                    break
+                await asyncio.sleep(0.01)
+            assert all(w.is_finished for w in app.workers)
+            # ...while the thread is still alive: the guard must hold.
+            assert app._print_active() is True
+
+            release.set()
+            await _wait_workers(app)
+            assert app._print_active() is False
 
 
 async def test_print_failure_survives_session(tmp_path):
