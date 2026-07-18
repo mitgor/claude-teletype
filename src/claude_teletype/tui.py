@@ -395,6 +395,13 @@ class TeletypeApp(App):
 
     def action_enter_typewriter(self) -> None:
         """Switch to typewriter mode (no LLM, direct keyboard to screen+printer)."""
+        # T-33-07 guard: TypewriterScreen writes to self.printer directly.
+        if self._print_active():
+            self.notify(
+                "Print in progress — Escape to cancel", severity="warning",
+            )
+            return
+
         from claude_teletype.screens.typewriter import TypewriterScreen
 
         self.push_screen(TypewriterScreen(
@@ -418,6 +425,13 @@ class TeletypeApp(App):
         binding-agnostic so the BINDINGS line can be changed (e.g. to
         ctrl+shift+o or ctrl+p) without touching this method.
         """
+        # T-33-07 guard: one print at a time — refuse before the picker opens.
+        if self._print_active():
+            self.notify(
+                "Print in progress — Escape to cancel", severity="warning",
+            )
+            return
+
         from claude_teletype.screens.file_picker import FilePickerScreen
 
         self.push_screen(FilePickerScreen(), callback=self._handle_picker_result)
@@ -511,29 +525,67 @@ class TeletypeApp(App):
         self._run_print_pipeline(pending, speed_mode)
         self.query_one("#prompt", Input).focus()
 
-    def _run_print_pipeline(self, path, speed_mode: str) -> None:
-        """Execute renderer + transcript fan-out for a printed markdown file.
+    def _print_active(self) -> bool:
+        """True while a document-print worker (group="print") is unfinished.
 
-        Synchronous (matches Plan 25-02's MarkdownPickerApp._on_pick locked
-        choice). Catches all exceptions and surfaces them via notify() so
-        the chat session survives a bad print.
-
-        FLOW-05: ``renderer.close()`` runs in ``finally`` so cancel mid-render
-        leaves the printer style state clean (no leaked bold/italic ESC bytes).
-
-        TXN-01..03: when ``self._transcript_write`` is non-None, the renderer's
-        text channel is fanned out into a parallel collector (TXN-02:
-        plain-text only, no ESC bytes) and ``write_printed_file`` records a
-        "Printed file: <abs path>" header followed by the body (TXN-01).
+        Part of the printer mutual-exclusion guard (T-33-07): moving pacing
+        into a thread worker (Plan 33-02) removed the implicit event-loop
+        serialization of driver writes, so chat submission, the file picker,
+        and typewriter mode must refuse while a print is in flight. MD-08 /
+        Phase 31 byte ordering on the physical driver depends on single-writer
+        access.
         """
-        from claude_teletype.printing.drivers import chunk_writes
-        from claude_teletype.rendering.markdown import MarkdownRenderer
-        from claude_teletype.rendering.wordwrap import WordWrapper
-        from claude_teletype.transcript import write_printed_file
+        return any(
+            worker.group == "print" and not worker.is_finished
+            for worker in self.workers
+        )
 
+    def _driver_busy(self) -> bool:
+        """True while ANY non-print worker is unfinished.
+
+        Driver-busy check, NOT a stream-only check: it covers the chat
+        ``stream_response`` worker (default group) AND TypewriterScreen's
+        ``_process_keys`` worker, which never finishes while that screen is
+        mounted (the app-level ctrl+o print binding stays reachable there).
+        This is the mutual exclusion that replaces the pre-Phase-33 implicit
+        event-loop serialization of driver writes (T-33-07).
+        """
+        return any(
+            worker.group != "print" and not worker.is_finished
+            for worker in self.workers
+        )
+
+    def _run_print_pipeline(self, path, speed_mode: str) -> None:
+        """Dispatch a document print through the shared pipeline (PIPE-01/02).
+
+        Sync entry point: guards, file read, and profile lookup happen here;
+        the render itself runs in ``_print_worker`` (a thread worker) so
+        typewriter pacing never blocks the Textual event loop (WR-01).
+        Cancel-safety (style-off bytes on every exit) lives in
+        ``render_document``'s ``finally: renderer.close()``. Escape →
+        ``action_cancel_stream`` → ``worker.cancel()`` → the per-character
+        ``is_cancelled`` check inside the pipeline.
+        """
         if self.printer is None or not self.printer.is_connected:
             self.notify(
                 "No printer connected -- print skipped", severity="warning",
+            )
+            return
+
+        # T-33-07: refuse while any other driver writer is unfinished
+        # (chat stream worker or TypewriterScreen's key worker).
+        if self._driver_busy():
+            self.notify(
+                "Printer busy — finish or cancel the current output first",
+                severity="warning",
+            )
+            return
+
+        # Belt-and-braces: exclusive=True on the print group already
+        # supersedes a prior print, but refuse a double-print explicitly.
+        if self._print_active():
+            self.notify(
+                "Print in progress — Escape to cancel", severity="warning",
             )
             return
 
@@ -548,76 +600,49 @@ class TeletypeApp(App):
             if self._all_profiles
             else None
         )
-        columns = (
-            profile.columns
-            if profile is not None and profile.columns
-            else 80
-        )
-        buffer_bytes = (
-            profile.buffer_bytes
-            if profile is not None and getattr(profile, "buffer_bytes", None)
-            else 256
-        )
-
-        transcript_buffer: list[str] = []
-
-        if speed_mode == "typewriter":
-            import time
-
-            from claude_teletype.audio import make_bell_output
-            from claude_teletype.rendering.pacer import CHAR_DELAYS, classify_char
-
-            base_delay = (self.base_delay_ms or 0.0) / 1000.0
-            bell_fn = (
-                (lambda c: None) if self.no_audio else make_bell_output()
-            )
-
-            def text_dest(char: str) -> None:
-                self.printer.write(char)
-                bell_fn(char)
-                if base_delay > 0:
-                    time.sleep(
-                        base_delay * CHAR_DELAYS[classify_char(char)],
-                    )
-
-            wrapper = WordWrapper(columns, text_dest)
-            style_dest = self.printer.write_bytes
-        else:
-            wrapper = WordWrapper(columns, self.printer.write)
-
-            def style_dest(data: bytes) -> None:
-                chunk_writes(self.printer, data, buffer_bytes)
-
-        # TXN-02 parallel collector: tap the renderer's text channel only.
-        # Style channel never reaches transcript_buffer.
-        def text_with_capture(char: str) -> None:
-            wrapper.feed(char)
-            transcript_buffer.append(char)
-
-        renderer = MarkdownRenderer(
-            text_output_fn=text_with_capture,
-            style_output_fn=style_dest,
-            profile=profile,
-            columns=columns,
-        )
 
         self.notify(f"Printing {path.name}...")
+        self._print_worker(path, text, profile, speed_mode)
+
+    @work(thread=True, exclusive=True, group="print")
+    def _print_worker(self, path, text: str, profile, speed_mode: str) -> None:
+        """Thread worker: render a document via the shared pipeline.
+
+        Thin adapter over ``render_document`` (PIPE-01 — one-place edit).
+        The pipeline's default sleep_fn is fine here: it sleeps this worker
+        thread, not the event loop. All UI calls go through call_from_thread.
+        Never closes ``self.printer`` (persistent TUI driver; the shared core
+        doesn't close it either, per the 33-01 contract).
+        """
+        from textual.worker import get_current_worker
+
+        from claude_teletype.printing.pipeline import PrintCancelled, render_document
+
+        worker = get_current_worker()
         try:
-            renderer.render(text)
-            wrapper.flush()
-            end_response = getattr(self.printer, "end_response", None)
-            if end_response is not None:
-                end_response()
-            # TXN-01 + TXN-03: helper guards None internally
-            write_printed_file(
-                self._transcript_write, path, "".join(transcript_buffer),
+            render_document(
+                self.printer,
+                profile,
+                text,
+                speed_mode=speed_mode,
+                base_delay_ms=self.base_delay_ms or 0.0,
+                no_audio=self.no_audio,
+                transcript_write=self._transcript_write,
+                source_path=path,
+                cancel_check=lambda: worker.is_cancelled,
             )
-            self.notify(f"Printed {path.name}")
+        except PrintCancelled:
+            self.call_from_thread(
+                self.notify,
+                f"Print cancelled — {path.name}",
+                severity="warning",
+            )
         except Exception as exc:  # noqa: BLE001 - print should never crash chat
-            self.notify(f"Print failed: {exc}", severity="error")
-        finally:
-            # FLOW-05: cancel safety -- close any open style spans even on error
-            renderer.close()
+            self.call_from_thread(
+                self.notify, f"Print failed: {exc}", severity="error",
+            )
+        else:
+            self.call_from_thread(self.notify, f"Printed {path.name}")
 
     def _apply_settings(self, result: dict | None) -> None:
         """Apply changed settings from the SettingsScreen modal.
@@ -794,6 +819,12 @@ class TeletypeApp(App):
         old_val = self._prev_input_value
         self._prev_input_value = new_val
 
+        # T-33-07: the print worker owns the driver — skip the live echo
+        # while a print is in flight (tracking above stays consistent so
+        # typing after the print doesn't mis-echo a stale diff).
+        if self._print_active():
+            return
+
         if len(new_val) > len(old_val) and new_val[: len(old_val)] == old_val:
             # Characters added at end (normal typing or paste)
             if not old_val:
@@ -808,6 +839,15 @@ class TeletypeApp(App):
         """Handle user pressing Enter in the input field."""
         prompt = event.value.strip()
         if not prompt:
+            return
+
+        # T-33-07 guard: the print worker owns the driver — no chat writes
+        # (turn separator, prompt echo, "Claude: " label) may interleave.
+        # Do not clear the input: the user keeps their typed prompt.
+        if self._print_active():
+            self.notify(
+                "Print in progress — Escape to cancel", severity="warning",
+            )
             return
 
         self._turn_count += 1
