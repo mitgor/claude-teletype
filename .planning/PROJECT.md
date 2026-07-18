@@ -104,7 +104,7 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.6 shipped (2026-06-13, archived 2026-07-18). 7,901 LOC source + 12,925 LOC tests (Python). 905 tests passing. Phases 28-30 were executed reactively outside GSD phase tracking (commits only, no plan/summary artifacts); requirements were code-verified at close — 27/29 complete, REF-06 and PKG-03 deferred.
+**Current state:** v1.7 in progress — Phase 31 (Byte Integrity Criticals) complete 2026-07-18: CR-01/CR-02/WR-02 fixed and verified 4/4, 912 tests passing (BYTE-01..04 validated). v1.6 shipped 2026-06-13, archived 2026-07-18. 7,901 LOC source + 12,925 LOC tests (Python). Phases 28-30 were executed reactively outside GSD phase tracking (commits only, no plan/summary artifacts); requirements were code-verified at close — 27/29 complete, REF-06 and PKG-03 deferred.
 
 **Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
