@@ -117,7 +117,7 @@ Note: Phases 28-30 ran outside GSD phase tracking — no PLAN/SUMMARY artifacts;
 Plans:
 **Wave 1**
 
-- [ ] 31-01-PLAN.md — Fix _send_raw (CR-01) and CupsPrinterDriver byte buffer (CR-02); BYTE-03 regression test
+- [x] 31-01-PLAN.md — Fix _send_raw (CR-01) and CupsPrinterDriver byte buffer (CR-02); BYTE-03 regression test
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -198,7 +198,7 @@ Plans:
 | 28. Fleet Detection & Bridge Registry | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 29. Per-Family Profile Catalog | v1.6 | reactive | ✓ Complete | 2026-06-13 |
 | 30. Standalone macOS Packaging | v1.6 | reactive | ✓ Complete | 2026-06-13 |
-| 31. Byte Integrity Criticals | v1.7 | 0/? | Not started | - |
+| 31. Byte Integrity Criticals | v1.7 | 1/2 | In Progress|  |
 | 32. Setup & Detection Flow Fixes | v1.7 | 0/? | Not started | - |
 | 33. Shared Print Pipeline | v1.7 | 0/? | Not started | - |
 | 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |
