@@ -78,9 +78,13 @@ class DiscoveryResult:
     diagnostics: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PrinterSelection:
-    """Result from PrinterSetupScreen -- captures user's printer choice."""
+    """Result from PrinterSetupScreen -- captures user's printer choice.
+
+    Frozen (ARCH-04): profile hand-off is a match_saved_printer parameter,
+    never a caller-side mutation. Use dataclasses.replace to derive.
+    """
 
     connection_type: str  # "usb" | "cups" | "skip"
     device_index: int | None = None  # index into DiscoveryResult.usb_devices

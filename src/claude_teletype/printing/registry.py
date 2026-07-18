@@ -54,6 +54,12 @@ class ProfileRegistry:
             **builtins,
             **(custom or {}),
         }
+        # Lowered-key index resolving to the case-preserved key (WR-03).
+        # Dict-comprehension order means later merge entries win on a
+        # case-fold collision — the documented last-wins policy.
+        self._by_lower: dict[str, str] = {
+            k.lower().strip(): k for k in self._profiles
+        }
         self._exact: dict[tuple[int, int], str] = {}
         self._vid_only: dict[int, str] = {}
         self._build_index()
@@ -89,18 +95,21 @@ class ProfileRegistry:
     def get(self, name: str) -> PrinterProfile:
         """Look up a profile by name (case-insensitive).
 
-        Same contract as the legacy ``profiles.get_profile``: aliases
+        Keys stay case-preserved in ``self._profiles`` (names()/all()
+        display them verbatim); lookup is case-insensitive via a
+        lowered-key index resolving to the actual key. Same error
+        contract as the legacy ``profiles.get_profile``: aliases
         (``ibm`` -> ppds sequences, ``juki`` -> juki-6100 sequences)
         resolve, and an unknown name raises ValueError listing all
         available profile names.
         """
-        key = name.lower().strip()
-        if key not in self._profiles:
+        actual = self._by_lower.get(name.lower().strip())
+        if actual is None:
             available = ", ".join(sorted(self._profiles))
             raise ValueError(
                 f"Unknown printer profile: {name!r}. Available: {available}"
             )
-        return self._profiles[key]
+        return self._profiles[actual]
 
     def names(self) -> list[str]:
         """Every resolvable profile name, aliases included."""

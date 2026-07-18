@@ -55,12 +55,15 @@ def match_saved_printer(
     saved_type: str,
     saved_id: str,
     discovery: DiscoveryResult,
+    profile_name: str = "generic",
 ) -> PrinterSelection | None:
     """Check if a saved printer config matches a currently connected device.
 
     Returns a PrinterSelection if matched, None if the saved printer is not found.
     USB devices are matched by VID:PID (hex string like "1234:5678").
-    CUPS printers are matched by queue name.
+    CUPS printers are matched by queue name. ``profile_name`` is stamped
+    onto the returned selection (ARCH-04: the match owns the profile
+    hand-off; callers must not mutate the result).
     """
     if not saved_type or saved_type == "skip":
         return None
@@ -79,7 +82,7 @@ def match_saved_printer(
                     return PrinterSelection(
                         connection_type="usb",
                         device_index=i,
-                        profile_name="generic",
+                        profile_name=profile_name,
                     )
 
     elif saved_type == "cups" and saved_id:
@@ -88,7 +91,7 @@ def match_saved_printer(
                 return PrinterSelection(
                     connection_type="cups",
                     cups_printer_name=cups_pr.name,
-                    profile_name="generic",
+                    profile_name=profile_name,
                 )
 
     return None
@@ -156,6 +159,18 @@ def create_driver_for_selection(
     elif selection.connection_type == "cups":
         if selection.cups_printer_name:
             driver = CupsPrinterDriver(selection.cups_printer_name)
+        else:
+            # Defensive (CR-03): a cups selection with no queue name must
+            # not silently become the simulator while an enabled queue
+            # exists — pick the first enabled queue, loudly.
+            enabled_queues = [q for q in discovery.cups_printers if q.enabled]
+            if enabled_queues:
+                print(
+                    "CUPS selection had no queue name "
+                    f"— falling back to CUPS queue {enabled_queues[0].name}",
+                    file=sys.stderr,
+                )
+                driver = CupsPrinterDriver(enabled_queues[0].name)
 
     if driver is None:
         return NullPrinterDriver()
