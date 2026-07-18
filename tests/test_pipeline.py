@@ -318,7 +318,7 @@ class TestEpilogue:
 
         driver = BareDriver()
         render_document(driver, None, "hi\n")  # must not crash
-        assert "h" in driver.chars
+        assert "hi" in "".join(driver.chars)
 
     def test_render_document_never_closes_driver(self):
         from unittest.mock import MagicMock
