@@ -96,7 +96,7 @@ Note: Phases 28-30 ran outside GSD phase tracking — no PLAN/SUMMARY artifacts;
 - [x] **Phase 31: Byte Integrity Criticals** - Fix the ASCII round-trip corruptions in both driver paths and the teletype-mode byte defects, locked in by a regression test (completed 2026-07-18)
 - [x] **Phase 32: Setup & Detection Flow Fixes** - Repair the kernel-owns → CUPS misroute and the setup/startup contract gaps (registry case, frozen `uv sync`, profile hand-off) (completed 2026-07-18)
 - [x] **Phase 33: Shared Print Pipeline** - One cancel-safe pipeline for CLI and TUI printing; escape actually cancels; no blocking `input()` under Textual (completed 2026-07-18)
-- [ ] **Phase 34: Architecture Cleanup** - Registry as the real seam, one-file-per-family catalog, dead code removed, no private-attribute reach-ins
+- [x] **Phase 34: Architecture Cleanup** - Registry as the real seam, one-file-per-family catalog, dead code removed, no private-attribute reach-ins (completed 2026-07-19)
 
 ## Phase Details (v1.7)
 
@@ -185,7 +185,7 @@ Plans:
 
 **Wave 3** *(blocked on 34-01, 34-02)*
 
-- [ ] 34-04-PLAN.md — Dead code: trim printing/__init__ facade, fix shim docstrings, remove juki compat paths (2)-(4), re-pin tests
+- [x] 34-04-PLAN.md — Dead code: trim printing/__init__ facade, fix shim docstrings, remove juki compat paths (2)-(4), re-pin tests
 
 ## Progress
 
@@ -224,4 +224,4 @@ Plans:
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 33. Shared Print Pipeline | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 34. Architecture Cleanup | v1.7 | 3/4 | In Progress|  |
+| 34. Architecture Cleanup | v1.7 | 4/4 | Complete   | 2026-07-19 |
