@@ -24,6 +24,14 @@ from claude_teletype.printing.drivers import (
 from claude_teletype.printing.profiles import PrinterProfile, get_profile
 
 
+def _emit(diagnostics: list[str] | None, message: str) -> None:
+    """Route a diagnostic to the caller's list, else stderr (WR-04)."""
+    if diagnostics is not None:
+        diagnostics.append(message)
+    else:
+        print(message, file=sys.stderr)
+
+
 def select_printer(printers: list[dict[str, str]]) -> str | None:
     """Interactively select a CUPS printer from the discovered list.
 
@@ -100,20 +108,44 @@ def match_saved_printer(
 def create_driver_for_selection(
     selection: PrinterSelection,
     discovery: DiscoveryResult,
-    all_profiles: dict[str, PrinterProfile] | None = None,
+    all_profiles: dict[str, PrinterProfile] | None = None,  # deprecated shim — deleted in plan 34-02
+    *,
+    registry: "ProfileRegistry | None" = None,
+    diagnostics: list[str] | None = None,
 ) -> PrinterDriver:
     """Convert a PrinterSelection from the setup screen into a PrinterDriver.
+
+    Profile resolution goes through a ProfileRegistry — the lookup
+    authority — so names resolve case-insensitively (WR-01). An unknown
+    profile name emits a diagnostic and explicitly falls back to an
+    unwrapped driver (a stated policy, not a dict-``.get`` accident).
 
     Args:
         selection: User's choice from PrinterSetupScreen.
         discovery: Discovery results; ``selection.device_index`` indexes
             ``discovery.usb_devices`` to reconnect the picked USB device.
-        all_profiles: Profile catalog for profile wrapping. If None, uses BUILTIN_PROFILES.
+        all_profiles: DEPRECATED — transitional dict catalog, wrapped in a
+            ProfileRegistry internally. Slated for removal (plan 34-02);
+            pass ``registry=`` instead.
+        registry: Profile lookup authority. If None, falls back to
+            ``ProfileRegistry(all_profiles)`` when a non-empty dict was
+            given, else ``ProfileRegistry(BUILTIN_PROFILES)``.
+        diagnostics: When a list is passed, fallback/unknown-profile
+            messages are appended to it for the caller to surface;
+            when None they print to stderr (CLI path stays loud, WR-04).
 
     Returns:
         Configured PrinterDriver (possibly wrapped in ProfilePrinterDriver).
     """
     from claude_teletype.printing.profiles import BUILTIN_PROFILES
+    from claude_teletype.printing.registry import ProfileRegistry
+
+    if registry is not None:
+        effective_registry = registry
+    elif all_profiles:
+        effective_registry = ProfileRegistry(all_profiles)
+    else:
+        effective_registry = ProfileRegistry(BUILTIN_PROFILES)
 
     if selection.connection_type == "skip":
         return NullPrinterDriver()
@@ -150,10 +182,10 @@ def create_driver_for_selection(
                     )
                 if fallback is None:
                     fallback = enabled_queues[0]
-                print(
+                _emit(
+                    diagnostics,
                     "USB direct unavailable (device may be claimed by the OS) "
                     f"— falling back to CUPS queue {fallback.name}",
-                    file=sys.stderr,
                 )
                 driver = CupsPrinterDriver(fallback.name)
     elif selection.connection_type == "cups":
@@ -165,20 +197,28 @@ def create_driver_for_selection(
             # exists — pick the first enabled queue, loudly.
             enabled_queues = [q for q in discovery.cups_printers if q.enabled]
             if enabled_queues:
-                print(
+                _emit(
+                    diagnostics,
                     "CUPS selection had no queue name "
                     f"— falling back to CUPS queue {enabled_queues[0].name}",
-                    file=sys.stderr,
                 )
                 driver = CupsPrinterDriver(enabled_queues[0].name)
 
     if driver is None:
         return NullPrinterDriver()
 
-    # Wrap with profile if not generic
+    # Wrap with profile if not generic — registry is the lookup authority
     if selection.profile_name and selection.profile_name != "generic":
-        profiles = all_profiles or BUILTIN_PROFILES
-        profile = profiles.get(selection.profile_name)
+        try:
+            profile = effective_registry.get(selection.profile_name)
+        except ValueError:
+            _emit(
+                diagnostics,
+                f"Unknown printer profile {selection.profile_name!r} — "
+                "printing without profile wrapping (no ESC init/CRLF). "
+                "Check saved_printer_profile in config.",
+            )
+            profile = None
         if profile is not None:
             driver = ProfilePrinterDriver(driver, profile)
 
