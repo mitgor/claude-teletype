@@ -171,7 +171,21 @@ Plans:
   3. Dead code is gone: unused `all_profiles` parameter, the unused 91-line `printing/__init__` facade (trimmed or adopted), stale shim-era docstrings, and redundant juki compat paths beyond the alias profile — with the full test suite green (ARCH-07, ARCH-08, IN-01)
   4. `tui.py` reads connection info through a public driver property — no `_inner` private reach-in (ARCH-06)
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 34-01-PLAN.md — Registry seam core in selection.py + WR-02 collision diagnostic (loud unknown-profile, diagnostics plumbing)
+- [ ] 34-03-PLAN.md — Catalog migration: pkgutil auto-discovery, inline families + aliases move to catalog modules
+
+**Wave 2** *(blocked on 34-01)*
+
+- [ ] 34-02-PLAN.md — Thread ProfileRegistry cli → TeletypeApp → PrinterSetupScreen; WR-04 notify diagnostics; public `inner` property (ARCH-06)
+
+**Wave 3** *(blocked on 34-01, 34-02)*
+
+- [ ] 34-04-PLAN.md — Dead code: trim printing/__init__ facade, fix shim docstrings, remove juki compat paths (2)-(4), re-pin tests
 
 ## Progress
 
