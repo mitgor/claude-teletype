@@ -229,6 +229,108 @@ class TestCupsNoNameFallback:
         assert isinstance(driver, NullPrinterDriver)
 
 
+class TestRegistryBackedProfileLookup:
+    """create_driver_for_selection resolves profiles via ProfileRegistry (WR-01/WR-04)."""
+
+    @staticmethod
+    def _cups_discovery():
+        return DiscoveryResult(
+            cups_printers=[
+                CupsPrinterInfo(name="Q", uri="usb://q", enabled=True),
+            ]
+        )
+
+    def test_wrong_case_profile_name_still_wraps(self):
+        """'Juki' resolves case-insensitively to builtin 'juki' (WR-01)."""
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import ProfilePrinterDriver
+        from claude_teletype.printing.profiles import BUILTIN_PROFILES
+        from claude_teletype.printing.registry import ProfileRegistry
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        selection = PrinterSelection(
+            connection_type="cups", cups_printer_name="Q", profile_name="Juki"
+        )
+        driver = create_driver_for_selection(
+            selection,
+            self._cups_discovery(),
+            registry=ProfileRegistry(BUILTIN_PROFILES),
+        )
+        assert isinstance(driver, ProfilePrinterDriver)
+
+    def test_unknown_profile_appends_diagnostic_and_unwraps(self):
+        """Unknown name: unwrapped driver + one diagnostic in the passed list."""
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import (
+            CupsPrinterDriver,
+            ProfilePrinterDriver,
+        )
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        diagnostics: list[str] = []
+        selection = PrinterSelection(
+            connection_type="cups", cups_printer_name="Q", profile_name="nonexistent"
+        )
+        driver = create_driver_for_selection(
+            selection, self._cups_discovery(), diagnostics=diagnostics
+        )
+        assert isinstance(driver, CupsPrinterDriver)
+        assert not isinstance(driver, ProfilePrinterDriver)
+        assert len(diagnostics) == 1
+        assert "nonexistent" in diagnostics[0]
+
+    def test_unknown_profile_prints_to_stderr_without_list(self, capsys):
+        """diagnostics=None keeps the CLI path loud via stderr."""
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import ProfilePrinterDriver
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        selection = PrinterSelection(
+            connection_type="cups", cups_printer_name="Q", profile_name="nonexistent"
+        )
+        driver = create_driver_for_selection(selection, self._cups_discovery())
+        assert not isinstance(driver, ProfilePrinterDriver)
+        assert "nonexistent" in capsys.readouterr().err
+
+    def test_usb_cups_fallback_message_routed_through_diagnostics(self, capsys, monkeypatch):
+        """CR-03 USB->CUPS fallback goes to the list when passed, stderr when not."""
+        from claude_teletype.printing import discovery as _discovery
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import CupsPrinterDriver
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        monkeypatch.setattr(_discovery, "_find_usb_printer", lambda identity=None: None)
+        discovery = DiscoveryResult(
+            usb_devices=[UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)],
+            cups_printers=[CupsPrinterInfo(name="Q", uri="usb://q", enabled=True)],
+        )
+        selection = PrinterSelection(connection_type="usb", device_index=0)
+
+        # list passed: appended, not printed
+        diagnostics: list[str] = []
+        driver = create_driver_for_selection(selection, discovery, diagnostics=diagnostics)
+        assert isinstance(driver, CupsPrinterDriver)
+        assert any("falling back to CUPS queue Q" in d for d in diagnostics)
+        assert "falling back" not in capsys.readouterr().err
+
+        # no list: printed to stderr (existing behavior preserved)
+        driver = create_driver_for_selection(selection, discovery)
+        assert isinstance(driver, CupsPrinterDriver)
+        assert "falling back to CUPS queue Q" in capsys.readouterr().err
+
+    def test_bare_call_resolves_builtin_names(self):
+        """No registry/all_profiles args: builtin names still resolve."""
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import ProfilePrinterDriver
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        selection = PrinterSelection(
+            connection_type="cups", cups_printer_name="Q", profile_name="juki"
+        )
+        driver = create_driver_for_selection(selection, self._cups_discovery())
+        assert isinstance(driver, ProfilePrinterDriver)
+
+
 class _FakeBackend:
     def validate(self): pass
 
