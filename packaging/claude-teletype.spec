@@ -38,6 +38,14 @@ if not os.path.exists(LIBUSB_DYLIB):
 # import.
 hiddenimports = collect_submodules("textual.widgets")
 
+# The printer catalog is auto-discovered at runtime via pkgutil (ARCH-03):
+# profiles._load_catalog imports catalog modules dynamically, so static
+# analysis sees NO import of catalog/<family>.py. collect_submodules is
+# MANDATORY or the frozen app silently ships with only the "generic"
+# profile. PyInstaller's FrozenImporter implements pkgutil.iter_modules,
+# so discovery itself works once the modules are collected.
+hiddenimports += collect_submodules("claude_teletype.printing.catalog")
+
 a = Analysis(
     ["entry.py"],
     pathex=[],
