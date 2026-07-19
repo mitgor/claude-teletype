@@ -22,6 +22,9 @@ from claude_teletype.printing.drivers import (
     ProfilePrinterDriver,
 )
 from claude_teletype.printing.profiles import PrinterProfile
+# WR-05: runtime import (no cycle: registry.py imports nothing from this
+# package at runtime) so typing.get_type_hints can resolve the annotation.
+from claude_teletype.printing.registry import ProfileRegistry
 
 
 def _emit(diagnostics: list[str] | None, message: str) -> None:
@@ -109,7 +112,7 @@ def create_driver_for_selection(
     selection: PrinterSelection,
     discovery: DiscoveryResult,
     *,
-    registry: "ProfileRegistry | None" = None,
+    registry: ProfileRegistry | None = None,
     diagnostics: list[str] | None = None,
 ) -> PrinterDriver:
     """Convert a PrinterSelection from the setup screen into a PrinterDriver.
@@ -134,7 +137,6 @@ def create_driver_for_selection(
         Configured PrinterDriver (possibly wrapped in ProfilePrinterDriver).
     """
     from claude_teletype.printing.profiles import BUILTIN_PROFILES
-    from claude_teletype.printing.registry import ProfileRegistry
 
     if registry is not None:
         effective_registry = registry

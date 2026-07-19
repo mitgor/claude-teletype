@@ -87,3 +87,11 @@ class TestCreateDriverForSelection:
         assert isinstance(driver, ProfilePrinterDriver)
         assert isinstance(driver._inner, UsbPrinterDriver)
         assert driver._profile.name == "juki"
+
+
+def test_type_hints_resolve_on_public_factory():
+    """WR-05: get_type_hints must not NameError on the ProfileRegistry ref."""
+    import typing
+
+    hints = typing.get_type_hints(create_driver_for_selection)
+    assert "registry" in hints
