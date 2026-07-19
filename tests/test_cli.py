@@ -440,10 +440,10 @@ class TestSetupPrinterFlag:
 
 
 class TestPrinterFlag:
-    """Tests for --printer flag and --juki deprecation."""
+    """Tests for --printer flag, including the juki alias profile."""
 
     def test_printer_flag_sets_profile(self):
-        """--printer juki resolves to juki profile."""
+        """--printer juki resolves to the juki-6100-equivalent alias profile."""
         with patch(
             "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
         ), patch(
@@ -468,39 +468,22 @@ class TestPrinterFlag:
         assert result.exit_code == 0
         mock_discover.assert_called_once()
         call_kwargs = mock_discover.call_args[1]
-        assert call_kwargs["profile"].name == "juki"
+        profile = call_kwargs["profile"]
+        assert profile.name == "juki"
+        # The alias must carry the juki-6100 byte contract
+        from claude_teletype.printing.profiles import BUILTIN_PROFILES
+
+        assert profile.init_sequence == BUILTIN_PROFILES["juki-6100"].init_sequence
+        assert profile.line_spacing == BUILTIN_PROFILES["juki-6100"].line_spacing
+        assert profile.char_pitch == BUILTIN_PROFILES["juki-6100"].char_pitch
         # Close the coroutine to avoid RuntimeWarning
         if mock_run.called:
             mock_run.call_args[0][0].close()
 
-    def test_juki_flag_emits_deprecation_warning(self):
-        """--juki emits deprecation warning."""
-        with patch(
-            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
-        ), patch(
-            "claude_teletype.cli.asyncio.run"
-        ) as mock_run, patch(
-            "claude_teletype.cli.load_config"
-        ), patch(
-            "claude_teletype.cli.apply_env_overrides"
-        ) as mock_env, patch(
-            "claude_teletype.cli.merge_cli_flags"
-        ) as mock_merge, patch(
-            "claude_teletype.printing.selection.discover_printer", return_value=None
-        ):
-            from claude_teletype.config import TeletypeConfig
-
-            mock_cfg = TeletypeConfig()
-            mock_env.return_value = mock_cfg
-            mock_merge.return_value = mock_cfg
-
-            result = runner.invoke(app, ["--no-tui", "--juki", "hello"])
-
-        assert result.exit_code == 0
-        assert "deprecated" in result.output.lower()
-        # Close the coroutine to avoid RuntimeWarning
-        if mock_run.called:
-            mock_run.call_args[0][0].close()
+    def test_juki_flag_removed(self):
+        """--juki no longer exists as a CLI option."""
+        result = runner.invoke(app, ["--no-tui", "--juki", "hello"])
+        assert result.exit_code != 0
 
     def test_unknown_printer_name_exits_with_error(self):
         """--printer nonexistent exits with error."""
