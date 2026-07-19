@@ -16,14 +16,17 @@ from claude_teletype.printing.drivers import (
     A4_COLUMNS,
     CupsPrinterDriver,
     FilePrinterDriver,
-    JukiPrinterDriver,
     NullPrinterDriver,
     PortStatus,
     ProfilePrinterDriver,
     UsbPrinterDriver,
     make_printer_output,
 )
-from claude_teletype.printing.profiles import PrinterProfile, get_profile
+from claude_teletype.printing.profiles import (
+    BUILTIN_PROFILES,
+    PrinterProfile,
+    get_profile,
+)
 from claude_teletype.printing.selection import discover_printer, select_printer
 
 # ---------------------------------------------------------------------------
@@ -505,8 +508,11 @@ def test_select_printer_retries_on_invalid(mock_input: MagicMock):
 
 
 # ---------------------------------------------------------------------------
-# JukiPrinterDriver tests
+# Juki byte-contract tests (ProfilePrinterDriver + BUILTIN_PROFILES["juki-6100"])
 # ---------------------------------------------------------------------------
+
+# The juki byte contract lives in the profile catalog — pin it there.
+JUKI_PROFILE = BUILTIN_PROFILES["juki-6100"]
 
 
 def _collect_raw(inner) -> bytes:
@@ -529,7 +535,7 @@ def test_juki_sends_init_on_first_write():
     """First write sends RESET + LINE_SPACING + FIXED_PITCH init sequence."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
 
     juki.write("A")
 
@@ -548,7 +554,7 @@ def test_juki_no_double_init():
     """Init sequence only sent once, not on subsequent writes."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
 
     juki.write("A")
     first_count = inner.write.call_count
@@ -562,13 +568,13 @@ def test_juki_converts_newline_to_crlf_and_reinits():
     """\\n is converted to \\r\\n followed by LINE_SPACING + FIXED_PITCH."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
     juki._initialized = True  # skip init for clarity
 
     juki.write("\n")
 
     raw = _collect_raw(inner)
-    expected = b"\r\n" + JukiPrinterDriver.LINE_SPACING + JukiPrinterDriver.FIXED_PITCH
+    expected = b"\r\n" + JUKI_PROFILE.reinit_sequence
     assert raw == expected
 
 
@@ -576,7 +582,7 @@ def test_juki_regular_chars_pass_through():
     """Non-newline chars pass through unchanged."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
     juki._initialized = True
 
     juki.write("X")
@@ -588,7 +594,7 @@ def test_juki_close_sends_formfeed():
     """close() sends form feed before closing inner driver."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
     juki._initialized = True
 
     juki.close()
@@ -601,7 +607,7 @@ def test_juki_close_skips_formfeed_when_not_initialized():
     """close() skips form feed if never initialized (nothing was printed)."""
     inner = MagicMock()
     inner.is_connected = True
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
 
     juki.close()
 
@@ -613,7 +619,7 @@ def test_juki_is_connected_delegates():
     """is_connected delegates to inner driver."""
     inner = MagicMock()
     inner.is_connected = False
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
     assert juki.is_connected is False
 
     inner.is_connected = True
@@ -624,7 +630,7 @@ def test_juki_write_noop_when_disconnected():
     """write() does nothing when inner is disconnected."""
     inner = MagicMock()
     inner.is_connected = False
-    juki = JukiPrinterDriver(inner)
+    juki = ProfilePrinterDriver(inner, JUKI_PROFILE)
 
     juki.write("A")
     inner.write.assert_not_called()
@@ -1058,15 +1064,15 @@ class TestProfilePrinterDriver:
 
 
 # ---------------------------------------------------------------------------
-# discover_printer() with juki=True tests
+# discover_printer() with profile=get_profile("juki") tests
 # ---------------------------------------------------------------------------
 
 
 def test_discover_juki_wraps_file_driver(tmp_path: Path):
-    """discover_printer(device_override=..., juki=True) wraps in ProfilePrinterDriver."""
+    """discover_printer(device_override=..., profile=juki) wraps in ProfilePrinterDriver."""
     dev = tmp_path / "dev"
     dev.touch()
-    driver = discover_printer(device_override=str(dev), juki=True)
+    driver = discover_printer(device_override=str(dev), profile=get_profile("juki"))
     assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, FilePrinterDriver)
     driver._inner.close()
@@ -1075,13 +1081,13 @@ def test_discover_juki_wraps_file_driver(tmp_path: Path):
 @patch("claude_teletype.printing.discovery.discover_usb_device")
 @patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=True) with CUPS printer wraps in ProfilePrinterDriver."""
+    """discover_printer(profile=get_profile("juki")) with CUPS printer wraps in ProfilePrinterDriver."""
     mock_usb.return_value = None
     mock_run.return_value = MagicMock(
         stdout="device for MyPrinter: usb://Vendor/Model?serial=123\n",
         returncode=0,
     )
-    driver = discover_printer(juki=True)
+    driver = discover_printer(profile=get_profile("juki"))
     assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, CupsPrinterDriver)
 
@@ -1089,10 +1095,10 @@ def test_discover_juki_wraps_cups_driver(mock_run: MagicMock, mock_usb: MagicMoc
 @patch("claude_teletype.printing.discovery.discover_usb_device")
 @patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_null_not_wrapped(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=True) with no printers returns NullPrinterDriver (not wrapped)."""
+    """discover_printer(profile=get_profile("juki")) with no printers returns NullPrinterDriver (not wrapped)."""
     mock_usb.return_value = None
     mock_run.return_value = MagicMock(stdout="", returncode=0)
-    driver = discover_printer(juki=True)
+    driver = discover_printer(profile=get_profile("juki"))
     assert isinstance(driver, NullPrinterDriver)
 
 
@@ -1342,9 +1348,9 @@ def test_discover_usb_returns_none_when_no_printer_class():
 @patch("claude_teletype.printing.discovery.discover_usb_device")
 @patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=True) tries USB first; if found, skips CUPS."""
+    """discover_printer(profile=get_profile("juki")) tries USB first; if found, skips CUPS."""
     mock_usb.return_value = UsbPrinterDriver(MagicMock(), MagicMock())
-    driver = discover_printer(juki=True)
+    driver = discover_printer(profile=get_profile("juki"))
     assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, UsbPrinterDriver)
     mock_run.assert_not_called()  # CUPS not tried
@@ -1353,13 +1359,13 @@ def test_discover_juki_tries_usb_before_cups(mock_run: MagicMock, mock_usb: Magi
 @patch("claude_teletype.printing.discovery.discover_usb_device")
 @patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=True) falls back to CUPS when USB returns None."""
+    """discover_printer(profile=get_profile("juki")) falls back to CUPS when USB returns None."""
     mock_usb.return_value = None
     mock_run.return_value = MagicMock(
         stdout="device for MyPrinter: usb://Vendor/Model?serial=123\n",
         returncode=0,
     )
-    driver = discover_printer(juki=True)
+    driver = discover_printer(profile=get_profile("juki"))
     assert isinstance(driver, ProfilePrinterDriver)
     assert isinstance(driver._inner, CupsPrinterDriver)
 
@@ -1367,9 +1373,9 @@ def test_discover_juki_falls_back_to_cups_when_no_usb(mock_run: MagicMock, mock_
 @patch("claude_teletype.printing.discovery.discover_usb_device")
 @patch("claude_teletype.printing.discovery.subprocess.run")
 def test_discover_no_juki_skips_usb(mock_run: MagicMock, mock_usb: MagicMock):
-    """discover_printer(juki=False) does not try USB discovery."""
+    """discover_printer() does not try USB discovery."""
     mock_run.return_value = MagicMock(stdout="", returncode=0)
-    discover_printer(juki=False)
+    discover_printer()
     mock_usb.assert_not_called()
 
 

@@ -313,9 +313,6 @@ class _UnknownProfileError(ValueError):
 def _resolve_profile_selection(
     config,
     printer: str | None,
-    *,
-    juki_flag: bool = False,
-    honor_config_juki: bool = False,
 ):
     """THE shared load-custom -> registry -> resolve chain (REF-05).
 
@@ -324,17 +321,11 @@ def _resolve_profile_selection(
     ``ProfileRegistry`` (built-ins merged with custom TOML profiles,
     REF-02) and resolves the active profile by precedence:
 
-        --printer > --juki (deprecated, chat path only)
-        > config.printer_profile > config.juki (backward compat,
-        chat path only) > USB auto-detect
+        --printer > config.printer_profile > USB auto-detect > generic
 
     Args:
         config: Resolved TeletypeConfig (defaults < TOML < env < CLI).
         printer: The --printer flag value, or None.
-        juki_flag: The deprecated --juki flag (main() only). Emits the
-            deprecation warning when it wins resolution.
-        honor_config_juki: Apply the old ``config.juki = true`` backward
-            compat branch (main() only — the print path never honored it).
 
     Returns:
         ``(registry, resolved_profile)``. ``resolved_profile`` is None
@@ -368,10 +359,6 @@ def _resolve_profile_selection(
                 f"Error: unknown printer profile {printer!r}. "
                 f"Available: {available}"
             ) from None
-    elif juki_flag:
-        # --juki flag (deprecated)
-        typer.echo("Warning: --juki is deprecated, use --printer juki", err=True)
-        resolved_profile = registry.get("juki")
     elif config.printer_profile and config.printer_profile != "generic":
         try:
             resolved_profile = registry.get(config.printer_profile)
@@ -379,9 +366,6 @@ def _resolve_profile_selection(
             # Unknown config profile falls through to generic (None) --
             # same forgiving behavior as the pre-registry blocks.
             resolved_profile = None
-    elif honor_config_juki and config.juki:
-        # Old config juki = true backward compat
-        resolved_profile = registry.get("juki")
     else:
         # USB auto-detect through classify() — same detection seam as the
         # setup screen, so a bridge VID can never auto-suggest a profile.
@@ -701,11 +685,6 @@ def main(
         "-p",
         help="Printer profile name (e.g., juki-6100, juki-2200, oki-3390, escp, ppds/ibm, pcl)",
     ),
-    juki: bool = typer.Option(
-        False,
-        "--juki",
-        help="[deprecated] Use --printer juki instead",
-    ),
     backend: str = typer.Option(
         None,
         "--backend",
@@ -760,12 +739,10 @@ def main(
     effective_no_audio = no_audio or config.no_audio
     effective_no_tui = no_tui or config.no_tui
 
-    # Profile resolution: --printer flag > --juki flag > config.printer_profile > config.juki > auto-detect > generic
+    # Profile resolution: --printer flag > config.printer_profile > auto-detect > generic
     # Single registry-backed chain shared with the print path (REF-02/REF-05).
     try:
-        registry, resolved_profile = _resolve_profile_selection(
-            config, printer, juki_flag=juki, honor_config_juki=True,
-        )
+        registry, resolved_profile = _resolve_profile_selection(config, printer)
     except _UnknownProfileError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)

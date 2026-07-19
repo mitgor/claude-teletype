@@ -21,7 +21,7 @@ from claude_teletype.printing.drivers import (
     PrinterDriver,
     ProfilePrinterDriver,
 )
-from claude_teletype.printing.profiles import PrinterProfile, get_profile
+from claude_teletype.printing.profiles import PrinterProfile
 
 
 def _emit(diagnostics: list[str] | None, message: str) -> None:
@@ -221,7 +221,6 @@ def create_driver_for_selection(
 
 def discover_printer(
     device_override: str | None = None,
-    juki: bool = False,
     profile: PrinterProfile | None = None,
 ) -> PrinterDriver:
     """Select the best available printer backend.
@@ -233,14 +232,9 @@ def discover_printer(
     4. Linux /dev/usb/lp* probe -> FilePrinterDriver
     5. Fallback -> NullPrinterDriver
 
-    When a non-generic profile is provided, wraps the selected driver in
-    ProfilePrinterDriver. The juki parameter is deprecated; use
-    profile=get_profile("juki") instead.
+    When a non-generic profile is provided (profile= is the only selector),
+    wraps the selected driver in ProfilePrinterDriver.
     """
-    # Backward compat: juki=True without explicit profile
-    if juki and profile is None:
-        profile = get_profile("juki")
-
     # Resolve the discovery helpers through the discovery module at call time
     # so test patches targeting
     # ``claude_teletype.printing.discovery.discover_usb_device`` /

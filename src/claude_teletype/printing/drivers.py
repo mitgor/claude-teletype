@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from claude_teletype.printing.profiles import PrinterProfile, get_profile
+from claude_teletype.printing.profiles import PrinterProfile
 
 
 @dataclass(frozen=True)
@@ -402,22 +402,6 @@ class ProfilePrinterDriver:
             if self._profile.reset_sequence:
                 self._send_raw(self._profile.reset_sequence)
         self._inner.close()
-
-
-class JukiPrinterDriver(ProfilePrinterDriver):
-    """Juki 6100 daisywheel impact printer driver.
-
-    Deprecated: use ProfilePrinterDriver with get_profile("juki").
-    Kept as backward-compatible alias.
-    """
-
-    # Juki 6100 ESC sequences (kept for backward compat in tests)
-    RESET = b"\x1b\x1aI"  # ESC SUB I — full reset
-    LINE_SPACING = b"\x1b\x1e\x09"  # ESC RS 9 — 1/6" line spacing
-    FIXED_PITCH = b"\x1bQ"  # ESC Q — disable proportional spacing
-
-    def __init__(self, inner: PrinterDriver) -> None:
-        super().__init__(inner, get_profile("juki"))
 
 
 A4_COLUMNS = 80  # A4 printable width at 10 CPI (pica)

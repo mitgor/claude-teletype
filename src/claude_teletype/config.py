@@ -96,7 +96,6 @@ class TeletypeConfig:
 
     # [printer]
     device: str | None = None
-    juki: bool = False  # Deprecated: use printer_profile instead
     printer_profile: str = "generic"
 
     # [llm]
@@ -177,7 +176,7 @@ def apply_env_overrides(config: TeletypeConfig) -> TeletypeConfig:
             continue
         # Use default value type for dispatch (avoids __future__ annotations issue)
         default_val = getattr(config, f.name)
-        if isinstance(default_val, bool) or f.name in ("juki", "no_audio", "no_tui"):
+        if isinstance(default_val, bool) or f.name in ("no_audio", "no_tui"):
             setattr(config, f.name, env_val.lower() in ("1", "true", "yes"))
         elif isinstance(default_val, float):
             setattr(config, f.name, float(env_val))

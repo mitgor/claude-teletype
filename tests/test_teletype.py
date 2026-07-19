@@ -472,7 +472,7 @@ def test_cli_teletype_passes_no_profile(mock_verbose, mock_run_teletype, _mock_d
 @patch("claude_teletype.teletype.run_teletype")
 @patch("claude_teletype.printing.discovery.discover_usb_device_verbose")
 def test_cli_teletype_passes_juki_profile(mock_verbose, mock_run_teletype):
-    """--teletype --juki passes profile=juki_profile."""
+    """--teletype --printer juki passes profile=juki_profile (alias path)."""
     from typer.testing import CliRunner
 
     from claude_teletype.cli import app
@@ -482,7 +482,7 @@ def test_cli_teletype_passes_juki_profile(mock_verbose, mock_run_teletype):
     mock_verbose.return_value = (mock_driver, ["USB printer found: endpoint OUT 1"])
 
     runner = CliRunner()
-    runner.invoke(app, ["--teletype", "--juki"])
+    runner.invoke(app, ["--teletype", "--printer", "juki"])
 
     mock_run_teletype.assert_called_once()
     call_kwargs = mock_run_teletype.call_args[1]

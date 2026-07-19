@@ -35,8 +35,8 @@ class TestTeletypeConfigDefaults:
     def test_device_default(self):
         assert TeletypeConfig().device is None
 
-    def test_juki_default(self):
-        assert TeletypeConfig().juki is False
+    def test_printer_profile_default(self):
+        assert TeletypeConfig().printer_profile == "generic"
 
 
 # --- Test 2: load_config returns defaults when file does not exist ---
@@ -55,15 +55,25 @@ class TestLoadConfigFromToml:
     def test_reads_general_and_printer_sections(self, tmp_path):
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            "[general]\ndelay = 50.0\n\n[printer]\njuki = true\n",
+            '[general]\ndelay = 50.0\n\n[printer]\ndevice = "/dev/usb/lp0"\n',
             encoding="utf-8",
         )
         result = load_config(config_file)
         assert result.delay == 50.0
-        assert result.juki is True
+        assert result.device == "/dev/usb/lp0"
         # Other fields remain defaults
         assert result.no_audio is False
-        assert result.device is None
+
+    def test_stale_juki_key_ignored(self, tmp_path):
+        """Regression: existing configs may still contain the removed juki key."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[printer]\njuki = true\n",
+            encoding="utf-8",
+        )
+        result = load_config(config_file)  # must not raise
+        assert not hasattr(result, "juki")
+        assert result == TeletypeConfig()
 
 
 # --- Test 4: load_config ignores unknown TOML keys ---
@@ -138,9 +148,9 @@ class TestMergeCliFlags:
         assert result.no_audio is False  # unchanged from default
 
     def test_overrides_multiple_flags(self):
-        result = merge_cli_flags(TeletypeConfig(), delay=30.0, juki=True)
+        result = merge_cli_flags(TeletypeConfig(), delay=30.0, device="/dev/usb/lp0")
         assert result.delay == 30.0
-        assert result.juki is True
+        assert result.device == "/dev/usb/lp0"
 
 
 # --- Test 9: write_default_config creates file with commented TOML template ---
