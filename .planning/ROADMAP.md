@@ -181,7 +181,7 @@ Plans:
 
 **Wave 2** *(blocked on 34-01)*
 
-- [ ] 34-02-PLAN.md — Thread ProfileRegistry cli → TeletypeApp → PrinterSetupScreen; WR-04 notify diagnostics; public `inner` property (ARCH-06)
+- [x] 34-02-PLAN.md — Thread ProfileRegistry cli → TeletypeApp → PrinterSetupScreen; WR-04 notify diagnostics; public `inner` property (ARCH-06)
 
 **Wave 3** *(blocked on 34-01, 34-02)*
 
@@ -224,4 +224,4 @@ Plans:
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 33. Shared Print Pipeline | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 34. Architecture Cleanup | v1.7 | 2/4 | In Progress|  |
+| 34. Architecture Cleanup | v1.7 | 3/4 | In Progress|  |
