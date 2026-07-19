@@ -214,3 +214,34 @@ def test_builtin_catalog_has_no_vid_only_collisions(caplog):
     with caplog.at_level(logging.WARNING, logger="claude_teletype.printing.registry"):
         ProfileRegistry(BUILTIN_PROFILES)
     assert not caplog.records
+
+
+# ---------------------------------------------------------------------------
+# Case-fold name collision policy — last registered wins, diagnostic logged
+# (WR-02)
+# ---------------------------------------------------------------------------
+
+
+def test_case_fold_collision_warns_and_last_wins(caplog):
+    """Custom 'EscP' shadowing builtin 'escp' logs one warning naming both."""
+    custom_escp = PrinterProfile(name="EscP", description="custom shadow")
+    with caplog.at_level(logging.WARNING, logger="claude_teletype.printing.registry"):
+        registry = ProfileRegistry(BUILTIN_PROFILES, {"EscP": custom_escp})
+
+    warnings = [
+        rec for rec in caplog.records if "case collision" in rec.getMessage()
+    ]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "'EscP'" in msg
+    assert "'escp'" in msg
+    # last registered wins — the custom profile resolves
+    assert registry.get("escp") is custom_escp
+
+
+def test_no_case_fold_collision_logs_nothing(caplog):
+    """All-distinct lowered names log nothing at WARNING level."""
+    custom = PrinterProfile(name="MyPrinter")
+    with caplog.at_level(logging.WARNING, logger="claude_teletype.printing.registry"):
+        ProfileRegistry(BUILTIN_PROFILES, {"MyPrinter": custom})
+    assert not caplog.records
