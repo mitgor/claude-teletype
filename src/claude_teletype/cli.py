@@ -363,9 +363,15 @@ def _resolve_profile_selection(
         try:
             resolved_profile = registry.get(config.printer_profile)
         except ValueError:
-            # Unknown config profile falls through to generic (None) --
-            # same forgiving behavior as the pre-registry blocks.
-            resolved_profile = None
+            # WR-02: a typo'd config profile must not silently print generic,
+            # and must not skip auto-detect (an empty value would have
+            # auto-detected; a typo'd one should not behave worse).
+            typer.echo(
+                f"Warning: unknown printer_profile {config.printer_profile!r} "
+                "in config -- using auto-detect",
+                err=True,
+            )
+            resolved_profile = detect_native_profile(registry)
     else:
         # USB auto-detect through classify() — same detection seam as the
         # setup screen, so a bridge VID can never auto-suggest a profile.

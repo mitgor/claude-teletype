@@ -581,3 +581,39 @@ class TestConfigMerge:
         # _chat_async receives effective_no_audio=True from config merge
         coro = mock_run.call_args[0][0]
         coro.close()
+
+
+class TestUnknownConfigProfileFallsToAutoDetect:
+    """WR-02: unknown config.printer_profile warns and continues to auto-detect."""
+
+    def test_unknown_config_profile_warns_and_auto_detects(self, capsys):
+        from claude_teletype.cli import _resolve_profile_selection
+        from claude_teletype.config import TeletypeConfig
+
+        cfg = TeletypeConfig()
+        cfg.printer_profile = "jukii-typo"
+
+        sentinel = MagicMock(name="detected-profile")
+        with patch(
+            "claude_teletype.printing.detection.detect_native_profile",
+            return_value=sentinel,
+        ) as mock_detect:
+            _registry, resolved = _resolve_profile_selection(cfg, None)
+
+        assert resolved is sentinel  # auto-detect ran, not a dead-end generic
+        mock_detect.assert_called_once()
+        err = capsys.readouterr().err
+        assert "jukii-typo" in err
+        assert "unknown printer_profile" in err
+
+    def test_known_config_profile_does_not_warn(self, capsys):
+        from claude_teletype.cli import _resolve_profile_selection
+        from claude_teletype.config import TeletypeConfig
+
+        cfg = TeletypeConfig()
+        cfg.printer_profile = "juki-6100"
+
+        _registry, resolved = _resolve_profile_selection(cfg, None)
+        assert resolved is not None
+        assert resolved.name == "juki-6100"
+        assert "unknown printer_profile" not in capsys.readouterr().err
