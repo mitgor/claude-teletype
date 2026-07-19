@@ -29,10 +29,10 @@ Requirements for the **Review Hardening** milestone. Every requirement traces to
 
 ### Architecture Cleanup
 
-- [ ] **ARCH-CLEAN-01**: `ProfileRegistry` is passed as the registry seam through cli, setup screen, and driver selection — no flatten-to-dict-and-rebuild round trips, and unknown profile names fail loudly instead of silently skipping profile wrapping (ARCH-02)
-- [ ] **ARCH-CLEAN-02**: Adding a printer family touches exactly one catalog module — `_load_catalog` discovers catalog modules without hand-edited import tuples, and remaining inline families move to catalog modules (ARCH-03)
-- [ ] **ARCH-CLEAN-03**: Dead code removed: unused `all_profiles` parameter, unused 91-line `printing/__init__` facade (trim or adopt), stale shim-era docstrings, redundant juki compat paths beyond the alias profile (ARCH-07, ARCH-08, IN-01)
-- [ ] **ARCH-CLEAN-04**: `tui.py` no longer reaches into `ProfilePrinterDriver._inner`; the needed capability is exposed on the driver Protocol (ARCH-06)
+- [x] **ARCH-CLEAN-01**: `ProfileRegistry` is passed as the registry seam through cli, setup screen, and driver selection — no flatten-to-dict-and-rebuild round trips, and unknown profile names fail loudly instead of silently skipping profile wrapping (ARCH-02)
+- [x] **ARCH-CLEAN-02**: Adding a printer family touches exactly one catalog module — `_load_catalog` discovers catalog modules without hand-edited import tuples, and remaining inline families move to catalog modules (ARCH-03)
+- [x] **ARCH-CLEAN-03**: Dead code removed: unused `all_profiles` parameter, unused 91-line `printing/__init__` facade (trim or adopt), stale shim-era docstrings, redundant juki compat paths beyond the alias profile (ARCH-07, ARCH-08, IN-01)
+- [x] **ARCH-CLEAN-04**: `tui.py` no longer reaches into `ProfilePrinterDriver._inner`; the needed capability is exposed on the driver Protocol (ARCH-06)
 
 ## Future Requirements
 
@@ -76,10 +76,10 @@ Which phases cover which requirements. Filled in by `gsd-roadmapper` during road
 | PIPE-01 | Phase 33 | Complete |
 | PIPE-02 | Phase 33 | Complete |
 | PIPE-03 | Phase 33 | Complete |
-| ARCH-CLEAN-01 | Phase 34 | Pending |
-| ARCH-CLEAN-02 | Phase 34 | Pending |
-| ARCH-CLEAN-03 | Phase 34 | Pending |
-| ARCH-CLEAN-04 | Phase 34 | Pending |
+| ARCH-CLEAN-01 | Phase 34 | Complete |
+| ARCH-CLEAN-02 | Phase 34 | Complete |
+| ARCH-CLEAN-03 | Phase 34 | Complete |
+| ARCH-CLEAN-04 | Phase 34 | Complete |
 
 **Coverage:** 15/15 requirements mapped. No orphans.
 
