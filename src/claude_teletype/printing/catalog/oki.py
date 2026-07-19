@@ -16,13 +16,50 @@ ESC - selects uni-directional printing). This profile is OPT-IN: the
 printer's front-panel Emulation Mode menu must be set to "OKI DATA
 MICROLINE Standard" (ML320/321 UG, Emulations p. 33 — the factory
 setting is IBM Proprinter III, served by the oki-ml-ibm alias).
+
+The oki-3390 profile and the oki-ml-ibm/oki-ml-epson emulation aliases
+moved here verbatim from profiles.py (ARCH-03) — bytes and citation
+comments travel unaltered (R022). The aliases derive from sibling
+catalog modules via explicit imports (ibm.ppds, epson.escp).
 """
 
 from __future__ import annotations
 
+import dataclasses
+
+from claude_teletype.printing.catalog import epson as _epson
+from claude_teletype.printing.catalog import ibm as _ibm
 from claude_teletype.printing.profiles import PrinterProfile
 
 PROFILES: dict[str, PrinterProfile] = {
+    "oki-3390": PrinterProfile(
+        name="oki-3390",
+        description="OKI Microline 3390 24-pin dot matrix (Epson FX-2 mode, USB)",
+        # ML 3390 ships with selectable emulations (OKI native, IBM PPDS,
+        # Epson FX-2). This profile assumes the printer's front-panel emulation
+        # menu is set to Epson FX-2 — the most common modern factory default
+        # and the closest match to the existing escp profile. If the printer
+        # is set to IBM PPDS instead, use the ppds/ibm profile.
+        init_sequence=b"\x1b@",  # ESC @ (Epson initialize)
+        reset_sequence=b"\x1b@",  # ESC @ (reset on close)
+        line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
+        char_pitch=b"\x1bP",  # ESC P (10 CPI pica)
+        # Microline command set is a superset of Epson ESC/P. Bold and underline
+        # are stable; italic on the 3390 uses an ESC! mode-bit composite that
+        # varies by firmware revision — leave italic empty rather than fabricate.
+        bold_on=b"\x1bE",  # ESC E (Epson FX-2 bold)
+        bold_off=b"\x1bF",  # ESC F (Epson FX-2 bold off)
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
+        crlf=False,
+        formfeed_on_close=True,
+        usb_vendor_id=0x06BC,  # OKI Data Corp
+        # PID left unset: VID-only match auto-detects any OKI USB printer.
+        # If you have multiple OKI devices and want narrower matching, add
+        # the 3390's specific product ID once verified via `claude-teletype
+        # diagnose` on the live device.
+        columns=80,
+    ),
     "oki-microline-native": PrinterProfile(
         name="oki-microline-native",
         description=(
@@ -75,3 +112,30 @@ PROFILES: dict[str, PrinterProfile] = {
         ),
     ),
 }
+
+# OKI MICROLINE 320/321 Turbo emulation aliases (R018). The machine ships
+# three emulations — "Epson FX (ESC/P)", "IBM Proprinter III (PPSII) —
+# factory setting", "OKI DATA MICROLINE Standard" (ML320/321 Turbo User's
+# Guide, Emulations p. 33) — so the IBM and Epson modes map byte-for-byte
+# onto the existing ppds/escp profiles. Neither alias pins a USB id:
+# 0x06BC is VID-only-claimed by oki-3390 (D007), and the ML320/321 is a
+# parallel-port-era machine. The native third emulation is the catalog's
+# opt-in oki-microline-native profile.
+PROFILES["oki-ml-ibm"] = dataclasses.replace(
+    _ibm.PROFILES["ppds"],
+    name="oki-ml-ibm",
+    description=(
+        "OKI MICROLINE 320/321 Turbo in IBM Proprinter III emulation "
+        "(the factory setting per the OKI User's Guide p. 33) — ppds bytes"
+    ),
+)
+
+# oki-ml-epson MUST null the usb_vendor_id inherited from escp: leaving
+# Epson's 0x04B8 in place would log a registry VID collision AND steal
+# escp's VID-only auto-detect slot (last registered wins — D007).
+PROFILES["oki-ml-epson"] = dataclasses.replace(
+    _epson.PROFILES["escp"],
+    name="oki-ml-epson",
+    description="MICROLINE in Epson FX mode",
+    usb_vendor_id=None,
+)

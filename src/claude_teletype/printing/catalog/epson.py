@@ -11,6 +11,9 @@ Sources (all fetched and verified during S03 research):
 - "TM-U220 Technical Reference Guide" Rev. H (404455408):
   files.support.epson.com/pdf/pos/bulk/tm-u220_trg_en_std_revh.pdf
   (cited below as "TM-U220 TRG Rev. H" with section/appendix)
+
+The escp profile moved here verbatim from profiles.py's BUILTIN_PROFILES
+literal (ARCH-03) — bytes and citation comments travel unaltered (R022).
 """
 
 from __future__ import annotations
@@ -18,6 +21,24 @@ from __future__ import annotations
 from claude_teletype.printing.profiles import PrinterProfile
 
 PROFILES: dict[str, PrinterProfile] = {
+    "escp": PrinterProfile(
+        name="escp",
+        description="Epson ESC/P dot matrix (FX/LQ/LX series)",
+        init_sequence=b"\x1b@",  # ESC @ (initialize printer)
+        reset_sequence=b"\x1b@",  # ESC @ (reset on close)
+        line_spacing=b"\x1b\x32",  # ESC 2 (6 LPI)
+        char_pitch=b"\x1bP",  # ESC P (10 CPI pica)
+        bold_on=b"\x1bE",  # ESC E
+        bold_off=b"\x1bF",  # ESC F
+        italic_on=b"\x1b4",  # ESC 4
+        italic_off=b"\x1b5",  # ESC 5
+        underline_on=b"\x1b-\x01",  # ESC - 1
+        underline_off=b"\x1b-\x00",  # ESC - 0
+        crlf=False,
+        formfeed_on_close=True,
+        usb_vendor_id=0x04B8,  # Seiko Epson Corp
+        columns=80,
+    ),
     "escp2": PrinterProfile(
         name="escp2",
         description="Epson ESC/P2 24/48-pin dot matrix (LQ series, Stylus)",
