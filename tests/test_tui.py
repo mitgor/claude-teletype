@@ -7,6 +7,7 @@ import typer
 from textual.widgets import Footer, Header, Input, Log, Static
 
 from claude_teletype.cli import check_claude_installed
+from claude_teletype.printing.registry import ProfileRegistry
 from claude_teletype.screens.settings import SettingsScreen
 from claude_teletype.tui import TeletypeApp
 
@@ -305,7 +306,7 @@ async def test_open_settings_via_shortcut():
         backend_name="claude-cli",
         model_config="",
         profile_name="generic",
-        all_profiles={"generic": MagicMock()},
+        registry=ProfileRegistry({"generic": MagicMock()}),
     )
     async with app.run_test(size=(80, 50)) as pilot:
         # Verify we start on default screen
@@ -343,7 +344,7 @@ def test_profile_hotswap_wraps_connected_driver():
         base_delay_ms=0,
         printer=mock_driver,
         profile_name="generic",
-        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+        registry=ProfileRegistry({"generic": MagicMock(), "juki": juki_profile}),
     )
 
     with patch("claude_teletype.config.load_config"), \
@@ -374,7 +375,7 @@ def test_profile_hotswap_discovers_usb_when_null():
         base_delay_ms=0,
         printer=NullPrinterDriver(),
         profile_name="generic",
-        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+        registry=ProfileRegistry({"generic": MagicMock(), "juki": juki_profile}),
     )
 
     with patch("claude_teletype.printing.discovery.discover_usb_device", return_value=mock_usb), \
@@ -403,7 +404,7 @@ def test_profile_hotswap_cups_fallback_when_no_usb():
         base_delay_ms=0,
         printer=MagicMock(is_connected=False),
         profile_name="generic",
-        all_profiles={"generic": MagicMock(), "juki": juki_profile},
+        registry=ProfileRegistry({"generic": MagicMock(), "juki": juki_profile}),
     )
 
     cups_list = [{"name": "Juki_6100", "uri": "usb://Juki/6100"}]
@@ -448,6 +449,41 @@ def test_settings_save_persists_profile():
 
     assert saved_cfg is not None
     assert saved_cfg.printer_profile == "juki"
+
+
+# --- WR-04: setup-flow selection diagnostics must reach self.notify ---
+
+
+@pytest.mark.asyncio
+async def test_setup_result_unknown_profile_notifies():
+    """_handle_setup_result surfaces selection diagnostics via notify (WR-04)."""
+    from claude_teletype.config import TeletypeConfig
+    from claude_teletype.printing.discovery import PrinterSelection
+    from claude_teletype.printing.profiles import PrinterProfile
+
+    # discovery=None: the cups-by-name path never touches discovery, and
+    # leaving it None keeps the setup screen from auto-pushing on mount.
+    app = TeletypeApp(
+        base_delay_ms=0,
+        no_audio=True,
+        registry=ProfileRegistry({"generic": PrinterProfile(name="generic")}),
+    )
+    selection = PrinterSelection(
+        connection_type="cups",
+        cups_printer_name="Some_Queue",
+        profile_name="no-such-profile",
+    )
+    notified: list[str] = []
+
+    async with app.run_test():
+        app.notify = lambda msg, **kw: notified.append(msg)
+        with patch("claude_teletype.config.load_config", return_value=TeletypeConfig()), \
+             patch("claude_teletype.config.save_config"):
+            app._handle_setup_result(selection)
+
+    assert any("no-such-profile" in m for m in notified), (
+        f"Expected an unknown-profile diagnostic notify; got {notified!r}"
+    )
 
 
 # --- CR-03: _save_printer_selection must never persist an empty id ---
@@ -676,7 +712,7 @@ async def test_cancelled_print_leaves_style_state_clean(tmp_path):
         printer=printer,
         no_audio=True,
         profile_name="escp",
-        all_profiles={"escp": get_profile("escp")},
+        registry=ProfileRegistry({"escp": get_profile("escp")}),
     )
     # One giant bold span of many words: WordWrapper emits (and paces) one
     # chunk per word, so the render takes ~1s+ unless cancelled.

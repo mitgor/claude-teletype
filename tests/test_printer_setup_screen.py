@@ -12,7 +12,8 @@ from claude_teletype.printing.discovery import (
     DiscoveryResult,
     UsbDeviceInfo,
 )
-from claude_teletype.printing.profiles import BUILTIN_PROFILES
+from claude_teletype.printing.profiles import BUILTIN_PROFILES, PrinterProfile
+from claude_teletype.printing.registry import ProfileRegistry
 from claude_teletype.screens.printer_setup import PrinterSetupScreen
 
 # --- Test fixtures ---
@@ -46,18 +47,18 @@ class SetupTestApp(App):
     def __init__(
         self,
         discovery: DiscoveryResult,
-        all_profiles: dict | None = None,
+        registry: ProfileRegistry | None = None,
     ):
         super().__init__()
         self._discovery = discovery
-        self._all_profiles = all_profiles or dict(BUILTIN_PROFILES)
+        self._profile_registry = registry or ProfileRegistry(BUILTIN_PROFILES)
         self.applied_result = "NOT_SET"  # sentinel to distinguish from None
 
     def on_mount(self) -> None:
         self.push_screen(
             PrinterSetupScreen(
                 discovery=self._discovery,
-                all_profiles=self._all_profiles,
+                registry=self._profile_registry,
             ),
             callback=self._on_result,
         )
@@ -119,7 +120,7 @@ async def test_profile_select_populated():
 @pytest.mark.asyncio
 async def test_new_catalog_families_selectable():
     """S03 integration: new catalog families flow into the setup Select
-    automatically via all_profiles — this pins the wiring (T05)."""
+    automatically via the registry — this pins the wiring (T05)."""
     app = SetupTestApp(discovery=DISCOVERY_BOTH)
     async with app.run_test(size=(80, 40)) as pilot:
         profile_select = app.screen.query_one("#profile-select", Select)
@@ -290,14 +291,46 @@ async def test_suggested_profile_missing_from_options_falls_back_generic():
     advisory). Built by keying a profile under a dict key that differs
     from its .name — classify() suggests the .name."""
     phantom = dataclasses.replace(BUILTIN_PROFILES["escp"], name="phantom")
-    catalog = {"generic": None, "escp-custom": phantom}
+    catalog = ProfileRegistry(
+        {"generic": PrinterProfile(name="generic"), "escp-custom": phantom}
+    )
     app = SetupTestApp(
-        discovery=_usb_discovery(EPSON_USB), all_profiles=catalog
+        discovery=_usb_discovery(EPSON_USB), registry=catalog
     )
     async with app.run_test(size=(80, 40)) as pilot:
         await _select_device(app, pilot)
         profile_select = app.screen.query_one("#profile-select", Select)
         assert profile_select.value == "generic"
+
+
+@pytest.mark.asyncio
+async def test_kernel_owns_no_cups_recommendation_when_all_queues_disabled():
+    """IN-01: kernel-owns must NOT recommend CUPS when every queue is
+    disabled — never recommend a method the Connect button will refuse."""
+    import sys as _sys
+
+    from textual.widgets import RadioButton as _RadioButton
+
+    disabled_q = CupsPrinterInfo(name="Dead_Q", uri="usb://dead", enabled=False)
+    discovery = DiscoveryResult(
+        pyusb_available=True,
+        usb_devices=[EPSON_USB],
+        cups_printers=[disabled_q],
+    )
+    app = SetupTestApp(discovery=discovery)
+    async with app.run_test(size=(80, 40)) as pilot:
+        with patch.object(_sys, "platform", "darwin"), patch(
+            "claude_teletype.screens.printer_setup.kernel_driver_holds_printer",
+            return_value=True,
+        ):
+            option_list = app.screen.query_one("#device-list", OptionList)
+            option_list.highlighted = 0
+            option_list.action_select()
+            await pilot.pause()
+        radio_usb = app.screen.query_one("#radio-usb", _RadioButton)
+        radio_cups = app.screen.query_one("#radio-cups", _RadioButton)
+        assert radio_usb.value is True
+        assert radio_cups.value is False
 
 
 def test_match_profile_by_vid_pid_removed():

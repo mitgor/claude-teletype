@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from claude_teletype.printing.drivers import NullPrinterDriver
+from claude_teletype.printing.registry import ProfileRegistry
 from claude_teletype.screens.file_picker import FilePickerScreen
 from claude_teletype.tui import TeletypeApp
 
@@ -203,7 +204,7 @@ def _make_app_with_capturing_driver(
     driver: _CapturingDriver | None = None,
     transcript_dir: Path | None = None,
     profile_name: str = "generic",
-    all_profiles: dict | None = None,
+    registry: ProfileRegistry | None = None,
 ) -> TeletypeApp:
     """Construct a TeletypeApp wired to a capturing driver for render tests."""
     if driver is None:
@@ -216,7 +217,7 @@ def _make_app_with_capturing_driver(
         backend=None,
         backend_name="claude-cli",
         profile_name=profile_name,
-        all_profiles=all_profiles or {},
+        registry=registry,
         discovery=None,
     )
 
@@ -238,7 +239,7 @@ async def test_speed_mode_default_follows_profile_instant_output(tmp_path: Path)
 
     app = _make_app_with_capturing_driver(
         profile_name="citizen-cts2000",
-        all_profiles={"citizen-cts2000": citizen},
+        registry=ProfileRegistry({"citizen-cts2000": citizen}),
     )
     async with app.run_test(size=(80, 40)) as pilot:
         app.action_open_markdown()
@@ -266,7 +267,7 @@ async def test_speed_mode_default_typewriter_for_juki(tmp_path: Path):
 
     app = _make_app_with_capturing_driver(
         profile_name="juki",
-        all_profiles={"juki": juki},
+        registry=ProfileRegistry({"juki": juki}),
     )
     async with app.run_test(size=(80, 40)) as pilot:
         app.action_open_markdown()

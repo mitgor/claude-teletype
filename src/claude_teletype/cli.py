@@ -395,7 +395,7 @@ def _resolve_print_context(
     device: str | None,
     printer: str | None,
 ):
-    """Build (config, all_profiles, resolved_profile) for the print path.
+    """Build (config, registry, resolved_profile) for the print path.
 
     Shared by both the explicit-path branch (`_print_command_impl`) and the
     picker-mode branch (`_print_command_impl_picker`). Profile resolution
@@ -420,7 +420,7 @@ def _resolve_print_context(
         typer.echo(str(e), err=True)
         return None, None, None
 
-    return config, registry.all(), resolved_profile
+    return config, registry, resolved_profile
 
 
 def _print_command_impl(
@@ -769,7 +769,6 @@ def main(
     except _UnknownProfileError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
-    all_profiles = registry.all()
 
     # resolved_profile is None means generic (no wrapping)
 
@@ -917,13 +916,18 @@ def main(
                 if saved_match is not None:
                     # Saved printer found -- create driver, skip setup screen
                     printer_driver = create_driver_for_selection(
-                        saved_match, discovery, all_profiles=all_profiles,
+                        saved_match, discovery, registry=registry,
                     )
                     discovery = None
                     setup_decision = SetupDecision.SKIP_SAVED_MATCH
                     # Also resolve the profile for status bar display
-                    if config.saved_printer_profile and config.saved_printer_profile in all_profiles:
-                        resolved_profile = all_profiles[config.saved_printer_profile]
+                    if config.saved_printer_profile:
+                        try:
+                            resolved_profile = registry.get(config.saved_printer_profile)
+                        except ValueError:
+                            # IN-03: status bar must not claim a profile the
+                            # driver doesn't wear.
+                            resolved_profile = None
                 # else: saved printer not found -- decision stays SHOW_SETUP
 
     if effective_no_tui:
@@ -954,7 +958,7 @@ def main(
             model_config=config.model,
             system_prompt=config.system_prompt,
             profile_name=resolved_profile.name if resolved_profile else "generic",
-            all_profiles=all_profiles,
+            registry=registry,
             openai_api_key=config.openai_api_key,
             openrouter_api_key=config.openrouter_api_key,
             discovery=discovery,

@@ -8,6 +8,7 @@ for submitting prompts.
 import asyncio
 import random
 import threading
+from typing import TYPE_CHECKING
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -17,6 +18,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Log, Static
 
 from claude_teletype.setup_decision import SetupDecision
+
+if TYPE_CHECKING:
+    from claude_teletype.printing.registry import ProfileRegistry
 
 MAX_RETRIES: int = 3
 BASE_DELAY: float = 1.0
@@ -128,7 +132,7 @@ class TeletypeApp(App):
         model_config: str = "",
         system_prompt: str = "",
         profile_name: str = "generic",
-        all_profiles: dict | None = None,
+        registry: "ProfileRegistry | None" = None,
         openai_api_key: str = "",
         openrouter_api_key: str = "",
         discovery=None,  # DiscoveryResult | None -- device data for the setup screen
@@ -159,7 +163,7 @@ class TeletypeApp(App):
         self._model_config = model_config
         self._system_prompt = system_prompt
         self._profile_name = profile_name
-        self._all_profiles = all_profiles or {}
+        self._profile_registry = registry
         self._openai_api_key = openai_api_key
         self._openrouter_api_key = openrouter_api_key
         self._discovery = discovery
@@ -174,6 +178,15 @@ class TeletypeApp(App):
     def session_id(self) -> str | None:
         """Current session ID for resume support. Read by CLI after exit."""
         return self._session_id
+
+    def _lookup_profile(self, name: str):
+        """Case-insensitive registry lookup; None when no registry or unknown name."""
+        if self._profile_registry is None or not name:
+            return None
+        try:
+            return self._profile_registry.get(name)
+        except ValueError:
+            return None
 
     def _needs_printer_setup(self) -> bool:
         """Check if printer setup screen should be shown on startup.
@@ -242,7 +255,7 @@ class TeletypeApp(App):
         self.push_screen(
             PrinterSetupScreen(
                 discovery=self._discovery,
-                all_profiles=self._all_profiles,
+                registry=self._profile_registry,
             ),
             callback=self._handle_setup_result,
         )
@@ -263,9 +276,14 @@ class TeletypeApp(App):
         from claude_teletype.printing.drivers import make_printer_output
         from claude_teletype.printing.selection import create_driver_for_selection
 
+        # WR-04: surface selection diagnostics inside the running TUI —
+        # stderr is invisible under Textual.
+        diags: list[str] = []
         driver = create_driver_for_selection(
-            result, self._discovery, all_profiles=self._all_profiles
+            result, self._discovery, registry=self._profile_registry, diagnostics=diags
         )
+        for message in diags:
+            self.notify(message, severity="warning", timeout=8)
         self.printer = driver
 
         # Update profile name from selection
@@ -358,7 +376,7 @@ class TeletypeApp(App):
         profile_name = self._profile_name
 
         if isinstance(driver, ProfilePrinterDriver):
-            inner = driver._inner
+            inner = driver.inner
         else:
             inner = driver
 
@@ -473,8 +491,8 @@ class TeletypeApp(App):
                 current_model=self._model_config,
                 current_profile=self._profile_name,
                 available_profiles=(
-                    sorted(self._all_profiles.keys())
-                    if self._all_profiles
+                    sorted(self._profile_registry.names())
+                    if self._profile_registry is not None
                     else ["generic"]
                 ),
             ),
@@ -506,11 +524,7 @@ class TeletypeApp(App):
         # FLOW-02: default speed-mode follows active profile.instant_output.
         # Receipt/laser printers (citizen-cts2000) -> 'instant' default;
         # daisywheel/dot-matrix (juki, oki) -> 'typewriter' default.
-        active_profile = (
-            self._all_profiles.get(self._profile_name)
-            if self._all_profiles
-            else None
-        )
+        active_profile = self._lookup_profile(self._profile_name)
         default_mode = (
             "instant"
             if (
@@ -630,11 +644,7 @@ class TeletypeApp(App):
             self.notify(f"Cannot read {path.name}: {exc}", severity="error")
             return
 
-        profile = (
-            self._all_profiles.get(self._profile_name)
-            if self._all_profiles
-            else None
-        )
+        profile = self._lookup_profile(self._profile_name)
 
         self.notify(f"Printing {path.name}...")
         # CR-01: fresh liveness event per print, created on the event-loop
@@ -750,7 +760,7 @@ class TeletypeApp(App):
         # Profile change: swap printer driver's profile or wrap/re-discover
         if result["profile"] != self._profile_name:
             self._profile_name = result["profile"]
-            new_profile = self._all_profiles.get(result["profile"])
+            new_profile = self._lookup_profile(result["profile"])
             if new_profile is not None:
                 self._apply_printer_profile(new_profile)
 
@@ -1053,7 +1063,7 @@ class TeletypeApp(App):
                         # Receipt/laser profiles set instant_output=True to
                         # skip the typewriter pacing — line-buffered hardware
                         # gains nothing from per-char delays.
-                        active_profile = self._all_profiles.get(self._profile_name)
+                        active_profile = self._lookup_profile(self._profile_name)
                         delay_ms = (
                             0.0
                             if active_profile is not None and active_profile.instant_output

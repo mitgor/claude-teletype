@@ -271,6 +271,11 @@ class ProfilePrinterDriver:
     def is_connected(self) -> bool:
         return self._inner.is_connected
 
+    @property
+    def inner(self) -> PrinterDriver:
+        """The wrapped transport driver (read-only; ARCH-06 public surface)."""
+        return self._inner
+
     def write(self, char: str) -> None:
         if not self._inner.is_connected:
             return

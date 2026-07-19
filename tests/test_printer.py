@@ -638,6 +638,23 @@ def test_juki_write_noop_when_disconnected():
 class TestProfilePrinterDriver:
     """Tests for the generic profile-driven printer wrapper."""
 
+    def test_inner_property_returns_wrapped_driver(self):
+        """`.inner` is a public read-only view of the wrapped transport (ARCH-06)."""
+        inner = MagicMock()
+        profile = PrinterProfile(name="test")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        assert ppd.inner is inner
+
+    def test_inner_property_is_read_only(self):
+        """Assigning to `.inner` raises AttributeError (no setter)."""
+        inner = MagicMock()
+        profile = PrinterProfile(name="test")
+        ppd = ProfilePrinterDriver(inner, profile)
+
+        with pytest.raises(AttributeError):
+            ppd.inner = MagicMock()
+
     def test_init_sequence_sent_on_first_write(self):
         """First write sends profile init_sequence + line_spacing + char_pitch."""
         inner = MagicMock()
