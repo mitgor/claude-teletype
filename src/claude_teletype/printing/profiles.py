@@ -330,11 +330,22 @@ def _load_catalog() -> dict[str, PrinterProfile]:
     the same cycle-break idiom as detection.detect_native_profile.
     Importing the catalog at profiles.py module top would close the
     import cycle and crash at load time.
+
+    Modules are auto-discovered via pkgutil (ARCH-03): adding a printer
+    family is exactly one new catalog/<family>.py file — no edits here.
+    Sorted iteration makes merge order deterministic; key collisions
+    across catalog modules are a bug (the snapshot test pins the key set).
     """
-    from claude_teletype.printing.catalog import epson, oki, star
+    import importlib
+    import pkgutil
+
+    from claude_teletype.printing import catalog
 
     merged: dict[str, PrinterProfile] = {}
-    for module in (epson, oki, star):
+    for info in sorted(pkgutil.iter_modules(catalog.__path__), key=lambda i: i.name):
+        module = importlib.import_module(
+            f"claude_teletype.printing.catalog.{info.name}"
+        )
         merged.update(module.PROFILES)
     return merged
 
