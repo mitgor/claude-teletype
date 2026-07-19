@@ -2,6 +2,45 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1.7 — Review Hardening
+
+**Shipped:** 2026-07-19
+**Phases:** 4 (31–34) | **Plans:** 10
+
+### What Was Built
+- Byte-path integrity: `_send_raw` and `CupsPrinterDriver` fixed to deliver high bytes verbatim (CR-01/CR-02), 0xb5 round-trip regression lock, typewriter-mode non-ASCII/atomic-reset/Ctrl-C fixes
+- Setup-flow repairs: kernel-owns → working CUPS driver (CR-03), case-insensitive registry, frozen-app `uv sync` guard, explicit `match_saved_printer(profile_name=)`
+- Shared cancel-safe `render_document` pipeline for CLI + TUI; thread-worker TUI print with real escape-cancel; picker driver pre-resolution
+- Architecture cleanup: registry threaded end-to-end with loud diagnostics, pkgutil-discovered 9-module catalog, dead code deleted (facade, `--juki` plumbing, `JukiPrinterDriver`), public `.inner` property
+
+### What Worked
+- Deriving the entire milestone from a model-powered review pass: 905 passing tests had missed all 3 criticals (high-byte payloads and the macOS kext condition were untested paths) — the review found what the suite couldn't
+- Fully autonomous overnight run of phases 32–34: plan → check (with revision loops) → worktree execution → post-merge suite gate → code review → fix pass → goal-backward verification, 90 commits with zero regressions at every gate
+- In-flight per-phase code reviews caught 2 new criticals (`Worker.is_finished` lying after cancel; quit-during-print writing to a closed driver) before verification, not after shipping
+- Plan-checker adversarial loop earned its cost twice: it forced the `_driver_busy` mutual-exclusion design and caught a missed `--juki` test usage before execution
+
+### What Was Inefficient
+- SUMMARY.md one-liner frontmatter was populated inconsistently (only Phase 34 plans) — milestone-close accomplishment extraction produced garbage and needed hand-rewriting; the audit had to lean on VERIFICATION.md as the stronger source
+- Worktree-only `ModuleNotFoundError: 'usb'` (editable-install resolution) recurred across every phase despite being diagnosed early — pre-declaring the `PYTHONPATH=$PWD/src` workaround to executors helped but each agent still tripped on it first
+- One plan-checker agent died on a session limit mid-run; the resume-after-reset worked but cost a blocked hour
+
+### Patterns Established
+- Review-derived milestone: run code + architecture review at milestone close, convert findings directly into the next milestone's requirements with 1:1 traceability
+- threading.Event completion guard for Textual thread workers (`Worker.is_finished` is unreliable after cancel)
+- `_driver_busy` guard on every driver-writing TUI path when any writer runs off the event loop
+- Injectable `sleep_fn`/`cancel_check` with None-sentinel defaults resolved at call time (test-patchable pacing)
+
+### Key Lessons
+1. Test count is not coverage: 905 green tests coexisted with byte-destroying criticals on untested input classes — periodically review with fresh eyes (human or model) rather than trusting the suite's silence
+2. Fix findings while the review is fresh: v1.6's REF-06 review was skipped during reactive execution and its debt became an entire milestone; v1.7's in-flight reviews closed their findings pre-verification at a fraction of the cost
+3. Frontmatter contracts (SUMMARY one-liners, requirements-completed) must be enforced at write time — downstream tooling silently degrades when they're sparse
+
+### Cost Observations
+- Execution: 90 commits in ~13 hours wall-clock (2026-07-18 19:31 → 07-19 08:20), phases 32–34 fully autonomous
+- Tests: 905 → 992 (+87) with zero regressions
+
+---
+
 ## Milestone: v1.6 — Printer Fleet & Standalone
 
 **Shipped:** 2026-06-13 (archived 2026-07-18)
@@ -94,6 +133,7 @@
 | v1.4 | 3 | 6 | Full-screen gate pattern (Screen over ModalScreen) locked |
 | v1.5 | 6 | 14 | Locked-contract plan handoffs; explicit TDD RED→GREEN evidence |
 | v1.6 | 4 | 6+reactive | First reactive (off-GSD) execution; code-verification-at-close |
+| v1.7 | 4 | 10 | Review-derived milestone; first fully autonomous overnight plan→verify run |
 
 ### Cumulative Quality
 
@@ -103,6 +143,7 @@
 | v1.4 | 479 | 4,646 | 6,510 |
 | v1.5 | 700 | 6,647 | 10,201 |
 | v1.6 | 905 | 7,901 | 12,925 |
+| v1.7 | 992 | 8,308 | 14,874 |
 
 ### Top Lessons (Verified Across Milestones)
 

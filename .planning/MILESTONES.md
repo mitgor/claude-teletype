@@ -1,5 +1,24 @@
 # Milestones
 
+## v1.7 Review Hardening (Shipped: 2026-07-19)
+
+**Phases:** 31-34 (4 phases, 10 plans)
+**Timeline:** 2026-07-18 → 2026-07-19 (90 commits, single overnight autonomous run)
+**Code:** +3,350/−986 lines across 38 files, 905 → 992 tests passing
+**Requirements:** 15/15 complete (audit: 6/6 E2E flows, integration 9.5/10 — `.planning/milestones/v1.7-MILESTONE-AUDIT.md`)
+
+Every requirement traced to a v1.6 code/architecture review finding (Fable 5 review pass). All 3 criticals, all 5 scoped warnings, and 6 architecture findings fixed with regression tests.
+
+**Key accomplishments:**
+
+- Byte integrity: `ProfilePrinterDriver._send_raw` and `CupsPrinterDriver` no longer destroy bytes ≥ 0x80 (CR-01/CR-02) — high-byte codepage commands and cp437/cp866 text reach the wire verbatim, locked by a 0xb5 round-trip regression test through both driver stacks; typewriter mode handles non-ASCII, atomic resets, and clean Ctrl-C exit
+- Setup flow: kernel-claimed printer + accepted CUPS path now yields a working CUPS driver with resolved queue name (never a silent NullPrinterDriver, broken state never persisted); case-insensitive `ProfileRegistry` lookups; frozen `.app` can no longer trigger `uv sync`; smart startup restores the saved profile via explicit `match_saved_printer(profile_name=)` instead of dataclass mutation
+- Shared print pipeline: one cancel-safe `render_document` (injectable pacing/cancel, `finally: renderer.close()`) serves CLI and TUI; TUI printing moved to a thread worker so escape actually cancels (threading.Event completion guard — `Worker.is_finished` lies after cancel on Textual 8.2.1); picker driver pre-resolution kills the blocking `input()` under Textual
+- Architecture: `ProfileRegistry` threaded cli → TeletypeApp → PrinterSetupScreen → `create_driver_for_selection` as one object with loud unknown-profile diagnostics; catalog is pkgutil auto-discovered (9 family modules, byte-fidelity verified; PyInstaller spec collects them); dead code gone — 91-line facade, `--juki` plumbing, `JukiPrinterDriver`, shim docstrings; `tui.py` uses public `.inner` property
+- In-flight quality gates caught what the plan didn't: 2 criticals + 11 warnings from per-phase Fable code reviews fixed pre-verification (quit-during-print join, `_driver_busy` mutual exclusion on all driver writers, cancellable sleep, fail-loud hardening)
+
+---
+
 ## v1.6 Printer Fleet & Standalone (Shipped: 2026-07-18)
 
 **Phases:** 27-30 (4 phases; Phase 27 GSD-tracked with 6 plans, Phases 28-30 executed reactively outside GSD tracking)

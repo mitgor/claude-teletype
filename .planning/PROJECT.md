@@ -82,17 +82,16 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - ✓ `diagnose` fleet matrix: per-device classification + per-profile capability summary; GET_PORT_STATUS readback (absent-not-broken on bridges) — v1.6
 - ✓ Standalone macOS `.app` via checked-in PyInstaller onedir spec bundling libusb/PortAudio/Textual data, with `make_app.py` + `smoke_frozen.sh` — v1.6
 
+- ✓ Byte-path integrity restored: `_send_raw` and `CupsPrinterDriver` deliver bytes ≥ 0x80 verbatim, locked by a 0xb5 round-trip regression test; typewriter mode non-ASCII-safe with atomic resets and clean Ctrl-C — v1.7
+- ✓ Kernel-owns → CUPS flow repaired: accepted CUPS path yields a working driver with resolved queue name, never a silent NullPrinterDriver; broken state never persisted — v1.7
+- ✓ Case-insensitive `ProfileRegistry` lookups (case-preserved keys, collision warnings); frozen `.app` cannot trigger `uv sync`; smart startup restores saved profile via explicit `match_saved_printer(profile_name=)` — v1.7
+- ✓ One shared cancel-safe `render_document` pipeline for CLI + TUI printing; TUI print on a thread worker so escape actually cancels; no blocking `input()` under Textual (picker driver pre-resolution) — v1.7
+- ✓ `ProfileRegistry` as the single profile seam cli → TeletypeApp → PrinterSetupScreen → driver selection, with loud unknown-profile diagnostics — v1.7
+- ✓ pkgutil auto-discovered catalog (9 family modules, one file per family, PyInstaller `collect_submodules`); dead code removed (91-line facade, `--juki` plumbing, `JukiPrinterDriver`); public `.inner` driver property replaces `_inner` reach-in — v1.7
+
 ### Active
 
-## Current Milestone: v1.7 Review Hardening
-
-**Goal:** Fix everything the v1.6 code + architecture reviews surfaced — restore the byte-path integrity the printer contract promises, repair the broken kernel-owns/CUPS flow, and consolidate the duplicated print pipeline.
-
-**Target features:**
-- Fix the 3 criticals (byte-destroying ASCII round-trips in ProfilePrinterDriver._send_raw and CupsPrinterDriver.write_bytes; kernel-owns → simulator misroute) with byte-integrity regression tests
-- Fix review warnings: non-blocking TUI print pipeline (real escape-cancel), teletype.py strict-ASCII crash + reset atomicity + Ctrl-C, case-insensitive ProfileRegistry lookups, frozen-app `uv sync` guard, blocking `input()` under Textual
-- ARCH-01: single shared print pipeline for CLI + TUI
-- Architecture cleanups: explicit smart-startup profile hand-off, registry pass-through consolidation, dead facade/stale-docstring removal
+(None — next milestone not yet defined. Run `/gsd:new-milestone`.)
 
 ### Out of Scope
 
@@ -104,11 +103,11 @@ The physical typewriter experience — characters appearing on paper one at a ti
 
 ## Context
 
-**Current state:** v1.7 all 4 phases executed and verified (2026-07-18/19): byte integrity (BYTE-01..04), setup/detection flow (FLOW-01..04), shared print pipeline (PIPE-01..03), architecture cleanup (ARCH-CLEAN-01..04) — 15/15 requirements, 992 tests passing (was 905 at milestone start). Milestone not yet archived — run /gsd:audit-milestone then /gsd:complete-milestone. v1.6 shipped 2026-06-13, archived 2026-07-18. Phases 28-30 were executed reactively outside GSD phase tracking (commits only, no plan/summary artifacts); requirements were code-verified at close — 27/29 complete, REF-06 and PKG-03 deferred.
+**Current state:** v1.7 Review Hardening shipped 2026-07-19 — 15/15 requirements, 992 tests passing (was 905 at milestone start), audit passed (6/6 E2E flows, integration 9.5/10). Every v1.6 review critical/warning and 6 architecture findings fixed with regression tests in a single overnight autonomous run (90 commits). Next milestone not yet defined.
 
-**Tech stack:** Python 3.12+, Textual 7.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
+**Tech stack:** Python 3.12+, Textual 8.x (TUI), Rich (CLI spinners/tables), Typer (argument parsing), sounddevice/numpy (audio), openai SDK (OpenAI/OpenRouter backends), tomllib/platformdirs (configuration), pyusb (optional, USB auto-detection).
 
-**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), warnings.py (config conflict detection), diagnose.py (CLI diagnostic + fleet matrix), setup_decision.py (SetupDecision enum), usb_backend.py (frozen libusb backend seam), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), printing/ (drivers, discovery, selection, detection + BRIDGE_CHIPS, registry/ProfileRegistry, profiles, catalog/{epson,oki,star}), rendering/ (streaming markdown renderer), screens/ (typewriter, printer_setup, settings, file_picker, speed_mode), packaging/ (PyInstaller spec, entry.py, make_app.py, smoke_frozen.sh).
+**Modules:** bridge.py (Claude Code subprocess wrapper), tui.py (Textual TUI), cli.py (Typer entry point), pacer.py (character pacing), output.py (multiplexer), audio.py (bell + keystroke sounds), transcript.py (file writer), errors.py (error classification), wordwrap.py (streaming word wrapper), config.py (TOML config + env + CLI merge + atomic save), warnings.py (config conflict detection), diagnose.py (CLI diagnostic + fleet matrix), setup_decision.py (SetupDecision enum), usb_backend.py (frozen libusb backend seam), backends/ (LLMBackend ABC + Claude CLI + OpenAI + OpenRouter), printing/ (drivers, discovery, selection, detection + BRIDGE_CHIPS, registry/ProfileRegistry, profiles, pipeline [shared render_document], catalog/{citizen,epson,hp,ibm,juki,oki,panasonic,star,tally} — pkgutil auto-discovered), rendering/ (streaming markdown renderer), screens/ (typewriter, printer_setup, settings, file_picker, speed_mode), packaging/ (PyInstaller spec, entry.py, make_app.py, smoke_frozen.sh).
 
 **Known tech debt:**
 - `config show` cannot detect CLI flag sources (Typer architectural constraint — separate subcommand)
@@ -117,7 +116,10 @@ The physical typewriter experience — characters appearing on paper one at a ti
 - Per-profile `buffer_bytes` defaults unvalidated on real hardware (Juki, Epson) — instant mode trust pending
 - WordWrapper strips 4-space code-block indent (content survives, visual indent lost)
 - Table cells truncate rather than wrap on narrow profiles (Citizen 42-col thermal)
-- REF-06 open: no code-review findings artifact for the v1.6 refactor — run `/gsd:code-review`
+- `--printer` silently loses to a saved profile on smart-startup reconnect (escape hatch: `--setup-printer`) — v1.7 audit
+- CUPS text channel is ASCII-replace by design; generic-profile CUPS users typing non-ASCII get `?` silently (codepage path required) — v1.7 audit
+- `profiles.get_profile` is a parallel lookup kept alive only by tests — migrate tests to ProfileRegistry and delete — v1.7 audit
+- Picker-mode CLI print skips the transcript entry; keystrokes typed during a print drop from the paper echo — v1.7 audit (pre-existing)
 - PKG-03 open: frozen `.app` verified via headless smoke script only; true clean-machine run pending (`human_needed`)
 - GET_PORT_STATUS readback spec-tested with mocks only; bridge-chip interface-class behavior (CH341 class 7 vs vendor-specific) unverified on real hardware
 - Phases 28-30 executed reactively — no per-phase PLAN/SUMMARY artifacts (history lives in git log + MILESTONES.md)
@@ -148,7 +150,7 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | Pre-formatted string template for config file | tomli-w cannot write TOML comments; handwritten template preserves docs | ✓ Good |
 | Data-driven printer profiles via frozen dataclass | All printer behavior encoded as data, not conditional code | ✓ Good |
 | USB printer class 7 filter before VID:PID matching | Prevents false matches against non-printer USB devices | ✓ Good |
-| ProfilePrinterDriver as standalone class | Generic profile support; JukiPrinterDriver thin deprecated subclass | ✓ Good |
+| ProfilePrinterDriver as standalone class | Generic profile support; JukiPrinterDriver subclass deleted in v1.7 ("juki" alias profile carries compat) | ✓ Good |
 | Placeholder API key in AsyncOpenAI constructor | Defers validation to validate() method for consistent error path | ✓ Good |
 | max_retries=0 on AsyncOpenAI | TUI retry loop handles retries consistently across all backends | ✓ Good |
 | Backend hot-swap: create_backend + validate in try/except | Notify on error, keep old backend on failure | ✓ Good |
@@ -178,6 +180,14 @@ The physical typewriter experience — characters appearing on paper one at a ti
 | Sync time.sleep pacing in print path (reusing CHAR_DELAYS) | Preserves locked sync callback shape; identical per-char delays to chat path | ✓ Good |
 | MarkdownRenderer.close() as thin delegation to _close_open_styles | Single source of truth for LIFO style cleanup; idempotent cancel safety | ✓ Good |
 | chunk_writes as free function in printer.py | Driver-agnostic, pure, testable against any PrinterDriver Protocol | ✓ Good |
+| `_send_raw` routes through `write_bytes`, never str round-trip | Bytes-in-bytes-out is the driver contract; ASCII round-trips destroyed codepage commands (CR-01) | ✓ Good |
+| CupsPrinterDriver buffers `list[bytes]`, joins to lp stdin | Text-channel str buffer destroyed bytes ≥ 0x80 on the raw channel (CR-02) | ✓ Good |
+| Shared `render_document` with injectable `sleep_fn`/`cancel_check` | One pipeline for CLI + TUI; None-sentinel default resolves time.sleep at call time so tests patch cleanly | ✓ Good |
+| TUI print as `@work(thread=True)` + threading.Event completion guard | `Worker.is_finished` lies after cancel for thread workers (Textual 8.2.1); Event is the truth | ✓ Good |
+| `_driver_busy` guard on every TUI driver writer | Chat, markdown, typewriter, settings all write the driver; thread-worker print made concurrent writes possible | ✓ Good |
+| Registry-backed `create_driver_for_selection(registry=, diagnostics=)` | Unknown profile names fail loudly via caller-capturable diagnostics instead of silent unwrapped fallback | ✓ Good |
+| pkgutil `_load_catalog` auto-discovery + PyInstaller `collect_submodules` | Adding a family = adding one catalog module; spec keeps frozen builds in sync | ✓ Good |
+| Case-insensitive `_by_lower` index over case-preserved registry keys | Uppercase custom TOML profiles selectable; collisions warn instead of silently shadowing | ✓ Good |
 
 ## Evolution
 
@@ -197,4 +207,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-18 after v1.6 milestone*
+*Last updated: 2026-07-19 after v1.7 milestone*
