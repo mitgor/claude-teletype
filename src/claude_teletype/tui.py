@@ -358,7 +358,7 @@ class TeletypeApp(App):
         profile_name = self._profile_name
 
         if isinstance(driver, ProfilePrinterDriver):
-            inner = driver._inner
+            inner = driver.inner
         else:
             inner = driver
 
