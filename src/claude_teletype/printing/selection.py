@@ -108,7 +108,6 @@ def match_saved_printer(
 def create_driver_for_selection(
     selection: PrinterSelection,
     discovery: DiscoveryResult,
-    all_profiles: dict[str, PrinterProfile] | None = None,  # deprecated shim — deleted in plan 34-02
     *,
     registry: "ProfileRegistry | None" = None,
     diagnostics: list[str] | None = None,
@@ -116,20 +115,17 @@ def create_driver_for_selection(
     """Convert a PrinterSelection from the setup screen into a PrinterDriver.
 
     Profile resolution goes through a ProfileRegistry — the lookup
-    authority — so names resolve case-insensitively (WR-01). An unknown
-    profile name emits a diagnostic and explicitly falls back to an
-    unwrapped driver (a stated policy, not a dict-``.get`` accident).
+    authority and the only catalog input (ARCH-02) — so names resolve
+    case-insensitively (WR-01). An unknown profile name emits a
+    diagnostic and explicitly falls back to an unwrapped driver (a
+    stated policy, not a dict-``.get`` accident).
 
     Args:
         selection: User's choice from PrinterSetupScreen.
         discovery: Discovery results; ``selection.device_index`` indexes
             ``discovery.usb_devices`` to reconnect the picked USB device.
-        all_profiles: DEPRECATED — transitional dict catalog, wrapped in a
-            ProfileRegistry internally. Slated for removal (plan 34-02);
-            pass ``registry=`` instead.
-        registry: Profile lookup authority. If None, falls back to
-            ``ProfileRegistry(all_profiles)`` when a non-empty dict was
-            given, else ``ProfileRegistry(BUILTIN_PROFILES)``.
+        registry: Profile lookup authority. If None, defaults to
+            ``ProfileRegistry(BUILTIN_PROFILES)``.
         diagnostics: When a list is passed, fallback/unknown-profile
             messages are appended to it for the caller to surface;
             when None they print to stderr (CLI path stays loud, WR-04).
@@ -142,8 +138,6 @@ def create_driver_for_selection(
 
     if registry is not None:
         effective_registry = registry
-    elif all_profiles:
-        effective_registry = ProfileRegistry(all_profiles)
     else:
         effective_registry = ProfileRegistry(BUILTIN_PROFILES)
 

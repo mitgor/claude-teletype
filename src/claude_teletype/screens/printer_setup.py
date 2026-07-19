@@ -37,6 +37,7 @@ from claude_teletype.printing.discovery import (
     PrinterSelection,
     kernel_driver_holds_printer,
 )
+from claude_teletype.printing.profiles import PrinterProfile
 from claude_teletype.printing.registry import ProfileRegistry
 
 
@@ -106,17 +107,18 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
     def __init__(
         self,
         discovery: DiscoveryResult,
-        all_profiles: dict[str, Any] | None = None,
+        registry: ProfileRegistry | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._discovery = discovery
-        self._all_profiles: dict[str, Any] = all_profiles or {"generic": None}
-        # VID:PID index over the screen's profile catalog; classify() only
-        # consumes match_vidpid. None placeholders (e.g. the default
-        # {"generic": None}) carry no VID:PID and are excluded.
-        self._registry = ProfileRegistry(
-            {n: p for n, p in self._all_profiles.items() if p is not None}
+        # The registry object is the one profile currency (ARCH-02) — no
+        # flatten-to-dict-and-rebuild. The generic-only default serves
+        # direct constructions in tests; cli/tui always pass the real one.
+        self._registry = (
+            registry
+            if registry is not None
+            else ProfileRegistry({"generic": PrinterProfile(name="generic")})
         )
         # Maps OptionList index -> device metadata
         self._device_entries: list[dict[str, Any]] = []
@@ -135,10 +137,10 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
                 yield RadioButton("CUPS Queue", id="radio-cups")
 
             yield Label("Printer Profile:", classes="section-label")
-            sorted_names = sorted(self._all_profiles.keys())
+            sorted_names = sorted(self._registry.names())
             yield Select[str](
                 [(name, name) for name in sorted_names],
-                value="generic" if "generic" in self._all_profiles else sorted_names[0],
+                value="generic" if "generic" in self._registry.names() else sorted_names[0],
                 id="profile-select",
                 allow_blank=False,
             )
@@ -279,7 +281,9 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
                 )
             )
 
-            if kernel_owns and self._discovery.cups_printers:
+            # IN-01: only recommend CUPS when a queue is actually enabled —
+            # never a connection method the Connect button will refuse.
+            if kernel_owns and any(q.enabled for q in self._discovery.cups_printers):
                 radio_cups.value = True
                 log.write_line(
                     "macOS print driver (AppleUSBPrinter) is using this device "
@@ -302,11 +306,17 @@ class PrinterSetupScreen(Screen[PrinterSelection | None]):
             # cable, not the printer, even though a profile may pin that
             # VID). UNKNOWN devices also stay on "generic".
             classification = classify(usb_info, self._registry)
-            if (
-                classification.kind is DeviceKind.NATIVE_PRINTER
-                and classification.suggested_profile in self._all_profiles
-            ):
-                profile_select.value = classification.suggested_profile
+            suggested = classification.suggested_profile
+            resolvable = False
+            if classification.kind is DeviceKind.NATIVE_PRINTER and suggested:
+                try:
+                    self._registry.get(suggested)
+                    # Select option values are the case-preserved names.
+                    resolvable = suggested in self._registry.names()
+                except ValueError:
+                    resolvable = False
+            if resolvable:
+                profile_select.value = suggested
             else:
                 profile_select.value = "generic"
 
