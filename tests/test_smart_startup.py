@@ -652,3 +652,49 @@ class TestSavedMatchDiagnosticsReachTui:
         assert result.exit_code == 0, result.output
         kwargs = mock_tui_cls.call_args[1]
         assert kwargs["startup_diagnostics"] == ["fallback diag from factory"]
+
+
+class TestNullFallbackIsLoud:
+    """WR-04: a failed usb/cups pick with no fallback queue emits a diagnostic
+    instead of silently returning NullPrinterDriver."""
+
+    def test_usb_fail_no_queues_emits_diagnostic(self, monkeypatch):
+        from claude_teletype.printing import discovery as _discovery
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import NullPrinterDriver
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        monkeypatch.setattr(_discovery, "_find_usb_printer", lambda identity=None: None)
+        discovery = DiscoveryResult(
+            usb_devices=[UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)],
+            cups_printers=[],
+        )
+        selection = PrinterSelection(connection_type="usb", device_index=0)
+
+        diagnostics: list[str] = []
+        driver = create_driver_for_selection(selection, discovery, diagnostics=diagnostics)
+        assert isinstance(driver, NullPrinterDriver)
+        assert any("simulator" in d for d in diagnostics)
+
+    def test_usb_fail_no_queues_prints_to_stderr_without_list(self, monkeypatch, capsys):
+        from claude_teletype.printing import discovery as _discovery
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        monkeypatch.setattr(_discovery, "_find_usb_printer", lambda identity=None: None)
+        discovery = DiscoveryResult(
+            usb_devices=[UsbDeviceInfo(vendor_id=0x04B8, product_id=0x0005)],
+        )
+        selection = PrinterSelection(connection_type="usb", device_index=0)
+        create_driver_for_selection(selection, discovery)
+        assert "simulator" in capsys.readouterr().err
+
+    def test_skip_selection_stays_silent(self, capsys):
+        from claude_teletype.printing.discovery import PrinterSelection
+        from claude_teletype.printing.drivers import NullPrinterDriver
+        from claude_teletype.printing.selection import create_driver_for_selection
+
+        selection = PrinterSelection(connection_type="skip")
+        driver = create_driver_for_selection(selection, DiscoveryResult())
+        assert isinstance(driver, NullPrinterDriver)
+        assert capsys.readouterr().err == ""

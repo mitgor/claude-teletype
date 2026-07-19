@@ -199,6 +199,13 @@ def create_driver_for_selection(
                 driver = CupsPrinterDriver(enabled_queues[0].name)
 
     if driver is None:
+        # WR-04: an explicit usb/cups pick degrading to the simulator must
+        # never be silent (skip already returned above; only failed picks
+        # with no fallback queue reach here).
+        _emit(
+            diagnostics,
+            "no printer available — running in simulator mode",
+        )
         return NullPrinterDriver()
 
     # Wrap with profile if not generic — registry is the lookup authority
