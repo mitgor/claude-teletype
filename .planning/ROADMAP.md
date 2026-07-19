@@ -176,8 +176,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 34-01-PLAN.md — Registry seam core in selection.py + WR-02 collision diagnostic (loud unknown-profile, diagnostics plumbing)
-- [ ] 34-03-PLAN.md — Catalog migration: pkgutil auto-discovery, inline families + aliases move to catalog modules
+- [x] 34-01-PLAN.md — Registry seam core in selection.py + WR-02 collision diagnostic (loud unknown-profile, diagnostics plumbing)
+- [x] 34-03-PLAN.md — Catalog migration: pkgutil auto-discovery, inline families + aliases move to catalog modules
 
 **Wave 2** *(blocked on 34-01)*
 
@@ -224,4 +224,4 @@ Plans:
 | 31. Byte Integrity Criticals | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 32. Setup & Detection Flow Fixes | v1.7 | 2/2 | Complete    | 2026-07-18 |
 | 33. Shared Print Pipeline | v1.7 | 2/2 | Complete    | 2026-07-18 |
-| 34. Architecture Cleanup | v1.7 | 0/? | Not started | - |
+| 34. Architecture Cleanup | v1.7 | 2/4 | In Progress|  |
