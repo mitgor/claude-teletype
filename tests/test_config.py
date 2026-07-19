@@ -296,3 +296,48 @@ class TestResolveSources:
 class TestConfigFilePath:
     def test_path_contains_app_name(self):
         assert "claude-teletype" in str(CONFIG_FILE)
+
+
+class TestRetiredJukiKeyWarning:
+    """WR-01: stale `[printer] juki = true` warns once instead of vanishing."""
+
+    def _write(self, tmp_path, body):
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(body, encoding="utf-8")
+        return config_file
+
+    def test_juki_true_warns_on_stderr(self, tmp_path, capsys):
+        from claude_teletype import config as config_mod
+
+        config_mod._warned_retired_keys.clear()
+        path = self._write(tmp_path, "[printer]\njuki = true\n")
+        load_config(path)
+        err = capsys.readouterr().err
+        assert "config key 'juki' is removed" in err
+        assert 'printer_profile = "juki"' in err
+
+    def test_warning_is_one_time_per_process(self, tmp_path, capsys):
+        from claude_teletype import config as config_mod
+
+        config_mod._warned_retired_keys.clear()
+        path = self._write(tmp_path, "[printer]\njuki = true\n")
+        load_config(path)
+        capsys.readouterr()
+        load_config(path)
+        assert "juki" not in capsys.readouterr().err
+
+    def test_juki_false_does_not_warn(self, tmp_path, capsys):
+        from claude_teletype import config as config_mod
+
+        config_mod._warned_retired_keys.clear()
+        path = self._write(tmp_path, "[printer]\njuki = false\n")
+        load_config(path)
+        assert capsys.readouterr().err == ""
+
+    def test_no_juki_key_does_not_warn(self, tmp_path, capsys):
+        from claude_teletype import config as config_mod
+
+        config_mod._warned_retired_keys.clear()
+        path = self._write(tmp_path, '[printer]\nprofile = "juki"\n')
+        load_config(path)
+        assert capsys.readouterr().err == ""

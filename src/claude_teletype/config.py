@@ -7,6 +7,7 @@ with three-layer precedence: defaults < config file < env vars < CLI flags.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import tomllib
 from dataclasses import dataclass, field, fields
@@ -116,6 +117,11 @@ class TeletypeConfig:
     custom_profiles: dict = field(default_factory=dict, repr=False)
 
 
+# One-time warning guard for retired config keys (same per-process
+# suppression pattern as warnings._warned_combos). Tests clear it directly.
+_warned_retired_keys: set[str] = set()
+
+
 def load_config(config_path: Path | None = None) -> TeletypeConfig:
     """Load config from TOML file, returning defaults if file missing."""
     path = config_path or CONFIG_FILE
@@ -129,6 +135,16 @@ def load_config(config_path: Path | None = None) -> TeletypeConfig:
     printer_section = raw.get("printer", {})
     custom_profiles_raw = printer_section.get("profiles", {})
     saved_section = printer_section.get("saved", {})
+
+    # WR-01: the boolean [printer] juki key was retired in Phase 34; a stale
+    # `juki = true` would otherwise degrade to auto-detect with no message.
+    if printer_section.get("juki") is True and "juki" not in _warned_retired_keys:
+        _warned_retired_keys.add("juki")
+        print(
+            "Warning: config key 'juki' is removed; "
+            'use printer_profile = "juki" instead',
+            file=sys.stderr,
+        )
 
     # Flatten nested TOML sections into flat dataclass fields
     flat: dict = {}
