@@ -1316,3 +1316,65 @@ def test_new_s03_catalog_name_resolves(name):
     registry = ProfileRegistry(BUILTIN_PROFILES)
     profile = registry.get(name)
     assert profile.name == name
+
+
+# ---------------------------------------------------------------------------
+# Catalog auto-discovery + no-profile-lost snapshot (34-03 / ARCH-03)
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_discovery_covers_all_modules():
+    """Every key of every catalog module's PROFILES is in BUILTIN_PROFILES.
+
+    The test does its own pkgutil discovery over catalog.__path__, so a
+    catalog module whose PROFILES never reach BUILTIN_PROFILES fails here
+    automatically — including modules added after this test was written.
+    """
+    import importlib
+    import pkgutil
+
+    from claude_teletype.printing import catalog
+
+    for info in pkgutil.iter_modules(catalog.__path__):
+        module = importlib.import_module(
+            f"claude_teletype.printing.catalog.{info.name}"
+        )
+        for key, profile in module.PROFILES.items():
+            assert key in BUILTIN_PROFILES, (
+                f"catalog/{info.name}.py PROFILES[{key!r}] missing from "
+                "BUILTIN_PROFILES"
+            )
+            assert BUILTIN_PROFILES[key] == profile
+
+
+def test_builtin_profile_names_snapshot():
+    """Snapshot of every resolvable profile name — the no-profile-lost gate.
+
+    Captured from the pre-migration BUILTIN_PROFILES (before ARCH-03 moved
+    the inline families into catalog modules). This list must NEVER shrink
+    or rename during the migration; it may only grow when a new family is
+    genuinely added.
+    """
+    assert sorted(BUILTIN_PROFILES) == [
+        "citizen-cts2000",
+        "epson-tm",
+        "escp",
+        "escp2",
+        "generic",
+        "ibm",
+        "juki",
+        "juki-2200",
+        "juki-6100",
+        "lexmark-forms",
+        "oki-3390",
+        "oki-microline-native",
+        "oki-ml-epson",
+        "oki-ml-ibm",
+        "panasonic-kxp-epson",
+        "panasonic-kxp-ibm",
+        "pcl",
+        "ppds",
+        "star-line",
+        "tally-epson",
+        "tally-ibm",
+    ]
