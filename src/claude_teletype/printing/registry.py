@@ -21,6 +21,9 @@ Index policies (deterministic, asserted in tests/test_registry.py):
   with no PID) is NOT silently shadowed: the later registration still wins,
   but a diagnostic warning is logged naming both profiles, because auto-
   detect cannot distinguish the two devices (ARCHITECTURE §A).
+- Case-fold name collisions (e.g. custom ``EscP`` vs builtin ``escp``) are
+  last-wins WITH a logged diagnostic naming both keys (WR-02) — never a
+  silent shadow.
 """
 
 from __future__ import annotations
@@ -55,11 +58,21 @@ class ProfileRegistry:
             **(custom or {}),
         }
         # Lowered-key index resolving to the case-preserved key (WR-03).
-        # Dict-comprehension order means later merge entries win on a
-        # case-fold collision — the documented last-wins policy.
-        self._by_lower: dict[str, str] = {
-            k.lower().strip(): k for k in self._profiles
-        }
+        # Later merge entries win on a case-fold collision — the documented
+        # last-wins policy — but never silently: a diagnostic names both
+        # keys (WR-02), mirroring the VID-collision policy in _build_index.
+        self._by_lower: dict[str, str] = {}
+        for k in self._profiles:
+            low = k.lower().strip()
+            if low in self._by_lower:
+                logger.warning(
+                    "Profile name case collision: %r shadows %r for "
+                    "lookup %r (last registered wins)",
+                    k,
+                    self._by_lower[low],
+                    low,
+                )
+            self._by_lower[low] = k
         self._exact: dict[tuple[int, int], str] = {}
         self._vid_only: dict[int, str] = {}
         self._build_index()
