@@ -865,6 +865,10 @@ def main(
 
     # REF-04: each path sets an explicit SetupDecision instead of overloading
     # discovery=None; discovery carries the DiscoveryResult only for SHOW_SETUP.
+    # WR-03: driver-creation diagnostics from the saved-match path are
+    # collected here and surfaced via TeletypeApp notify — stderr is covered
+    # by the alternate screen milliseconds after tui_app.run().
+    startup_diagnostics: list[str] = []
     if effective_no_tui:
         # --no-tui mode: use existing direct discovery (no setup screen)
         printer_driver = discover_printer(device_override=config.device, profile=resolved_profile)
@@ -899,7 +903,10 @@ def main(
                 if saved_match is not None:
                     # Saved printer found -- create driver, skip setup screen
                     printer_driver = create_driver_for_selection(
-                        saved_match, discovery, registry=registry,
+                        saved_match,
+                        discovery,
+                        registry=registry,
+                        diagnostics=startup_diagnostics,
                     )
                     discovery = None
                     setup_decision = SetupDecision.SKIP_SAVED_MATCH
@@ -946,6 +953,7 @@ def main(
             openrouter_api_key=config.openrouter_api_key,
             discovery=discovery,
             setup_decision=setup_decision,
+            startup_diagnostics=startup_diagnostics,
         )
         tui_app.run()
 

@@ -587,3 +587,68 @@ class TestR011ClassificationNeverAutoSkips:
         )
         assert kwargs["setup_decision"] is SetupDecision.SKIP_SAVED_MATCH
         assert kwargs["discovery"] is None
+
+
+class TestSavedMatchDiagnosticsReachTui:
+    """WR-03: the cli saved-match path threads a diagnostics list from
+    create_driver_for_selection through to TeletypeApp(startup_diagnostics=)."""
+
+    def test_diagnostics_list_is_shared_between_factory_and_app(self):
+        from typer.testing import CliRunner
+        from unittest.mock import MagicMock, patch
+
+        from claude_teletype.cli import app
+        from claude_teletype.config import TeletypeConfig
+
+        cfg = TeletypeConfig()
+        cfg.saved_printer_type = "cups"
+        cfg.saved_printer_id = "USB2.0-Print"
+        cfg.saved_printer_profile = "juki"
+
+        def _fake_create_driver(selection, discovery, *, registry=None, diagnostics=None):
+            assert diagnostics is not None, "cli must pass a diagnostics list (WR-03)"
+            diagnostics.append("fallback diag from factory")
+            return MagicMock()
+
+        def _mock_create_backend(*args, **kwargs):
+            mock_be = MagicMock()
+            mock_be.validate = MagicMock()
+            return mock_be
+
+        with patch(
+            "claude_teletype.cli.create_backend", side_effect=_mock_create_backend
+        ), patch(
+            "claude_teletype.cli.load_config"
+        ), patch(
+            "claude_teletype.cli.apply_env_overrides"
+        ) as mock_env, patch(
+            "claude_teletype.cli.merge_cli_flags"
+        ) as mock_merge, patch(
+            "claude_teletype.printing.discovery.discover_all"
+        ) as mock_discover, patch(
+            "claude_teletype.printing.selection.create_driver_for_selection",
+            side_effect=_fake_create_driver,
+        ), patch(
+            "claude_teletype.tui.TeletypeApp"
+        ) as mock_tui_cls, patch(
+            "claude_teletype.cli.sys"
+        ) as mock_sys:
+            mock_env.return_value = cfg
+            mock_merge.return_value = cfg
+            mock_discover.return_value = DiscoveryResult(
+                cups_printers=[
+                    CupsPrinterInfo(
+                        name="USB2.0-Print", uri="usb:///USB2.0-Print", enabled=True
+                    )
+                ]
+            )
+            mock_tui = MagicMock()
+            mock_tui.session_id = None
+            mock_tui_cls.return_value = mock_tui
+            mock_sys.stdin.isatty.return_value = True
+
+            result = CliRunner().invoke(app, [])
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_tui_cls.call_args[1]
+        assert kwargs["startup_diagnostics"] == ["fallback diag from factory"]

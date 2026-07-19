@@ -988,3 +988,26 @@ async def test_print_refused_while_typewriter_mounted(tmp_path):
             assert any("Printer busy" in m for m in notified)
 
             await pilot.press("escape")  # leave typewriter mode
+
+
+async def test_startup_diagnostics_are_notified_on_mount():
+    """WR-03: cli-collected saved-match diagnostics reach notify(), not stderr."""
+    app = TeletypeApp(
+        base_delay_ms=0,
+        startup_diagnostics=["USB direct unavailable — falling back to CUPS queue Q"],
+    )
+    with patch.object(TeletypeApp, "notify") as mock_notify:
+        async with app.run_test():
+            pass
+    notified = [c.args[0] for c in mock_notify.call_args_list]
+    assert any("falling back to CUPS queue Q" in m for m in notified)
+
+
+async def test_no_startup_diagnostics_no_extra_notify():
+    """Default construction (no diagnostics) notifies nothing extra."""
+    app = TeletypeApp(base_delay_ms=0)
+    with patch.object(TeletypeApp, "notify") as mock_notify:
+        async with app.run_test():
+            pass
+    notified = [c.args[0] for c in mock_notify.call_args_list]
+    assert not any("falling back" in m for m in notified)

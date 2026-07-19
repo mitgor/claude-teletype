@@ -137,6 +137,7 @@ class TeletypeApp(App):
         openrouter_api_key: str = "",
         discovery=None,  # DiscoveryResult | None -- device data for the setup screen
         setup_decision: SetupDecision | None = None,
+        startup_diagnostics: list[str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -173,6 +174,10 @@ class TeletypeApp(App):
             # setup". cli.py always passes an explicit decision (REF-04).
             setup_decision = SetupDecision.SHOW_SETUP
         self._setup_decision = setup_decision
+        # WR-03 (cli launch path): driver-creation diagnostics collected
+        # before run() — surfaced via notify on mount, since stderr is
+        # covered by the alternate screen for the whole session.
+        self._startup_diagnostics = startup_diagnostics or []
 
     @property
     def session_id(self) -> str | None:
@@ -241,6 +246,10 @@ class TeletypeApp(App):
             self._backend_name, self._system_prompt
         ):
             self.notify(startup_warning, severity="warning", timeout=8)
+
+        # WR-03: surface saved-printer-match diagnostics inside the TUI
+        for message in self._startup_diagnostics:
+            self.notify(message, severity="warning", timeout=8)
 
         if self._needs_printer_setup():
             self.call_after_refresh(self._show_setup_screen)
